@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CuTe Layout Visualizer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #111827;
+      color: #e5e7eb;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1f2937;
+      border-bottom: 1px solid #374151;
+      padding: 16px 28px;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 700; color: #60a5fa; letter-spacing: -0.3px; }
+    header p { font-size: 0.82rem; color: #6b7280; }
+
+    /* ── Outer tab bar (multi-instance tabs) ── */
+    .outer-tab-bar {
+      background: #0f172a;
+      border-bottom: 1px solid #1e293b;
+      padding: 8px 28px 0;
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      overflow-x: auto;
+    }
+    .outer-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      border-radius: 6px 6px 0 0;
+      cursor: pointer;
+      border: 1px solid #1e293b;
+      border-bottom: none;
+      background: #1e293b;
+      color: #6b7280;
+      font-size: 0.82rem;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      transition: background 0.15s, color 0.15s;
+      user-select: none;
+      max-width: 320px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .outer-tab.active {
+      background: #111827;
+      color: #60a5fa;
+      border-color: #374151;
+      font-weight: 600;
+    }
+    .outer-tab:hover:not(.active) { background: #1f2937; color: #9ca3af; }
+    .outer-tab-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .close-tab-btn {
+      font-size: 1rem;
+      line-height: 1;
+      color: #4b5563;
+      cursor: pointer;
+      flex-shrink: 0;
+      padding: 0 2px;
+      border-radius: 3px;
+    }
+    .close-tab-btn:hover { color: #f87171; background: rgba(248,113,113,0.15); }
+    .add-tab-btn {
+      padding: 7px 12px;
+      border-radius: 6px 6px 0 0;
+      cursor: pointer;
+      border: 1px solid #1e293b;
+      border-bottom: none;
+      background: transparent;
+      color: #4b5563;
+      font-size: 0.82rem;
+      transition: background 0.15s, color 0.15s;
+      flex-shrink: 0;
+    }
+    .add-tab-btn:hover { background: #1f2937; color: #60a5fa; }
+
+    /* ── Outer panel container ── */
+    .outer-panel { display: none; }
+    .outer-panel.active { display: block; }
+
+    .container { max-width: 1440px; margin: 0 auto; padding: 24px 28px; }
+
+    /* ── Inner tabs (Layout / TV Layout switcher) ── */
+    .tab-bar { display: flex; gap: 6px; margin-bottom: 22px; }
+    .tab {
+      padding: 7px 18px;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 1px solid #374151;
+      background: #1f2937;
+      color: #9ca3af;
+      font-size: 0.88rem;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      user-select: none;
+    }
+    .tab.active { background: #1e3a5f; color: #60a5fa; border-color: #3b82f6; font-weight: 600; }
+    .tab:hover:not(.active) { background: #283548; color: #d1d5db; }
+
+    /* ── Panel layout ── */
+    .panel { display: none; gap: 22px; align-items: flex-start; }
+    .panel.active { display: flex; flex-wrap: wrap; }
+
+    /* ── Controls ── */
+    .controls {
+      background: #1f2937;
+      border: 1px solid #374151;
+      border-radius: 10px;
+      padding: 20px;
+      flex: 0 0 300px;
+      min-width: 280px;
+    }
+    .controls h2 { font-size: 0.9rem; font-weight: 600; color: #93c5fd; margin-bottom: 18px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .form-group { margin-bottom: 14px; }
+    label { display: block; font-size: 0.76rem; color: #9ca3af; margin-bottom: 5px; letter-spacing: 0.3px; }
+    input[type="text"] {
+      width: 100%;
+      background: #111827;
+      border: 1px solid #374151;
+      border-radius: 5px;
+      padding: 7px 10px;
+      color: #f3f4f6;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      font-size: 0.85rem;
+      transition: border-color 0.15s;
+    }
+    input[type="text"]:focus { outline: none; border-color: #3b82f6; }
+
+    .btn {
+      background: #1e3a5f;
+      color: #93c5fd;
+      border: 1px solid #3b82f6;
+      border-radius: 5px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: background 0.15s, color 0.15s;
+    }
+    .btn:hover { background: #3b82f6; color: #fff; }
+    .btn-render { width: 100%; margin-top: 4px; padding: 9px; font-weight: 600; }
+
+    .error-msg {
+      color: #f87171;
+      font-size: 0.78rem;
+      margin-top: 6px;
+      display: none;
+      background: #2d1b1b;
+      border: 1px solid #7f1d1d;
+      border-radius: 4px;
+      padding: 6px 8px;
+    }
+
+    /* ── Presets ── */
+    .presets { margin-top: 20px; border-top: 1px solid #374151; padding-top: 16px; }
+    .presets h3 { font-size: 0.76rem; color: #6b7280; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .preset-list { display: flex; flex-direction: column; gap: 5px; }
+    .preset-btn {
+      text-align: left;
+      font-size: 0.78rem;
+      padding: 5px 9px;
+      border-color: #374151;
+      color: #9ca3af;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      background: #111827;
+    }
+    .preset-btn:hover { background: #1f2937; color: #e5e7eb; border-color: #60a5fa; }
+
+    /* ── Hint ── */
+    .hint {
+      margin-top: 18px;
+      border-top: 1px solid #374151;
+      padding-top: 14px;
+      font-size: 0.76rem;
+      color: #6b7280;
+      line-height: 1.6;
+    }
+    .hint code {
+      background: #111827;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      color: #a5b4fc;
+    }
+
+    /* ── Visualization ── */
+    .visualization { flex: 1; min-width: 360px; }
+    .viz-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .viz-title { font-size: 0.82rem; color: #9ca3af; font-family: 'SFMono-Regular', Consolas, monospace; }
+    .viz-box {
+      background: #fff;
+      border: 1px solid #374151;
+      border-radius: 10px;
+      padding: 20px;
+      overflow: auto;
+    }
+
+    /* ── Legend ── */
+    .legend {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.75rem;
+      color: #9ca3af;
+      background: #1f2937;
+      border: 1px solid #374151;
+      border-radius: 4px;
+      padding: 3px 7px;
+    }
+    .legend-swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      border: 1px solid rgba(0,0,0,0.3);
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>CuTe Layout Visualizer</h1>
+  <p>Visualize CUTLASS CuTe layouts and thread-value layouts</p>
+</header>
+
+<!-- ═══════ Outer tab bar (multiple independent workspaces) ═══════ -->
+<div class="outer-tab-bar">
+  <div id="outer-tab-buttons"></div>
+  <button class="add-tab-btn" onclick="addOuterTab()" title="New tab">+</button>
+</div>
+
+<!-- ═══════ Outer panels (one per outer tab) ═══════ -->
+<div id="outer-panels"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  Layout arithmetic  (mirrors CuTe's core operations)
+// ═══════════════════════════════════════════════════════
+
+/** product of all leaf values in a (possibly nested) number/array */
+function product(x) {
+  if (typeof x === 'number') return x;
+  return x.reduce((a, v) => a * product(v), 1);
+}
+
+/** For rank-2 layout shape [s0, s1], return [product(s0), product(s1)] */
+function productEach(shape) {
+  return [product(shape[0]), product(shape[1])];
+}
+
+/**
+ * Unflatten a linear index `idx` into the coordinate space of `shape`.
+ * shape may be a scalar or a nested array.
+ * Returns a scalar (if shape is scalar) or an array matching shape structure.
+ */
+function unflatten(idx, shape) {
+  if (typeof shape === 'number') return idx;
+  const result = [];
+  let rem = idx;
+  for (let i = 0; i < shape.length; i++) {
+    const sz = product(shape[i]);
+    result.push(unflatten(rem % sz, shape[i]));
+    rem = Math.floor(rem / sz);
+  }
+  return result;
+}
+
+/**
+ * Compute the linear index for coordinate `crd` in a layout (shape, stride).
+ * crd, shape, stride must have matching structure (scalar or nested array).
+ */
+function crd2idx(crd, shape, stride) {
+  if (typeof shape === 'number') return crd * stride;
+  let r = 0;
+  for (let i = 0; i < shape.length; i++) r += crd2idx(crd[i], shape[i], stride[i]);
+  return r;
+}
+
+/**
+ * Evaluate a rank-2 layout at grid position (m, n).
+ * shape and stride are arrays [mode0, mode1] where each mode can be nested.
+ */
+function layoutAt(shape, stride, m, n) {
+  const c0 = unflatten(m, shape[0]);
+  const c1 = unflatten(n, shape[1]);
+  return crd2idx(c0, shape[0], stride[0]) + crd2idx(c1, shape[1], stride[1]);
+}
+
+/**
+ * Auto column-major stride starting at `base`.
+ * Returns [computed_stride, next_base].
+ */
+function autoStrideHelper(shape, base) {
+  if (typeof shape === 'number') return [base, base * shape];
+  const strides = [];
+  let cur = base;
+  for (const s of shape) {
+    const [st, next] = autoStrideHelper(s, cur);
+    strides.push(st);
+    cur = next;
+  }
+  return [strides, cur];
+}
+function autoStride(shape) {
+  return autoStrideHelper(shape, 1)[0];
+}
+
+// ═══════════════════════════════════════════════════════
+//  Parser — handles CuTe notation like (10,10):(1,10)
+//           and nested ((2,2),(2,2)):((1,4),(2,8))
+// ═══════════════════════════════════════════════════════
+
+function parseValue(str) {
+  str = str.trim();
+  if (!str) throw new Error('Empty value');
+  if (str[0] === '(') {
+    let depth = 0, start = 1;
+    const els = [];
+    for (let i = 0; i < str.length; i++) {
+      if (str[i] === '(') depth++;
+      else if (str[i] === ')') {
+        depth--;
+        if (depth === 0) {
+          const sub = str.slice(start, i).trim();
+          if (sub) els.push(parseValue(sub));
+          break;
+        }
+      } else if (str[i] === ',' && depth === 1) {
+        els.push(parseValue(str.slice(start, i)));
+        start = i + 1;
+      }
+    }
+    // Unwrap single-element parens: (10) → 10
+    return els.length === 1 ? els[0] : els;
+  }
+  const n = parseInt(str, 10);
+  if (isNaN(n)) throw new Error(`Not a number: "${str}"`);
+  return n;
+}
+
+/** Find the colon that separates shape from stride at depth 0. */
+function topLevelColon(str) {
+  let depth = 0;
+  for (let i = 0; i < str.length; i++) {
+    if (str[i] === '(') depth++;
+    else if (str[i] === ')') depth--;
+    else if (str[i] === ':' && depth === 0) return i;
+  }
+  return -1;
+}
+
+/**
+ * Parse a CuTe layout string into {shape, stride}.
+ * Always returns shape as a 2-element array [mode0, mode1].
+ */
+function parseLayout(str) {
+  str = str.trim();
+  const ci = topLevelColon(str);
+  let shape, stride;
+  if (ci === -1) {
+    shape = parseValue(str);
+    stride = null; // auto
+  } else {
+    shape = parseValue(str.slice(0, ci).trim());
+    stride = parseValue(str.slice(ci + 1).trim());
+  }
+
+  // Normalise to rank-2 [mode0, mode1]
+  if (typeof shape === 'number') {
+    // 1-D scalar → column vector
+    shape = [shape, 1];
+    stride = stride === null ? [1, 0] : [stride, 0];
+  } else if (!Array.isArray(shape[0]) && typeof shape[0] !== 'number') {
+    // shouldn't happen, but guard
+    throw new Error('Unexpected shape format');
+  } else {
+    if (stride === null) stride = autoStride(shape);
+    // If shape has > 2 modes, treat as 1-D for now (wrap as [shape, 1])
+    if (shape.length > 2) {
+      shape = [shape, 1];
+      stride = [stride, 0];
+    }
+  }
+
+  return { shape, stride };
+}
+
+// ═══════════════════════════════════════════════════════
+//  Colors  (exactly match the LaTeX tikz_color_* functions)
+// ═══════════════════════════════════════════════════════
+
+// black!XX on white background → hex
+const BW_COLORS = [
+  '#ffffff', // 0: black!00
+  '#999999', // 1: black!40
+  '#cccccc', // 2: black!20
+  '#666666', // 3: black!60
+  '#e6e6e6', // 4: black!10
+  '#808080', // 5: black!50
+  '#b3b3b3', // 6: black!30
+  '#4d4d4d', // 7: black!70
+];
+
+const TV_COLORS = [
+  'rgb(175,175,255)', // 0 blue
+  'rgb(175,255,175)', // 1 green
+  'rgb(255,255,175)', // 2 yellow
+  'rgb(255,175,175)', // 3 pink/red
+  'rgb(210,210,255)', // 4 light blue
+  'rgb(210,255,210)', // 5 light green
+  'rgb(255,255,210)', // 6 light yellow
+  'rgb(255,210,210)', // 7 light pink
+];
+
+const TV_COLORS_HEX = [
+  '#afafff','#afffaf','#ffffaf','#ffafaf',
+  '#d2d2ff','#d2ffd2','#ffffd2','#ffd2d2',
+];
+
+function colorBW(idx) { return BW_COLORS[((idx % 8) + 8) % 8]; }
+function colorTV(tid) { return TV_COLORS[((tid % 8) + 8) % 8]; }
+
+// Decide text color (black or white) based on background luminance
+function textOnBG(hex) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
+  return lum > 0.45 ? '#000' : '#fff';
+}
+
+// Convert rgb(...) string to hex for textOnBG
+function rgbToHex(str) {
+  const m = str.match(/\d+/g);
+  if (!m) return '#ffffff';
+  return '#' + m.slice(0,3).map(n => parseInt(n).toString(16).padStart(2,'0')).join('');
+}
+
+// ═══════════════════════════════════════════════════════
+//  SVG generation
+// ═══════════════════════════════════════════════════════
+
+const MAX_CELLS = 131072; // refuse to render more than this many cells total
+const BASE_CS = 56;      // preferred cell size in pixels
+
+function cellSize(M, N) {
+  // Scale by the longer dimension so the SVG stays ≤ ~1200px on that axis,
+  // but never go below 12px so text remains legible.
+  return Math.max(12, Math.min(BASE_CS, Math.floor(1200 / Math.max(M, N, 1))));
+}
+
+/** Build axis-label and grid SVG for a regular layout */
+function buildLayoutSVG(shape, stride) {
+  const [M, N] = productEach(shape);
+  if (M * N > MAX_CELLS)
+    return errSVG(`Grid too large: ${M}×${N} = ${M*N} cells (max ${MAX_CELLS})`);
+  if (M === 0 || N === 0)
+    return errSVG(`Empty grid: ${M}×${N}`);
+
+  const cs = cellSize(M, N);
+  const margin = cs;
+  const W = margin + N * cs;
+  const H = margin + M * cs;
+  const fs = Math.max(8, Math.min(14, Math.floor(cs * 0.38)));
+
+  let body = '';
+
+  // Column labels (n) along the top
+  for (let n = 0; n < N; n++) {
+    const cx = margin + (n + 0.5) * cs;
+    body += `<text x="${cx}" y="${margin * 0.55}" text-anchor="middle" dominant-baseline="middle"
+      fill="#555" font-size="${fs}" font-family="monospace">${n}</text>`;
+  }
+  // Row labels (m) along the left
+  for (let m = 0; m < M; m++) {
+    const cy = margin + (m + 0.5) * cs;
+    body += `<text x="${margin * 0.5}" y="${cy}" text-anchor="middle" dominant-baseline="middle"
+      fill="#555" font-size="${fs}" font-family="monospace">${m}</text>`;
+  }
+
+  // Cells
+  for (let m = 0; m < M; m++) {
+    for (let n = 0; n < N; n++) {
+      const idx = layoutAt(shape, stride, m, n);
+      const bg  = colorBW(idx);
+      const fg  = textOnBG(bg);
+      const x = margin + n * cs;
+      const y = margin + m * cs;
+      body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
+        fill="${bg}" stroke="#ccc" stroke-width="0.5"/>`;
+      body += `<text x="${x + cs/2}" y="${y + cs/2}" text-anchor="middle" dominant-baseline="middle"
+        fill="${fg}" font-size="${fs}" font-family="monospace">${idx}</text>`;
+    }
+  }
+
+  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${W}" height="${H}" fill="white"/>
+    ${body}
+  </svg>`;
+}
+
+/** Build axis-label and grid SVG for a TV layout */
+function buildTVSVG(tvShape, tvStride, tileShape, tileStride) {
+  if (!Array.isArray(tvShape) || tvShape.length < 2)
+    throw new Error('TV layout must be rank 2: (num_threads, num_values):...');
+
+  const numT = product(tvShape[0]);
+  const numV = product(tvShape[1]);
+  const M    = product(tileShape[0]);
+  const N    = product(tileShape[1]);
+
+  // Extract scalar strides for the tile (top-level values)
+  function scalarStride(s) {
+    if (typeof s === 'number') return s;
+    if (Array.isArray(s)) return scalarStride(s[0]);
+    throw new Error('Cannot extract scalar stride from: ' + JSON.stringify(s));
+  }
+  const sm = scalarStride(tileStride[0]);
+  const sn = scalarStride(tileStride[1]);
+
+  if (M * N > MAX_CELLS)
+    return errSVG(`Tile too large: ${M}×${N} = ${M*N} cells (max ${MAX_CELLS})`);
+  if (M === 0 || N === 0)
+    return errSVG(`Empty tile: ${M}×${N}`);
+  if (numT * numV > 65536)
+    return errSVG(`Too many thread×value combinations: ${numT}×${numV}`);
+
+  // Fill the grid — collect ALL (tid,vid) pairs per cell
+  const grid = Array.from({length: M}, () => Array.from({length: N}, () => []));
+  for (let tid = 0; tid < numT; tid++) {
+    for (let vid = 0; vid < numV; vid++) {
+      const c0  = unflatten(tid, tvShape[0]);
+      const c1  = unflatten(vid, tvShape[1]);
+      const idx = crd2idx(c0, tvShape[0], tvStride[0]) +
+                  crd2idx(c1, tvShape[1], tvStride[1]);
+      const m = Math.floor(idx / sm) % M;
+      const n = Math.floor(idx / sn) % N;
+      if (m >= 0 && m < M && n >= 0 && n < N) {
+        grid[m][n].push({ tid, vid });
+      }
+    }
+  }
+
+  const cs     = cellSize(M, N);
+  const margin = cs;
+  const W      = margin + N * cs;
+  const H      = margin + M * cs;
+  const fs     = Math.max(7, Math.min(12, Math.floor(cs * 0.26)));
+
+  let body = '';
+
+  // Column labels
+  for (let n = 0; n < N; n++) {
+    const cx = margin + (n + 0.5) * cs;
+    body += `<text x="${cx}" y="${margin * 0.55}" text-anchor="middle" dominant-baseline="middle"
+      fill="#555" font-size="${fs}" font-family="monospace">${n}</text>`;
+  }
+  // Row labels
+  for (let m = 0; m < M; m++) {
+    const cy = margin + (m + 0.5) * cs;
+    body += `<text x="${margin * 0.5}" y="${cy}" text-anchor="middle" dominant-baseline="middle"
+      fill="#555" font-size="${fs}" font-family="monospace">${m}</text>`;
+  }
+
+  // Cells
+  for (let m = 0; m < M; m++) {
+    for (let n = 0; n < N; n++) {
+      const x = margin + n * cs;
+      const y = margin + m * cs;
+      const entries = grid[m][n];
+
+      if (entries.length === 0) {
+        // Empty cell — no TV pair maps here
+        body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
+          fill="#f0f0f0" stroke="#ccc" stroke-width="0.5"/>`;
+        body += `<text x="${x + cs/2}" y="${y + cs/2}" text-anchor="middle" dominant-baseline="middle"
+          fill="#bbb" font-size="${fs}" font-family="monospace">—</text>`;
+      } else if (entries.length === 1) {
+        // Single mapping — original two-line format
+        const { tid, vid } = entries[0];
+        const bg = colorTV(tid);
+        body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
+          fill="${bg}" stroke="#ccc" stroke-width="0.5"/>`;
+        body += `<text x="${x + cs/2}" y="${y + cs/2 - fs*0.65}" text-anchor="middle" dominant-baseline="middle"
+          fill="#111" font-size="${fs}" font-family="monospace">T${tid}</text>`;
+        body += `<text x="${x + cs/2}" y="${y + cs/2 + fs*0.65}" text-anchor="middle" dominant-baseline="middle"
+          fill="#111" font-size="${fs}" font-family="monospace">V${vid}</text>`;
+      } else {
+        // Multiple TV pairs overlap on this cell — show all that fit
+        const bg = colorTV(entries[0].tid);
+        body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
+          fill="${bg}" stroke="#e53e3e" stroke-width="1.5"/>`;
+        const entryFs = Math.max(5, Math.min(fs, Math.floor(cs / (entries.length + 0.5) * 0.8)));
+        const lineH = entryFs * 1.25;
+        const maxFit = Math.max(1, Math.floor(cs / lineH));
+        const hasOverflow = entries.length > maxFit;
+        const showN = hasOverflow ? maxFit - 1 : entries.length;
+        const totalLines = showN + (hasOverflow ? 1 : 0);
+        const startY = y + (cs - totalLines * lineH) / 2 + lineH * 0.5;
+
+        for (let i = 0; i < showN; i++) {
+          body += `<text x="${x + cs/2}" y="${startY + i * lineH}" text-anchor="middle" dominant-baseline="middle"
+            fill="#111" font-size="${entryFs}" font-family="monospace">T${entries[i].tid}/V${entries[i].vid}</text>`;
+        }
+        if (hasOverflow) {
+          body += `<text x="${x + cs/2}" y="${startY + showN * lineH}" text-anchor="middle" dominant-baseline="middle"
+            fill="#555" font-size="${entryFs}" font-family="monospace">+${entries.length - showN}</text>`;
+        }
+      }
+    }
+  }
+
+  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${W}" height="${H}" fill="white"/>
+    ${body}
+  </svg>`;
+}
+
+function errSVG(msg) {
+  return `<svg width="400" height="60" xmlns="http://www.w3.org/2000/svg">
+    <rect width="400" height="60" fill="white"/>
+    <text x="10" y="35" fill="#e53e3e" font-size="13" font-family="monospace">${msg}</text>
+  </svg>`;
+}
+
+// ═══════════════════════════════════════════════════════
+//  Multi-tab management
+// ═══════════════════════════════════════════════════════
+
+let tabCounter = 0;
+let activeOuterTabId = null;
+
+function generateTabContent(id) {
+  return `
+  <div class="container">
+    <div class="tab-bar">
+      <div class="tab active" onclick="switchInnerTab('${id}', 'layout')">Layout</div>
+      <div class="tab" onclick="switchInnerTab('${id}', 'tv')">TV Layout</div>
+    </div>
+
+    <!-- Layout panel -->
+    <div id="${id}-tab-layout" class="panel active">
+      <div class="controls">
+        <h2>Layout</h2>
+        <div class="form-group">
+          <label>Shape : Stride</label>
+          <input type="text" id="${id}-layout-input" value="(10, 10):(1, 10)">
+        </div>
+        <div id="${id}-layout-error" class="error-msg"></div>
+        <button class="btn btn-render" onclick="renderLayout('${id}')">Render</button>
+
+        <div class="presets">
+          <h3>Presets</h3>
+          <div class="preset-list">
+            <button class="preset-btn" onclick="setL('${id}','(10, 10):(1, 10)')">Column-major (10x10)</button>
+            <button class="preset-btn" onclick="setL('${id}','(10, 10):(10, 1)')">Row-major (10x10)</button>
+            <button class="preset-btn" onclick="setL('${id}','(8, 8):(1, 8)')">Column-major (8x8)</button>
+            <button class="preset-btn" onclick="setL('${id}','(8, 8):(8, 1)')">Row-major (8x8)</button>
+            <button class="preset-btn" onclick="setL('${id}','(8, 8):(2, 16)')">Strided (8x8, s=2)</button>
+            <button class="preset-btn" onclick="setL('${id}','((2,2),(2,2)):((1,4),(2,8))')">Nested ((2,2),(2,2))</button>
+            <button class="preset-btn" onclick="setL('${id}','((4,2),(4,2)):((1,8),(2,32))')">Nested ((4,2),(4,2))</button>
+            <button class="preset-btn" onclick="setL('${id}','(4, 32):(32, 1)')">Warp row-major (4x32)</button>
+          </div>
+        </div>
+
+        <div class="hint">
+          Format: <code>shape:stride</code><br>
+          Examples:<br>
+          <code>(M, N):(s0, s1)</code><br>
+          <code>((a,b), c):((sa,sb), sc)</code><br>
+          Omit <code>:stride</code> for column-major default.
+        </div>
+      </div>
+
+      <div class="visualization">
+        <div class="viz-header">
+          <span class="viz-title" id="${id}-layout-title">&mdash;</span>
+          <button class="btn" onclick="downloadSVG('${id}-layout-svg-host', 'layout.svg')">Download SVG</button>
+        </div>
+        <div class="viz-box">
+          <div id="${id}-layout-svg-host"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TV Layout panel -->
+    <div id="${id}-tab-tv" class="panel">
+      <div class="controls">
+        <h2>TV Layout</h2>
+        <div class="form-group">
+          <label>TV Layout &mdash; (num_threads, num_values):(t_stride, v_stride)</label>
+          <input type="text" id="${id}-tv-layout-input" value="(32, 4):(1, 32)">
+        </div>
+        <div class="form-group">
+          <label>Tile &mdash; (M, N):(stride_M, stride_N)
+            <span style="color:#6b7280;font-weight:normal"> &mdash; strides required</span>
+          </label>
+          <input type="text" id="${id}-tv-tile-input" value="(8, 16):(16, 1)">
+          <div style="display:flex;gap:5px;margin-top:5px">
+            <button class="btn" style="flex:1;font-size:0.75rem;padding:4px" onclick="setTileStride('${id}','row')">Row-major (N,1)</button>
+            <button class="btn" style="flex:1;font-size:0.75rem;padding:4px" onclick="setTileStride('${id}','col')">Col-major (1,M)</button>
+          </div>
+        </div>
+        <div id="${id}-tv-error" class="error-msg"></div>
+        <button class="btn btn-render" onclick="renderTV('${id}')">Render</button>
+
+        <div class="presets">
+          <h3>Presets</h3>
+          <div class="preset-list">
+            <button class="preset-btn" onclick="setTV('${id}','(4,(4,4)):(4,(16,1))','(16, 4):(4, 1)')">4Tx16V nested -> 16x4 row-major</button>
+            <button class="preset-btn" onclick="setTV('${id}','(32, 4):(1, 32)','(8, 16):(16, 1)')">32Tx4V -> 8x16 row-major</button>
+            <button class="preset-btn" onclick="setTV('${id}','(32, 4):(1, 32)','(8, 16):(1, 8)')">32Tx4V -> 8x16 col-major</button>
+            <button class="preset-btn" onclick="setTV('${id}','(8, 8):(1, 8)','(8, 8):(8, 1)')">8Tx8V -> 8x8 tile</button>
+            <button class="preset-btn" onclick="setTV('${id}','(4, 32):(32, 1)','(4, 32):(32, 1)')">Warp 4Tx32V</button>
+            <button class="preset-btn" onclick="setTV('${id}','(128, 4):(1, 128)','(16, 32):(32, 1)')">128Tx4V -> 16x32</button>
+          </div>
+        </div>
+
+        <div class="hint">
+          TV layout maps each <code>(tid, vid)</code> pair to a
+          position in the MxN tile.<br><br>
+          Cell color = thread ID.<br>
+          Cell text = T<i>tid</i> / V<i>vid</i>.<br>
+          Empty cells (&mdash;) are not covered by any thread.<br><br>
+          <b>Tiler strides matter.</b> Tilers returned by
+          CuTe's <code>make_layout_tv</code> are typically
+          <b>row-major</b> <code>(N, 1)</code>. Use the buttons
+          above to quickly switch, or enter strides manually.<br><br>
+          In Python, print the full tiler with:<br>
+          <code>print(f"{tiler_mn}")</code><br>
+          to see <code>(M, N):(sm, sn)</code>.
+        </div>
+      </div>
+
+      <div class="visualization">
+        <div class="viz-header">
+          <span class="viz-title" id="${id}-tv-title">&mdash;</span>
+          <button class="btn" onclick="downloadSVG('${id}-tv-svg-host', 'tv_layout.svg')">Download SVG</button>
+        </div>
+        <div class="viz-box">
+          <div id="${id}-tv-svg-host"></div>
+        </div>
+        <div class="legend" id="${id}-tv-legend"></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function addOuterTab() {
+  tabCounter++;
+  const id = `ot${tabCounter}`;
+
+  // Create tab button
+  const btn = document.createElement('div');
+  btn.className = 'outer-tab';
+  btn.id = `${id}-btn`;
+  btn.setAttribute('data-tab-id', id);
+  btn.onclick = () => switchOuterTab(id);
+  btn.innerHTML = `<span class="outer-tab-label" id="${id}-label">New Tab</span><span class="close-tab-btn" onclick="event.stopPropagation(); closeOuterTab('${id}')">&times;</span>`;
+  document.getElementById('outer-tab-buttons').appendChild(btn);
+
+  // Create panel
+  const panel = document.createElement('div');
+  panel.className = 'outer-panel';
+  panel.id = `${id}-panel`;
+  panel.innerHTML = generateTabContent(id);
+  document.getElementById('outer-panels').appendChild(panel);
+
+  switchOuterTab(id);
+  renderLayout(id);
+}
+
+function switchOuterTab(id) {
+  // Deactivate all
+  document.querySelectorAll('.outer-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.outer-panel').forEach(p => p.classList.remove('active'));
+  // Activate target
+  document.getElementById(`${id}-btn`).classList.add('active');
+  document.getElementById(`${id}-panel`).classList.add('active');
+  activeOuterTabId = id;
+}
+
+function closeOuterTab(id) {
+  const allTabs = document.querySelectorAll('#outer-tab-buttons .outer-tab');
+  if (allTabs.length <= 1) return; // don't close the last tab
+
+  const btn = document.getElementById(`${id}-btn`);
+  const panel = document.getElementById(`${id}-panel`);
+
+  // If closing the active tab, switch to an adjacent one
+  if (activeOuterTabId === id) {
+    const tabIds = Array.from(allTabs).map(t => t.getAttribute('data-tab-id'));
+    const idx = tabIds.indexOf(id);
+    const nextId = tabIds[idx === tabIds.length - 1 ? idx - 1 : idx + 1];
+    switchOuterTab(nextId);
+  }
+
+  btn.remove();
+  panel.remove();
+}
+
+// ═══════════════════════════════════════════════════════
+//  UI (per-tab)
+// ═══════════════════════════════════════════════════════
+
+function switchInnerTab(tabId, mode) {
+  const panel = document.getElementById(`${tabId}-panel`);
+  panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
+  panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  // Activate the clicked inner tab
+  const tabs = panel.querySelectorAll('.tab-bar .tab');
+  tabs[mode === 'layout' ? 0 : 1].classList.add('active');
+  document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
+}
+
+function showErr(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
+function updateOuterTabLabel(tabId, text) {
+  const label = document.getElementById(`${tabId}-label`);
+  if (label) label.textContent = text;
+}
+
+function renderLayout(tabId) {
+  showErr(`${tabId}-layout-error`, '');
+  try {
+    const inputVal = document.getElementById(`${tabId}-layout-input`).value;
+    let { shape, stride } = parseLayout(inputVal);
+    const [M, N] = productEach(shape);
+    document.getElementById(`${tabId}-layout-title`).textContent =
+      `shape=${JSON.stringify(shape).replace(/"/g,'')}  stride=${JSON.stringify(stride).replace(/"/g,'')}  —  ${M}×${N} grid`;
+    document.getElementById(`${tabId}-layout-svg-host`).innerHTML = buildLayoutSVG(shape, stride);
+    updateOuterTabLabel(tabId, `Layout:${inputVal.trim()}`);
+  } catch (e) {
+    showErr(`${tabId}-layout-error`, e.message);
+    document.getElementById(`${tabId}-layout-svg-host`).innerHTML = '';
+  }
+}
+
+function renderTV(tabId) {
+  showErr(`${tabId}-tv-error`, '');
+  try {
+    const tvInput = document.getElementById(`${tabId}-tv-layout-input`).value;
+    const tvL   = parseLayout(tvInput);
+    const tileL = parseLayout(document.getElementById(`${tabId}-tv-tile-input`).value);
+
+    const numT = product(tvL.shape[0]);
+    const numV = product(tvL.shape[1]);
+    const M    = product(tileL.shape[0]);
+    const N    = product(tileL.shape[1]);
+
+    document.getElementById(`${tabId}-tv-title`).textContent =
+      `${numT} threads × ${numV} values  —  ${M}×${N} tile`;
+
+    document.getElementById(`${tabId}-tv-svg-host`).innerHTML =
+      buildTVSVG(tvL.shape, tvL.stride, tileL.shape, tileL.stride);
+
+    // Build legend (show colours for thread IDs that appear)
+    buildLegend(tabId, numT);
+    updateOuterTabLabel(tabId, `TV-Layout:${tvInput.trim()}`);
+  } catch (e) {
+    showErr(`${tabId}-tv-error`, e.message);
+    document.getElementById(`${tabId}-tv-svg-host`).innerHTML = '';
+    document.getElementById(`${tabId}-tv-legend`).innerHTML = '';
+  }
+}
+
+function buildLegend(tabId, numT) {
+  const legend = document.getElementById(`${tabId}-tv-legend`);
+  const shown = Math.min(numT, 16); // show at most 16 thread colours
+  let html = '';
+  for (let tid = 0; tid < shown; tid++) {
+    html += `<div class="legend-item">
+      <div class="legend-swatch" style="background:${TV_COLORS[tid % 8]}"></div>
+      T${tid}
+    </div>`;
+  }
+  if (numT > 16) html += `<div class="legend-item">… (${numT} threads total)</div>`;
+  legend.innerHTML = html;
+}
+
+function setL(tabId, val) {
+  document.getElementById(`${tabId}-layout-input`).value = val;
+  renderLayout(tabId);
+}
+
+function setTV(tabId, tv, tile) {
+  document.getElementById(`${tabId}-tv-layout-input`).value = tv;
+  document.getElementById(`${tabId}-tv-tile-input`).value = tile;
+  renderTV(tabId);
+}
+
+/** Rewrite the tile input with row-major (N,1) or column-major (1,M) strides. */
+function setTileStride(tabId, mode) {
+  const el = document.getElementById(`${tabId}-tv-tile-input`);
+  try {
+    const {shape} = parseLayout(el.value);
+    const [M, N] = productEach(shape);
+    el.value = mode === 'row' ? `(${M}, ${N}):(${N}, 1)` : `(${M}, ${N}):(1, ${M})`;
+    renderTV(tabId);
+  } catch (e) {
+    showErr(`${tabId}-tv-error`, 'Could not parse tile shape: ' + e.message);
+  }
+}
+
+function downloadSVG(hostId, filename) {
+  const svg = document.getElementById(hostId).querySelector('svg');
+  if (!svg) return;
+  const blob = new Blob([svg.outerHTML], { type: 'image/svg+xml' });
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob), download: filename
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// Create the first tab on load
+addOuterTab();
+</script>
+</body>
+</html>

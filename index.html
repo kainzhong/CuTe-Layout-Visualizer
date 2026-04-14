@@ -240,6 +240,22 @@
       border: 1px solid rgba(0,0,0,0.3);
       flex-shrink: 0;
     }
+
+    /* ── Composition results 2×2 grid ── */
+    .comp-results {
+      flex: 1;
+      min-width: 360px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .comp-viz-item { min-width: 0; }
+    .comp-viz-label {
+      font-size: 0.82rem;
+      color: #9ca3af;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      margin-bottom: 8px;
+    }
   </style>
 </head>
 <body>
@@ -662,6 +678,7 @@ function generateTabContent(id) {
     <div class="tab-bar">
       <div class="tab active" onclick="switchInnerTab('${id}', 'layout')">Layout</div>
       <div class="tab" onclick="switchInnerTab('${id}', 'tv')">TV Layout</div>
+      <div class="tab" onclick="switchInnerTab('${id}', 'composition')">Composition</div>
     </div>
 
     <!-- Layout panel -->
@@ -769,6 +786,67 @@ function generateTabContent(id) {
         <div class="legend" id="${id}-tv-legend"></div>
       </div>
     </div>
+
+    <!-- Composition panel -->
+    <div id="${id}-tab-composition" class="panel">
+      <div class="controls">
+        <h2>Composition</h2>
+        <div class="form-group">
+          <label>Layout A &mdash; the outer layout</label>
+          <input type="text" id="${id}-comp-a-input" value="(4, 4):(4, 1)">
+        </div>
+        <div class="form-group">
+          <label>Layout B &mdash; the indexing layout</label>
+          <input type="text" id="${id}-comp-b-input" value="(2, 2):(1, 2)">
+        </div>
+        <div id="${id}-comp-error" class="error-msg"></div>
+        <button class="btn btn-render" onclick="renderComposition('${id}')">Render</button>
+
+        <div class="presets">
+          <h3>Presets</h3>
+          <div class="preset-list">
+            <button class="preset-btn" onclick="setComp('${id}','(4,4):(4,1)','(2,2):(1,2)')">Row-maj A(4x4), Col-maj B(2x2)</button>
+            <button class="preset-btn" onclick="setComp('${id}','(8,8):(1,8)','(4,4):(1,4)')">Col-maj A(8x8), Col-maj B(4x4)</button>
+            <button class="preset-btn" onclick="setComp('${id}','(8,8):(1,8)','(2,4):(2,8)')">Col-maj A(8x8), Strided B(2x4)</button>
+            <button class="preset-btn" onclick="setComp('${id}','(4,8):(8,1)','(2,4):(1,2)')">Row-maj A(4x8), Col-maj B(2x4)</button>
+            <button class="preset-btn" onclick="setComp('${id}','(4,4):(1,4)','(4,4):(1,0)')">Broadcast: B stride-0 col</button>
+          </div>
+        </div>
+
+        <div class="hint">
+          Composition <code>R = A(B)</code>: for each coordinate in B,
+          compute <code>B(coord)</code>, then use that as a 1-D coordinate
+          into A to get <code>A(B(coord))</code>.<br><br>
+          Four grids are shown:<br>
+          <b>A</b> &mdash; the outer layout<br>
+          <b>B</b> &mdash; the indexing layout<br>
+          <b>A highlighted</b> &mdash; A in grey with B-selected positions colored<br>
+          <b>R = A(B)</b> &mdash; the composed result<br><br>
+          Non-injective B (duplicate outputs, e.g. stride 0) is
+          supported &mdash; this gives broadcasting-like behavior
+          where multiple B coordinates select the same element from A.
+        </div>
+      </div>
+
+      <div class="comp-results">
+        <div class="comp-viz-item">
+          <div class="comp-viz-label" id="${id}-comp-a-title">A</div>
+          <div class="viz-box"><div id="${id}-comp-a-svg"></div></div>
+        </div>
+        <div class="comp-viz-item">
+          <div class="comp-viz-label" id="${id}-comp-b-title">B</div>
+          <div class="viz-box"><div id="${id}-comp-b-svg"></div></div>
+        </div>
+        <div class="comp-viz-item">
+          <div class="comp-viz-label">A highlighted by B</div>
+          <div class="viz-box"><div id="${id}-comp-highlight-svg"></div></div>
+        </div>
+        <div class="comp-viz-item">
+          <div class="comp-viz-label" id="${id}-comp-r-title">R = A(B)</div>
+          <div class="viz-box"><div id="${id}-comp-r-svg"></div></div>
+        </div>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -835,7 +913,8 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   // Activate the clicked inner tab
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  tabs[mode === 'layout' ? 0 : 1].classList.add('active');
+  const modeIndex = { layout: 0, tv: 1, composition: 2 };
+  tabs[modeIndex[mode]].classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
 }
 
@@ -930,6 +1009,175 @@ function setTileStride(tabId, mode) {
   } catch (e) {
     showErr(`${tabId}-tv-error`, 'Could not parse tile shape: ' + e.message);
   }
+}
+
+// ═══════════════════════════════════════════════════════
+//  Composition
+// ═══════════════════════════════════════════════════════
+
+function renderComposition(tabId) {
+  showErr(`${tabId}-comp-error`, '');
+  const svgIds = ['comp-a-svg', 'comp-b-svg', 'comp-highlight-svg', 'comp-r-svg'];
+
+  try {
+    const aInput = document.getElementById(`${tabId}-comp-a-input`).value;
+    const bInput = document.getElementById(`${tabId}-comp-b-input`).value;
+    const aL = parseLayout(aInput);
+    const bL = parseLayout(bInput);
+
+    const [M_A, N_A] = productEach(aL.shape);
+    const [M_B, N_B] = productEach(bL.shape);
+    const sizeA = M_A * N_A;
+
+    // Iterate every coordinate of B, collect outputs, check range
+    const bOutputs = new Set();
+    for (let m = 0; m < M_B; m++) {
+      for (let n = 0; n < N_B; n++) {
+        const bVal = layoutAt(bL.shape, bL.stride, m, n);
+        if (bVal < 0 || bVal >= sizeA) {
+          throw new Error(
+            `B(${m},${n}) = ${bVal} is out of range [0, ${sizeA}) for A (size ${M_A}x${N_A})`);
+        }
+        bOutputs.add(bVal);
+      }
+    }
+
+    // Compute R = A(B): for each B coord, B(coord) is a 1-D coordinate into A
+    const rGrid = [];
+    for (let m = 0; m < M_B; m++) {
+      rGrid[m] = [];
+      for (let n = 0; n < N_B; n++) {
+        const bVal = layoutAt(bL.shape, bL.stride, m, n);
+        const m_a = bVal % M_A;
+        const n_a = Math.floor(bVal / M_A);
+        rGrid[m][n] = layoutAt(aL.shape, aL.stride, m_a, n_a);
+      }
+    }
+
+    // Update titles
+    document.getElementById(`${tabId}-comp-a-title`).textContent = `A: ${aInput.trim()}`;
+    document.getElementById(`${tabId}-comp-b-title`).textContent = `B: ${bInput.trim()}`;
+    document.getElementById(`${tabId}-comp-r-title`).textContent = `R = A(B)`;
+
+    // Render 4 SVGs
+    document.getElementById(`${tabId}-comp-a-svg`).innerHTML =
+      buildLayoutSVG(aL.shape, aL.stride);
+    document.getElementById(`${tabId}-comp-b-svg`).innerHTML =
+      buildLayoutSVG(bL.shape, bL.stride);
+    document.getElementById(`${tabId}-comp-highlight-svg`).innerHTML =
+      buildHighlightedLayoutSVG(aL.shape, aL.stride, bOutputs);
+    document.getElementById(`${tabId}-comp-r-svg`).innerHTML =
+      buildGridSVG(rGrid, M_B, N_B);
+
+    updateOuterTabLabel(tabId, `Compose:${aInput.trim()}`);
+  } catch (e) {
+    showErr(`${tabId}-comp-error`, e.message);
+    svgIds.forEach(h => {
+      const el = document.getElementById(`${tabId}-${h}`);
+      if (el) el.innerHTML = '';
+    });
+  }
+}
+
+/** Like buildLayoutSVG but cells NOT in highlightSet are greyed out. */
+function buildHighlightedLayoutSVG(shape, stride, highlightSet) {
+  const [M, N] = productEach(shape);
+  if (M * N > MAX_CELLS) return errSVG(`Grid too large: ${M}x${N}`);
+  if (M === 0 || N === 0) return errSVG(`Empty grid: ${M}x${N}`);
+
+  const cs = cellSize(M, N);
+  const margin = cs;
+  const W = margin + N * cs;
+  const H = margin + M * cs;
+  const fs = Math.max(8, Math.min(14, Math.floor(cs * 0.38)));
+
+  let body = '';
+
+  for (let n = 0; n < N; n++) {
+    const cx = margin + (n + 0.5) * cs;
+    body += `<text x="${cx}" y="${margin * 0.55}" text-anchor="middle" dominant-baseline="middle"
+      fill="#555" font-size="${fs}" font-family="monospace">${n}</text>`;
+  }
+  for (let m = 0; m < M; m++) {
+    const cy = margin + (m + 0.5) * cs;
+    body += `<text x="${margin * 0.5}" y="${cy}" text-anchor="middle" dominant-baseline="middle"
+      fill="#555" font-size="${fs}" font-family="monospace">${m}</text>`;
+  }
+
+  for (let m = 0; m < M; m++) {
+    for (let n = 0; n < N; n++) {
+      const flatPos = m + n * M; // column-major 1-D position
+      const idx = layoutAt(shape, stride, m, n);
+      const x = margin + n * cs;
+      const y = margin + m * cs;
+      const lit = highlightSet.has(flatPos);
+
+      const bg = lit ? colorBW(idx) : '#e8e8e8';
+      const fg = lit ? textOnBG(bg) : '#bbb';
+      const stroke = lit ? '#3b82f6' : '#ddd';
+      const sw = lit ? 1.5 : 0.5;
+
+      body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
+        fill="${bg}" stroke="${stroke}" stroke-width="${sw}"/>`;
+      body += `<text x="${x + cs/2}" y="${y + cs/2}" text-anchor="middle" dominant-baseline="middle"
+        fill="${fg}" font-size="${fs}" font-family="monospace">${idx}</text>`;
+    }
+  }
+
+  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${W}" height="${H}" fill="white"/>
+    ${body}
+  </svg>`;
+}
+
+/** Render a pre-computed 2-D grid of values (used for composition result R). */
+function buildGridSVG(grid, M, N) {
+  if (M * N > MAX_CELLS) return errSVG(`Grid too large: ${M}x${N}`);
+  if (M === 0 || N === 0) return errSVG(`Empty grid: ${M}x${N}`);
+
+  const cs = cellSize(M, N);
+  const margin = cs;
+  const W = margin + N * cs;
+  const H = margin + M * cs;
+  const fs = Math.max(8, Math.min(14, Math.floor(cs * 0.38)));
+
+  let body = '';
+
+  for (let n = 0; n < N; n++) {
+    const cx = margin + (n + 0.5) * cs;
+    body += `<text x="${cx}" y="${margin * 0.55}" text-anchor="middle" dominant-baseline="middle"
+      fill="#555" font-size="${fs}" font-family="monospace">${n}</text>`;
+  }
+  for (let m = 0; m < M; m++) {
+    const cy = margin + (m + 0.5) * cs;
+    body += `<text x="${margin * 0.5}" y="${cy}" text-anchor="middle" dominant-baseline="middle"
+      fill="#555" font-size="${fs}" font-family="monospace">${m}</text>`;
+  }
+
+  for (let m = 0; m < M; m++) {
+    for (let n = 0; n < N; n++) {
+      const idx = grid[m][n];
+      const bg = colorBW(idx);
+      const fg = textOnBG(bg);
+      const x = margin + n * cs;
+      const y = margin + m * cs;
+      body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
+        fill="${bg}" stroke="#ccc" stroke-width="0.5"/>`;
+      body += `<text x="${x + cs/2}" y="${y + cs/2}" text-anchor="middle" dominant-baseline="middle"
+        fill="${fg}" font-size="${fs}" font-family="monospace">${idx}</text>`;
+    }
+  }
+
+  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${W}" height="${H}" fill="white"/>
+    ${body}
+  </svg>`;
+}
+
+function setComp(tabId, a, b) {
+  document.getElementById(`${tabId}-comp-a-input`).value = a;
+  document.getElementById(`${tabId}-comp-b-input`).value = b;
+  renderComposition(tabId);
 }
 
 function downloadSVG(hostId, filename) {

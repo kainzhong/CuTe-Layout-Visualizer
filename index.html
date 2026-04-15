@@ -142,6 +142,21 @@
     }
     input[type="text"]:focus { outline: none; border-color: #3b82f6; }
 
+    textarea {
+      width: 100%;
+      background: #111827;
+      border: 1px solid #374151;
+      border-radius: 5px;
+      padding: 7px 10px;
+      color: #f3f4f6;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      font-size: 0.85rem;
+      transition: border-color 0.15s;
+      resize: vertical;
+      line-height: 1.5;
+    }
+    textarea:focus { outline: none; border-color: #3b82f6; }
+
     .btn {
       background: #1e3a5f;
       color: #93c5fd;
@@ -346,6 +361,17 @@ function layoutAt(shape, stride, m, n) {
   return crd2idx(c0, shape[0], stride[0]) + crd2idx(c1, shape[1], stride[1]);
 }
 
+/** Evaluate a rank-2 layout at a flat 1-D index (column-major unflattening). */
+function evalLayoutFlat(layout, flatIdx) {
+  const M = product(layout.shape[0]);
+  return layoutAt(layout.shape, layout.stride, flatIdx % M, Math.floor(flatIdx / M));
+}
+
+/** Evaluate a single mode of a layout at a 1-D coordinate. */
+function evalModeAt(modeShape, modeStride, idx) {
+  return crd2idx(unflatten(idx, modeShape), modeShape, modeStride);
+}
+
 /**
  * Auto column-major stride starting at `base`.
  * Returns [computed_stride, next_base].
@@ -415,7 +441,22 @@ function topLevelColon(str) {
  */
 function parseLayout(str) {
   str = str.trim();
+  if (!str) throw new Error('Empty layout string');
+
   const ci = topLevelColon(str);
+
+  // Reject colons buried inside parens — e.g. (3:4) — which this parser
+  // cannot handle.  Detect by checking if the string contains ':' but
+  // topLevelColon found none.
+  if (ci === -1 && str.includes(':')) {
+    throw new Error(
+      `Unexpected ":" inside parentheses. This parser expects either:\n` +
+      `  shape only:   3  or  (M,N)  or  ((a,b),c)\n` +
+      `  shape:stride: 3:4  or  (M,N):(s0,s1)\n` +
+      `The ":" must be at the top level, not inside parens like (3:4). ` +
+      `Write 3:4 instead.`);
+  }
+
   let shape, stride;
   if (ci === -1) {
     shape = parseValue(str);
@@ -826,8 +867,8 @@ function generateTabContent(id) {
           <input type="text" id="${id}-comp-a-input" value="(4, 4):(4, 1)">
         </div>
         <div class="form-group">
-          <label>Layout B &mdash; the indexing layout</label>
-          <input type="text" id="${id}-comp-b-input" value="(2, 2):(1, 2)">
+          <label>Layout B &mdash; layout or tiler (one layout per line for by-mode tiler)</label>
+          <textarea id="${id}-comp-b-input" rows="2">(2, 2):(1, 2)</textarea>
         </div>
         <div id="${id}-comp-error" class="error-msg"></div>
         <button class="btn btn-render" onclick="renderComposition('${id}')">Render</button>
@@ -840,21 +881,24 @@ function generateTabContent(id) {
             <button class="preset-btn" onclick="setComp('${id}','(8,8):(1,8)','(2,4):(2,8)')">Col-maj A(8x8), Strided B(2x4)</button>
             <button class="preset-btn" onclick="setComp('${id}','(4,8):(8,1)','(2,4):(1,2)')">Row-maj A(4x8), Col-maj B(2x4)</button>
             <button class="preset-btn" onclick="setComp('${id}','(4,4):(1,4)','(4,4):(1,0)')">Broadcast: B stride-0 col</button>
+            <button class="preset-btn" onclick="setComp('${id}','(12,(4,8)):(59,(13,1))','(3):(4)\\n(8):(2)')">Tiler &lt;3:4, 8:2&gt; on A(12x32)</button>
+            <button class="preset-btn" onclick="setComp('${id}','(12,(4,8)):(59,(13,1))','3\\n8')">Shape-tiler &lt;3:1, 8:1&gt; on A(12x32)</button>
+            <button class="preset-btn" onclick="setComp('${id}','(4,8):(8,1)','2\\n4')">Shape-tiler &lt;2:1, 4:1&gt; on A(4x8)</button>
           </div>
         </div>
 
         <div class="hint">
-          Composition <code>R = A(B)</code>: for each coordinate in B,
-          compute <code>B(coord)</code>, then use that as a 1-D coordinate
-          into A to get <code>A(B(coord))</code>.<br><br>
-          Four grids are shown:<br>
-          <b>A</b> &mdash; the outer layout<br>
-          <b>B</b> &mdash; the indexing layout<br>
-          <b>A highlighted</b> &mdash; A in grey with B-selected positions colored<br>
-          <b>R = A(B)</b> &mdash; the composed result<br><br>
-          Non-injective B (duplicate outputs) is rejected &mdash;
-          while CuTe may still support this, it is an unorthodox usage
-          that typically indicates an error in the layout specification.
+          B can be a single layout or multiple layouts
+          (one per line) for by-mode tiler composition.<br><br>
+          <b>Single layout</b>: <code>R(c) = A(B(c))</code> &mdash;
+          B's output is a 1-D coordinate into A.<br>
+          <b>Tiler (multi-line)</b>: each line applies to one mode
+          of A independently. E.g. line 1 = <code>(3):(4)</code>,
+          line 2 = <code>(8):(2)</code> gives tiler
+          <code>&lt;3:4, 8:2&gt;</code>.<br>
+          A shape like <code>3</code> is treated as <code>3:1</code>
+          (stride-1).<br><br>
+          Non-injective B (e.g. stride 0) gives broadcasting behavior.
         </div>
       </div>
 
@@ -1080,51 +1124,112 @@ function renderComposition(tabId) {
 
   try {
     const aInput = document.getElementById(`${tabId}-comp-a-input`).value;
-    const bInput = document.getElementById(`${tabId}-comp-b-input`).value;
+    const bRaw = document.getElementById(`${tabId}-comp-b-input`).value;
     const aL = parseLayout(aInput);
-    const bL = parseLayout(bInput);
-
     const [M_A, N_A] = productEach(aL.shape);
-    const [M_B, N_B] = productEach(bL.shape);
-    const sizeA = M_A * N_A;
 
-    // Iterate every coordinate of B, collect outputs, check range
-    const bOutputs = new Set();
-    for (let m = 0; m < M_B; m++) {
-      for (let n = 0; n < N_B; n++) {
-        const bVal = layoutAt(bL.shape, bL.stride, m, n);
-        if (bVal < 0 || bVal >= sizeA) {
-          throw new Error(
-            `B(${m},${n}) = ${bVal} is out of range [0, ${sizeA}) for A (size ${M_A}x${N_A})`);
+    // Split B by newlines — multiple lines = tiler (by-mode composition)
+    const bLines = bRaw.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+    if (bLines.length === 0) throw new Error('B input is empty');
+
+    const isTiler = bLines.length > 1;
+    let rGrid, highlightSet, M_R, N_R, bL, bLayouts;
+
+    if (isTiler) {
+      // ── By-mode tiler composition ──
+      if (bLines.length !== 2) {
+        throw new Error(
+          `Tiler must have exactly 2 layouts (one per mode of rank-2 A), got ${bLines.length}`);
+      }
+      bLayouts = bLines.map(line => parseLayout(line));
+      bL = null;
+
+      const sizeA0 = product(aL.shape[0]);
+      const sizeA1 = product(aL.shape[1]);
+
+      // Mode-0: compose A's mode-0 with B[0]
+      const sizeB0 = product(bLayouts[0].shape[0]) * product(bLayouts[0].shape[1]);
+      const r0Vals = [], b0Out = new Set();
+      for (let i = 0; i < sizeB0; i++) {
+        const v = evalLayoutFlat(bLayouts[0], i);
+        if (v < 0 || v >= sizeA0)
+          throw new Error(`B[0](${i}) = ${v} out of range [0, ${sizeA0}) for A mode-0`);
+        b0Out.add(v);
+        r0Vals.push(evalModeAt(aL.shape[0], aL.stride[0], v));
+      }
+
+      // Mode-1: compose A's mode-1 with B[1]
+      const sizeB1 = product(bLayouts[1].shape[0]) * product(bLayouts[1].shape[1]);
+      const r1Vals = [], b1Out = new Set();
+      for (let j = 0; j < sizeB1; j++) {
+        const v = evalLayoutFlat(bLayouts[1], j);
+        if (v < 0 || v >= sizeA1)
+          throw new Error(`B[1](${j}) = ${v} out of range [0, ${sizeA1}) for A mode-1`);
+        b1Out.add(v);
+        r1Vals.push(evalModeAt(aL.shape[1], aL.stride[1], v));
+      }
+
+      M_R = sizeB0;
+      N_R = sizeB1;
+
+      // Result grid: R[i][j] = r0[i] + r1[j]
+      rGrid = [];
+      for (let i = 0; i < M_R; i++) {
+        rGrid[i] = [];
+        for (let j = 0; j < N_R; j++)
+          rGrid[i][j] = r0Vals[i] + r1Vals[j];
+      }
+
+      // Highlight: cross product of selected mode-0 and mode-1 positions
+      highlightSet = new Set();
+      for (const m of b0Out)
+        for (const n of b1Out)
+          highlightSet.add(m + n * M_A);
+
+    } else {
+      // ── Regular composition ──
+      bL = parseLayout(bLines[0]);
+      bLayouts = null;
+
+      const [M_B, N_B] = productEach(bL.shape);
+      const sizeA = M_A * N_A;
+
+      highlightSet = new Set();
+      for (let m = 0; m < M_B; m++) {
+        for (let n = 0; n < N_B; n++) {
+          const bVal = layoutAt(bL.shape, bL.stride, m, n);
+          if (bVal < 0 || bVal >= sizeA)
+            throw new Error(`B(${m},${n}) = ${bVal} out of range [0, ${sizeA}) for A (size ${M_A}x${N_A})`);
+          highlightSet.add(bVal);
         }
-        bOutputs.add(bVal);
       }
-    }
 
-    // Compute R = A(B): for each B coord, B(coord) is a 1-D coordinate into A
-    const rGrid = [];
-    for (let m = 0; m < M_B; m++) {
-      rGrid[m] = [];
-      for (let n = 0; n < N_B; n++) {
-        const bVal = layoutAt(bL.shape, bL.stride, m, n);
-        const m_a = bVal % M_A;
-        const n_a = Math.floor(bVal / M_A);
-        rGrid[m][n] = layoutAt(aL.shape, aL.stride, m_a, n_a);
+      rGrid = [];
+      for (let m = 0; m < M_B; m++) {
+        rGrid[m] = [];
+        for (let n = 0; n < N_B; n++) {
+          const bVal = layoutAt(bL.shape, bL.stride, m, n);
+          rGrid[m][n] = layoutAt(aL.shape, aL.stride, bVal % M_A, Math.floor(bVal / M_A));
+        }
       }
+      M_R = M_B;
+      N_R = N_B;
     }
 
     // Store state for toggle
     compState[tabId] = {
-      aL, bL, rGrid, bOutputs, M_B, N_B,
+      aL, bL, bLayouts, isTiler, bInputLines: bLines,
+      rGrid, highlightSet, M_R, N_R,
       mode: { a: 'offset', b: 'offset', highlight: 'offset', r: 'offset' }
     };
 
     // Update titles
     document.getElementById(`${tabId}-comp-a-title`).textContent = `A: ${aInput.trim()}`;
-    document.getElementById(`${tabId}-comp-b-title`).textContent = `B: ${bInput.trim()}`;
-    document.getElementById(`${tabId}-comp-r-title`).textContent = `R = A(B)`;
+    document.getElementById(`${tabId}-comp-b-title`).textContent =
+      isTiler ? `Tiler: <${bLines.join(', ')}>` : `B: ${bLines[0]}`;
+    document.getElementById(`${tabId}-comp-r-title`).textContent =
+      isTiler ? 'R = A(Tiler)' : 'R = A(B)';
 
-    // Render all 4 SVGs
     renderCompGrid(tabId, 'a');
     renderCompGrid(tabId, 'b');
     renderCompGrid(tabId, 'highlight');
@@ -1144,22 +1249,35 @@ function renderCompGrid(tabId, which) {
   const s = compState[tabId];
   if (!s) return;
   const mode = s.mode[which];
-  let svg;
-  switch (which) {
-    case 'a':
-      svg = buildLayoutSVG(s.aL.shape, s.aL.stride, mode);
-      break;
-    case 'b':
-      svg = buildLayoutSVG(s.bL.shape, s.bL.stride, mode);
-      break;
-    case 'highlight':
-      svg = buildHighlightedLayoutSVG(s.aL.shape, s.aL.stride, s.bOutputs, mode);
-      break;
-    case 'r':
-      svg = buildGridSVG(s.rGrid, s.M_B, s.N_B, mode);
-      break;
+  const host = document.getElementById(`${tabId}-comp-${which}-svg`);
+
+  if (which === 'b' && s.isTiler) {
+    // Tiler: show each element as a labelled layout
+    let html = '';
+    s.bLayouts.forEach((bl, i) => {
+      html += `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin:${i > 0 ? '10px' : '0'} 0 4px">B[${i}]: ${s.bInputLines[i]}</div>`;
+      html += buildLayoutSVG(bl.shape, bl.stride, mode);
+    });
+    host.innerHTML = html;
+  } else {
+    let svg;
+    switch (which) {
+      case 'a':
+        svg = buildLayoutSVG(s.aL.shape, s.aL.stride, mode);
+        break;
+      case 'b':
+        svg = buildLayoutSVG(s.bL.shape, s.bL.stride, mode);
+        break;
+      case 'highlight':
+        svg = buildHighlightedLayoutSVG(s.aL.shape, s.aL.stride, s.highlightSet, mode);
+        break;
+      case 'r':
+        svg = buildGridSVG(s.rGrid, s.M_R, s.N_R, mode);
+        break;
+    }
+    host.innerHTML = svg;
   }
-  document.getElementById(`${tabId}-comp-${which}-svg`).innerHTML = svg;
+
   const btn = document.getElementById(`${tabId}-comp-${which}-toggle`);
   if (btn) btn.textContent = mode === 'offset' ? 'show index' : 'show offset';
 }

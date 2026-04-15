@@ -556,6 +556,13 @@ function cellSize(M, N) {
   return Math.max(12, Math.min(BASE_CS, Math.floor(1200 / Math.max(M, N, 1))));
 }
 
+/** Pick CSS so the SVG fits by the longer side. */
+function svgFitStyle(W, H) {
+  return W >= H
+    ? 'width:100%;height:auto'
+    : 'max-height:70vh;width:auto;max-width:100%';
+}
+
 /** Build axis-label and grid SVG for a regular layout.
  *  mode: 'offset' (default) shows layout output, 'index' shows 1-D coordinate. */
 function buildLayoutSVG(shape, stride, mode) {
@@ -603,7 +610,7 @@ function buildLayoutSVG(shape, stride, mode) {
     }
   }
 
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="${svgFitStyle(W, H)}">
     <rect width="${W}" height="${H}" fill="white"/>
     ${body}
   </svg>`;
@@ -720,7 +727,7 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride) {
     }
   }
 
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="${svgFitStyle(W, H)}">
     <rect width="${W}" height="${H}" fill="white"/>
     ${body}
   </svg>`;
@@ -1336,7 +1343,7 @@ function buildHighlightedLayoutSVG(shape, stride, highlightSet, mode) {
     }
   }
 
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="${svgFitStyle(W, H)}">
     <rect width="${W}" height="${H}" fill="white"/>
     ${body}
   </svg>`;
@@ -1382,7 +1389,7 @@ function buildGridSVG(grid, M, N, mode) {
     }
   }
 
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="${svgFitStyle(W, H)}">
     <rect width="${W}" height="${H}" fill="white"/>
     ${body}
   </svg>`;

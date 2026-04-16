@@ -145,7 +145,7 @@ function buildLayoutSVG(shape, stride, mode) {
 }
 
 /** Build axis-label and grid SVG for a TV layout. */
-function buildTVSVG(tvShape, tvStride, tileShape, tileStride) {
+function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset) {
   if (!Array.isArray(tvShape) || tvShape.length < 2)
     throw new Error('TV layout must be rank 2: (num_threads, num_values):...');
 
@@ -179,7 +179,7 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride) {
       const m = Math.floor(idx / sm) % M;
       const n = Math.floor(idx / sn) % N;
       if (m >= 0 && m < M && n >= 0 && n < N) {
-        grid[m][n].push({ tid, vid });
+        grid[m][n].push({ tid, vid, offset: idx });
       }
     }
   }
@@ -188,19 +188,19 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride) {
   const margin = cs;
   const W      = margin + N * cs;
   const H      = margin + M * cs;
-  const fs     = Math.max(7, Math.min(12, Math.floor(cs * 0.26)));
+  const axisFs = Math.max(7, Math.min(12, Math.floor(cs * 0.26)));
 
   let body = '';
 
   for (let n = 0; n < N; n++) {
     const cx = margin + (n + 0.5) * cs;
     body += `<text x="${cx}" y="${margin * 0.55}" text-anchor="middle" dominant-baseline="middle"
-      fill="#555" font-size="${fs}" font-family="monospace">${n}</text>`;
+      fill="#555" font-size="${axisFs}" font-family="monospace">${n}</text>`;
   }
   for (let m = 0; m < M; m++) {
     const cy = margin + (m + 0.5) * cs;
     body += `<text x="${margin * 0.5}" y="${cy}" text-anchor="middle" dominant-baseline="middle"
-      fill="#555" font-size="${fs}" font-family="monospace">${m}</text>`;
+      fill="#555" font-size="${axisFs}" font-family="monospace">${m}</text>`;
   }
 
   for (let m = 0; m < M; m++) {
@@ -212,37 +212,26 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride) {
       if (entries.length === 0) {
         body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
           fill="#f0f0f0" stroke="#ccc" stroke-width="0.5"/>`;
-        body += `<text x="${x + cs/2}" y="${y + cs/2}" text-anchor="middle" dominant-baseline="middle"
-          fill="#bbb" font-size="${fs}" font-family="monospace">\u2014</text>`;
+        body += cellTextSVG(x + cs/2, y + cs/2, ['\u2014'], cs, '#bbb');
       } else if (entries.length === 1) {
-        const { tid, vid } = entries[0];
+        const { tid, vid, offset } = entries[0];
         const bg = colorTV(tid);
         body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
           fill="${bg}" stroke="#ccc" stroke-width="0.5"/>`;
-        body += `<text x="${x + cs/2}" y="${y + cs/2 - fs*0.65}" text-anchor="middle" dominant-baseline="middle"
-          fill="#111" font-size="${fs}" font-family="monospace">T${tid}</text>`;
-        body += `<text x="${x + cs/2}" y="${y + cs/2 + fs*0.65}" text-anchor="middle" dominant-baseline="middle"
-          fill="#111" font-size="${fs}" font-family="monospace">V${vid}</text>`;
+        const lines = [`T${tid}`, `V${vid}`];
+        if (showOffset) lines.push(`@${offset}`);
+        body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, '#111');
       } else {
         const bg = colorTV(entries[0].tid);
         body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
           fill="${bg}" stroke="#e53e3e" stroke-width="1.5"/>`;
-        const entryFs = Math.max(5, Math.min(fs, Math.floor(cs / (entries.length + 0.5) * 0.8)));
-        const lineH = entryFs * 1.25;
-        const maxFit = Math.max(1, Math.floor(cs / lineH));
-        const hasOverflow = entries.length > maxFit;
-        const showN = hasOverflow ? maxFit - 1 : entries.length;
-        const totalLines = showN + (hasOverflow ? 1 : 0);
-        const startY = y + (cs - totalLines * lineH) / 2 + lineH * 0.5;
-
-        for (let i = 0; i < showN; i++) {
-          body += `<text x="${x + cs/2}" y="${startY + i * lineH}" text-anchor="middle" dominant-baseline="middle"
-            fill="#111" font-size="${entryFs}" font-family="monospace">T${entries[i].tid}/V${entries[i].vid}</text>`;
+        const lines = [];
+        for (const e of entries) {
+          let label = `T${e.tid}/V${e.vid}`;
+          if (showOffset) label += `@${e.offset}`;
+          lines.push(label);
         }
-        if (hasOverflow) {
-          body += `<text x="${x + cs/2}" y="${startY + showN * lineH}" text-anchor="middle" dominant-baseline="middle"
-            fill="#555" font-size="${entryFs}" font-family="monospace">+${entries.length - showN}</text>`;
-        }
+        body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, '#111');
       }
     }
   }
@@ -384,6 +373,7 @@ function generateTabContent(id) {
         </div>
         <div id="${id}-layout-error" class="error-msg"></div>
         <button class="btn btn-render" onclick="renderLayout('${id}')">Render</button>
+        <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-layout-export" onclick="exportLayout('${id}')">Export URL</button>
 
         <div class="presets">
           <h3>Presets</h3>
@@ -447,6 +437,7 @@ function generateTabContent(id) {
         </div>
         <div id="${id}-tv-error" class="error-msg"></div>
         <button class="btn btn-render" onclick="renderTV('${id}')">Render</button>
+        <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-tv-export" onclick="exportTV('${id}')">Export URL</button>
 
         <div class="presets">
           <h3>Presets</h3>
@@ -480,6 +471,7 @@ function generateTabContent(id) {
         <div class="viz-header">
           <span class="viz-title" id="${id}-tv-title">&mdash;</span>
           <span style="display:flex;align-items:center;gap:8px">
+            <button class="mode-btn" id="${id}-tv-offset-btn" onclick="toggleTVOffset('${id}')">Show offset</button>
             <button class="btn" id="${id}-tv-svg-host-zoom" onclick="toggleZoom('${id}-tv-svg-host')">Zoom in</button>
             <button class="btn" onclick="downloadSVG('${id}-tv-svg-host', 'tv_layout.svg')">Download SVG</button>
           </span>
@@ -505,6 +497,7 @@ function generateTabContent(id) {
         </div>
         <div id="${id}-comp-error" class="error-msg"></div>
         <button class="btn btn-render" onclick="renderComposition('${id}')">Render</button>
+        <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-comp-export" onclick="exportComp('${id}')">Export URL</button>
 
         <div class="presets">
           <h3>Presets</h3>
@@ -617,6 +610,7 @@ function addOuterTab() {
 
   switchOuterTab(id);
   renderLayout(id);
+  return id;
 }
 
 function switchOuterTab(id) {
@@ -719,6 +713,8 @@ function setLayoutMode(tabId, mode) {
 
 // ── TV Layout tab ──
 
+const tvState = {};
+
 function renderTV(tabId) {
   showErr(`${tabId}-tv-error`, '');
   try {
@@ -731,12 +727,18 @@ function renderTV(tabId) {
     const M    = product(tileL.shape[0]);
     const N    = product(tileL.shape[1]);
 
+    const showOffset = tvState[tabId] ? tvState[tabId].showOffset : false;
+    tvState[tabId] = { tvL, tileL, showOffset };
+
     document.getElementById(`${tabId}-tv-title`).textContent =
       `${numT} threads \u00d7 ${numV} values  \u2014  ${M}\u00d7${N} tile`;
 
     document.getElementById(`${tabId}-tv-svg-host`).innerHTML =
-      buildTVSVG(tvL.shape, tvL.stride, tileL.shape, tileL.stride);
+      buildTVSVG(tvL.shape, tvL.stride, tileL.shape, tileL.stride, showOffset);
     applyZoomState(`${tabId}-tv-svg-host`);
+
+    const btn = document.getElementById(`${tabId}-tv-offset-btn`);
+    if (btn) btn.classList.toggle('active', showOffset);
 
     buildLegend(tabId, numT);
     updateOuterTabLabel(tabId, `TV-Layout:${tvInput.trim()}`);
@@ -745,6 +747,17 @@ function renderTV(tabId) {
     document.getElementById(`${tabId}-tv-svg-host`).innerHTML = '';
     document.getElementById(`${tabId}-tv-legend`).innerHTML = '';
   }
+}
+
+function toggleTVOffset(tabId) {
+  const s = tvState[tabId];
+  if (!s) return;
+  s.showOffset = !s.showOffset;
+  document.getElementById(`${tabId}-tv-svg-host`).innerHTML =
+    buildTVSVG(s.tvL.shape, s.tvL.stride, s.tileL.shape, s.tileL.stride, s.showOffset);
+  applyZoomState(`${tabId}-tv-svg-host`);
+  const btn = document.getElementById(`${tabId}-tv-offset-btn`);
+  if (btn) btn.classList.toggle('active', s.showOffset);
 }
 
 function buildLegend(tabId, numT) {
@@ -976,5 +989,92 @@ function downloadSVG(hostId, filename) {
   URL.revokeObjectURL(a.href);
 }
 
+// ═══════════════════════════════════════════════════════
+//  URL param: ?key={feature}-{input1}[-{input2}]
+//    layout-<shape:stride>
+//    tv-<tv_layout>-<tile>
+//    composition-<A>-<B>
+// ═══════════════════════════════════════════════════════
+
+const FEATURE_INPUT_COUNT = {
+  layout: 1,
+  tv: 2,
+  composition: 2,
+};
+
+function parseKeyParam() {
+  const key = new URLSearchParams(location.search).get('key');
+  if (!key) return null;
+  const parts = key.split('-');
+  if (parts.length < 2) return null;
+  const feature = parts[0];
+  const expected = FEATURE_INPUT_COUNT[feature];
+  if (expected === undefined || parts.length - 1 !== expected) return null;
+  return { feature, inputs: parts.slice(1) };
+}
+
+/** Build a shareable URL for the given feature and inputs, then copy to clipboard. */
+async function exportURL(btnId, feature, ...inputs) {
+  const key = [feature, ...inputs].join('-');
+  const url = location.origin + location.pathname +
+              '?' + new URLSearchParams({ key }).toString();
+  const btn = document.getElementById(btnId);
+  const showFeedback = (text) => {
+    if (!btn) return;
+    const orig = btn.textContent;
+    btn.textContent = text;
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  };
+  try {
+    await navigator.clipboard.writeText(url);
+    showFeedback('Copied!');
+  } catch (e) {
+    prompt('Copy this URL:', url);
+  }
+}
+
+function exportLayout(tabId) {
+  const val = document.getElementById(`${tabId}-layout-input`).value;
+  exportURL(`${tabId}-layout-export`, 'layout', val);
+}
+
+function exportTV(tabId) {
+  const tv = document.getElementById(`${tabId}-tv-layout-input`).value;
+  const tile = document.getElementById(`${tabId}-tv-tile-input`).value;
+  exportURL(`${tabId}-tv-export`, 'tv', tv, tile);
+}
+
+function exportComp(tabId) {
+  const a = document.getElementById(`${tabId}-comp-a-input`).value;
+  const b = document.getElementById(`${tabId}-comp-b-input`).value;
+  exportURL(`${tabId}-comp-export`, 'composition', a, b);
+}
+
+function applyKeyParam(tabId) {
+  const parsed = parseKeyParam();
+  if (!parsed) return;
+  const { feature, inputs } = parsed;
+  switch (feature) {
+    case 'layout':
+      document.getElementById(`${tabId}-layout-input`).value = inputs[0];
+      switchInnerTab(tabId, 'layout');
+      renderLayout(tabId);
+      break;
+    case 'tv':
+      document.getElementById(`${tabId}-tv-layout-input`).value = inputs[0];
+      document.getElementById(`${tabId}-tv-tile-input`).value = inputs[1];
+      switchInnerTab(tabId, 'tv');
+      renderTV(tabId);
+      break;
+    case 'composition':
+      document.getElementById(`${tabId}-comp-a-input`).value = inputs[0];
+      document.getElementById(`${tabId}-comp-b-input`).value = inputs[1];
+      switchInnerTab(tabId, 'composition');
+      renderComposition(tabId);
+      break;
+  }
+}
+
 // Initialize first tab on page load
-addOuterTab();
+const firstTabId = addOuterTab();
+applyKeyParam(firstTabId);

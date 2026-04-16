@@ -435,6 +435,19 @@ function generateTabContent(id) {
             <button class="btn" style="flex:1;font-size:0.75rem;padding:4px" onclick="setTileStride('${id}','col')">Col-major (1,M)</button>
           </div>
         </div>
+
+        <div class="form-group" style="border-top:1px solid #374151;padding-top:12px">
+          <label style="color:#93c5fd;letter-spacing:0.5px">&mdash; OR compute from thr/val &mdash;</label>
+        </div>
+        <div class="form-group">
+          <label>thr_layout</label>
+          <input type="text" id="${id}-tv-thr-input" value="" placeholder="e.g. (2, 3):(3, 1)">
+        </div>
+        <div class="form-group">
+          <label>val_layout</label>
+          <input type="text" id="${id}-tv-val-input" value="" placeholder="e.g. (2, 2):(2, 1)">
+        </div>
+        <button class="btn" style="width:100%;font-size:0.8rem" onclick="computeTVFromThrVal('${id}')">Compute TV + Tile from thr/val</button>
         <div id="${id}-tv-error" class="error-msg"></div>
         <button class="btn btn-render" onclick="renderTV('${id}')">Render</button>
         <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-tv-export" onclick="exportTV('${id}')">Export URL</button>
@@ -797,6 +810,55 @@ function setTileStride(tabId, mode) {
   }
 }
 
+/** Format a (possibly nested) shape/stride pair as CuTe-style "(...)":"(...)". */
+function formatLayoutStr(shape, stride) {
+  function fmt(x) {
+    if (typeof x === 'number') return String(x);
+    return '(' + x.map(fmt).join(',') + ')';
+  }
+  return `${fmt(shape)}:${fmt(stride)}`;
+}
+
+/** parseLayout normalizes to rank-2. Strip trailing (shape=1, stride=0) modes
+ *  to recover the user's intended rank. */
+function stripTrivialTrailing(shape, stride) {
+  if (!Array.isArray(shape)) return { shape, stride };
+  const s = shape.slice(), d = stride.slice();
+  while (s.length > 1 && s[s.length - 1] === 1 && d[d.length - 1] === 0) {
+    s.pop(); d.pop();
+  }
+  if (s.length === 1) return { shape: s[0], stride: d[0] };
+  return { shape: s, stride: d };
+}
+
+/** Fill TV Layout + Tile inputs from thr_layout and val_layout via make_layout_tv. */
+function computeTVFromThrVal(tabId) {
+  showErr(`${tabId}-tv-error`, '');
+  try {
+    const thrStr = document.getElementById(`${tabId}-tv-thr-input`).value;
+    const valStr = document.getElementById(`${tabId}-tv-val-input`).value;
+    const thrRaw = parseLayout(thrStr);
+    const valRaw = parseLayout(valStr);
+    const thrP = stripTrivialTrailing(thrRaw.shape, thrRaw.stride);
+    const valP = stripTrivialTrailing(valRaw.shape, valRaw.stride);
+    const thr = new Layout(thrP.shape, thrP.stride);
+    const val = new Layout(valP.shape, valP.stride);
+
+    const { tiler_mn, layout_tv } = make_layout_tv(thr, val);
+
+    const tvString = formatLayoutStr(layout_tv.shape, layout_tv.stride);
+    const [M, N] = tiler_mn;
+    // layout_tv outputs col-major flat indices into tiler_mn, so use col-major tile stride
+    const tileString = `(${M}, ${N}):(1, ${M})`;
+
+    document.getElementById(`${tabId}-tv-layout-input`).value = tvString;
+    document.getElementById(`${tabId}-tv-tile-input`).value = tileString;
+    renderTV(tabId);
+  } catch (e) {
+    showErr(`${tabId}-tv-error`, 'Failed to compute from thr/val: ' + e.message);
+  }
+}
+
 // ═══════════════════════════════════════════════════════
 //  Composition
 // ═══════════════════════════════════════════════════════
@@ -990,16 +1052,20 @@ function downloadSVG(hostId, filename) {
 }
 
 // ═══════════════════════════════════════════════════════
-//  URL param: ?key={feature}-{input1}[-{input2}]
+//  URL param: ?key={feature}[-{method}]-{input1}[-{input2}]
 //    layout-<shape:stride>
-//    tv-<tv_layout>-<tile>
+//    tv-1-<tv_layout>-<tile>       (method 1: direct TV + Tile)
+//    tv-2-<thr_layout>-<val_layout> (method 2: compute via make_layout_tv)
 //    composition-<A>-<B>
+//  Legacy accepted: tv-<tv_layout>-<tile>  (treated as method 1)
 // ═══════════════════════════════════════════════════════
 
-const FEATURE_INPUT_COUNT = {
-  layout: 1,
-  tv: 2,
-  composition: 2,
+// feature -> { expectedInputs, methods? }
+// If `methods` is set, the key must be "<feature>-<method>-<inputs...>".
+const FEATURE_SPEC = {
+  layout:      { inputs: 1 },
+  tv:          { inputs: 2, methods: ['1', '2'] },
+  composition: { inputs: 2 },
 };
 
 function parseKeyParam() {
@@ -1008,9 +1074,17 @@ function parseKeyParam() {
   const parts = key.split('-');
   if (parts.length < 2) return null;
   const feature = parts[0];
-  const expected = FEATURE_INPUT_COUNT[feature];
-  if (expected === undefined || parts.length - 1 !== expected) return null;
-  return { feature, inputs: parts.slice(1) };
+  const spec = FEATURE_SPEC[feature];
+  if (!spec) return null;
+
+  let method = null;
+  let inputs = parts.slice(1);
+  if (spec.methods && spec.methods.includes(parts[1])) {
+    method = parts[1];
+    inputs = parts.slice(2);
+  }
+  if (inputs.length !== spec.inputs) return null;
+  return { feature, method, inputs };
 }
 
 /** Build a shareable URL for the given feature and inputs, then copy to clipboard. */
@@ -1039,9 +1113,17 @@ function exportLayout(tabId) {
 }
 
 function exportTV(tabId) {
-  const tv = document.getElementById(`${tabId}-tv-layout-input`).value;
-  const tile = document.getElementById(`${tabId}-tv-tile-input`).value;
-  exportURL(`${tabId}-tv-export`, 'tv', tv, tile);
+  const thr = document.getElementById(`${tabId}-tv-thr-input`).value.trim();
+  const val = document.getElementById(`${tabId}-tv-val-input`).value.trim();
+  // If both thr_layout and val_layout are provided, prefer method 2
+  // (TV+Tile can be derived from them). Otherwise fall back to method 1.
+  if (thr && val) {
+    exportURL(`${tabId}-tv-export`, 'tv-2', thr, val);
+  } else {
+    const tv = document.getElementById(`${tabId}-tv-layout-input`).value;
+    const tile = document.getElementById(`${tabId}-tv-tile-input`).value;
+    exportURL(`${tabId}-tv-export`, 'tv-1', tv, tile);
+  }
 }
 
 function exportComp(tabId) {
@@ -1053,7 +1135,7 @@ function exportComp(tabId) {
 function applyKeyParam(tabId) {
   const parsed = parseKeyParam();
   if (!parsed) return;
-  const { feature, inputs } = parsed;
+  const { feature, method, inputs } = parsed;
   switch (feature) {
     case 'layout':
       document.getElementById(`${tabId}-layout-input`).value = inputs[0];
@@ -1061,10 +1143,18 @@ function applyKeyParam(tabId) {
       renderLayout(tabId);
       break;
     case 'tv':
-      document.getElementById(`${tabId}-tv-layout-input`).value = inputs[0];
-      document.getElementById(`${tabId}-tv-tile-input`).value = inputs[1];
       switchInnerTab(tabId, 'tv');
-      renderTV(tabId);
+      if (method === '2') {
+        // Method 2: thr_layout + val_layout → compute TV + Tile
+        document.getElementById(`${tabId}-tv-thr-input`).value = inputs[0];
+        document.getElementById(`${tabId}-tv-val-input`).value = inputs[1];
+        computeTVFromThrVal(tabId);
+      } else {
+        // Method 1 (or legacy `tv-<X>-<Y>`): direct TV + Tile
+        document.getElementById(`${tabId}-tv-layout-input`).value = inputs[0];
+        document.getElementById(`${tabId}-tv-tile-input`).value = inputs[1];
+        renderTV(tabId);
+      }
       break;
     case 'composition':
       document.getElementById(`${tabId}-comp-a-input`).value = inputs[0];

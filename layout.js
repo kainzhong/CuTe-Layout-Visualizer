@@ -754,3 +754,85 @@ function slice_and_offset(crd, layout) {
     crd2idx(crd, layout.shape, layout.stride)
   ];
 }
+
+
+// ═══════════════════════════════════════════════════════
+//  Additional helpers: zip, append_layout, product_each, raked_product, make_layout_tv
+//  (ported from include/cute/layout.hpp and include/cute/algorithm/tuple_algorithms.hpp)
+// ═══════════════════════════════════════════════════════
+
+// Return a rank(t) tuple `result` such that `result[i] = product(t[i])`
+// Matches product_each in include/cute/int_tuple.hpp:249
+function product_each(t) {
+  if (!is_tuple(t)) return [product(t)];
+  return t.map(ti => product(ti));
+}
+
+// Zip on a nested tuple: transpose rank-R0 x rank-R1 to rank-R1 x rank-R0
+// Take       ((a,b,c,...),(x,y,z,...),...)        rank-R0 x rank-R1 input
+// to produce ((a,x,...),(b,y,...),(c,z,...),...)  rank-R1 x rank-R0 output
+function zip_tuple(t) {
+  if (!is_tuple(t)) return t;
+  if (!is_tuple(t[0])) return [t];
+  const outerRank = t.length;
+  const innerRank = t[0].length;
+  for (const ti of t) {
+    assert(is_tuple(ti) && ti.length === innerRank, "Mismatched ranks in zip");
+  }
+  const result = [];
+  for (let j = 0; j < innerRank; j++) {
+    const entry = [];
+    for (let i = 0; i < outerRank; i++) entry.push(t[i][j]);
+    result.push(entry);
+  }
+  return result;
+}
+
+// Two-arg zip: zip(t0, t1) = zip_tuple([t0, t1])
+function zip_tuples(...ts) {
+  return zip_tuple(ts);
+}
+
+// Zip two or more layouts, pairing up mode i of each
+function zip_layouts(...layouts) {
+  const shapes  = layouts.map(l => l.shape);
+  const strides = layouts.map(l => l.stride);
+  return new Layout(zip_tuple(shapes), zip_tuple(strides));
+}
+
+// Append a layout to rank N by appending trivial modes (shape 1, stride 0)
+function append_layout(layout, N) {
+  const shape  = is_tuple(layout.shape)  ? layout.shape.slice()  : [layout.shape];
+  const stride = is_tuple(layout.stride) ? layout.stride.slice() : [layout.stride];
+  while (shape.length < N) { shape.push(1); stride.push(0); }
+  return new Layout(shape, stride);
+}
+
+// raked_product -- Reproduce a block over a tiler with block-interleaving.
+// Think of every element of "tiler" as a "block", interleave those blocks,
+//   and return the layout of the resulting structure.
+// post: rank(result) == max(rank(block), rank(tiler))
+// Port of include/cute/layout.hpp:1752
+function raked_product(block, tiler) {
+  const R = Math.max(block.rank(), tiler.rank());
+  const result = logical_product(append_layout(block, R), append_layout(tiler, R));
+  // zip(get<1>(result), get<0>(result)) -- tiler mode paired first, block mode second
+  return zip_layouts(result.mode(1), result.mode(0));
+}
+
+// Create a thread-value layout by repeating the val_layout over the thr_layout.
+// Returns { tiler_mn, layout_tv } where:
+//   tiler_mn  -- shape of the MN tile (e.g. [4, 6])
+//   layout_tv -- layout mapping (tid, vid) -> flat index into the MN tile
+// Port of make_layout_tv in python/CuTeDSL/cutlass/cute/core.py:4096
+function make_layout_tv(thr_layout, val_layout) {
+  // layout_mn maps (M, N) coords -> (thr_idx, val_idx)
+  const layout_mn = raked_product(thr_layout, val_layout);
+  const thr_size = size(thr_layout);
+  const val_size = size(val_layout);
+  const tmp = new Layout([thr_size, val_size]);          // auto col-major
+  // layout_tv maps (tid, vid) -> flat MN index (col-major into tiler_mn)
+  const layout_tv = composition(right_inverse(layout_mn), tmp);
+  const tiler_mn = product_each(layout_mn.shape);
+  return { tiler_mn, layout_tv };
+}

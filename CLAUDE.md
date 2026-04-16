@@ -9,17 +9,18 @@ index.html   Minimal HTML shell — just <header>, tab bar, and <script> tags
 style.css    All CSS (no dynamic values, purely static)
 cute.js      CuTe layout math, parser, and color utilities (pure logic, no DOM)
 ui.js        SVG generation, DOM manipulation, tab management, composition logic
-layout.js    Faithful port of python/pycute/layout.py + int_tuple.py (standalone, not loaded by index.html)
+layout.js    Port of python/pycute/layout.py + int_tuple.py, plus raked_product / make_layout_tv. Loaded by index.html.
 ```
 
 ## Dependency graph
 
 ```
-cute.js  (standalone, zero DOM references)
+cute.js   (standalone, zero DOM references)
+layout.js (pycute port; uses its own globals, overlaps harmlessly with cute.js on `product`/`crd2idx`)
   ↓
-ui.js    (depends on all cute.js globals; touches DOM)
+ui.js     (depends on cute.js and layout.js globals; touches DOM)
   ↓
-index.html loads cute.js first, then ui.js
+index.html loads cute.js, layout.js, ui.js in order
 ```
 
 No module system — all functions are plain globals on `window`. The `onclick` attributes in HTML (both static in `index.html` and dynamic in `generateTabContent()`) reference global functions from `ui.js`.
@@ -39,11 +40,12 @@ No module system — all functions are plain globals on `window`. The `onclick` 
 - **Composition tab**: `renderComposition`, `renderCompGrid`, `setCompMode`, `setComp` — handles both single-layout and tiler (by-mode) composition
 - **Utilities**: `showErr`, `updateOuterTabLabel`, `updateModeBtns`, `downloadSVG`
 
-### layout.js — faithful port of pycute Layout
-Port of `python/pycute/int_tuple.py` and `python/pycute/layout.py`. Not loaded by `index.html` — it's a standalone library.
+### layout.js — pycute port + make_layout_tv
+Port of `python/pycute/int_tuple.py` and `python/pycute/layout.py`, plus a few helpers ported from `include/cute/layout.hpp` and `python/CuTeDSL/cutlass/cute/core.py`. Loaded by `index.html`.
 - **Int tuple helpers**: `is_int`, `is_tuple`, `flatten`, `product`, `prefix_product`, `crd2idx`, `idx2crd`, `shape_div`, `slice_`, `has_none`
 - **Layout class**: `new Layout(shape, stride)`, `.call(...args)` (Python `__call__`), `.mode(i)` (Python `__getitem__`), `.rank()`, `.size()`, `.cosize()`
 - **Layout functions**: `make_layout`, `coalesce`, `filter`, `composition`, `complement`, `right_inverse`, `left_inverse`, `logical_divide`, `logical_product`, `zipped_divide`, `tiled_divide`, `zipped_product`, `tiled_product`, `slice_and_offset`
+- **Extra**: `product_each`, `zip_tuple`, `zip_layouts`, `append_layout`, `raked_product`, `make_layout_tv`
 
 ### style.css — look here for layout/styling issues
 All styling. Key sections: outer tab bar, inner tabs, controls panel, viz-box, composition 2x2 grid, mode-btn-group.
@@ -56,3 +58,15 @@ Each SVG grid supports 3 cell-label modes via the value/index/coord button group
 - **value**: `layout(i)` — the mapped output value
 - **index**: flat 1-D coordinate (`m + n*M`, column-major)
 - **coord**: `(m, n)` — the 2D grid coordinates
+
+## Shareable URLs (export / import)
+The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link into a visualization. Example:
+```
+?key=composition-(4,4):(4,1)-(2,2):(1,2)
+?key=tv-1-(32,4):(1,32)-(8,16):(16,1)
+?key=tv-2-(2,3):(3,1)-(2,2):(2,1)
+```
+- Parsing is in `parseKeyParam()` (driven by the `FEATURE_SPEC` table) and rendering is in `applyKeyParam()`.
+- Export buttons live next to each Render button and call `exportURL(btnId, feature, ...inputs)`.
+
+**Convention for new features: every feature MUST support both import (via `FEATURE_SPEC` + `applyKeyParam`) and export (an "Export URL" button + an `exportXxx` function).** When a feature has multiple input methods (like TV Layout does with direct TV+Tile vs thr/val), use a numeric method suffix: `tv-1`, `tv-2`, etc. List the allowed methods under `methods: [...]` in `FEATURE_SPEC`.

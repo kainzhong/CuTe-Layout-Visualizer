@@ -196,6 +196,17 @@ textarea:focus { outline: none; border-color: #3b82f6; }
   border-radius: 4px;
   padding: 6px 8px;
 }
+.warning-msg {
+  color: #fbbf24;
+  font-size: 0.78rem;
+  margin-top: 6px;
+  display: none;
+  background: #2a231a;
+  border: 1px solid #78590d;
+  border-radius: 4px;
+  padding: 6px 8px;
+  line-height: 1.4;
+}
 
 /* ── Presets ── */
 .presets { margin-top: 20px; border-top: 1px solid #374151; padding-top: 16px; }

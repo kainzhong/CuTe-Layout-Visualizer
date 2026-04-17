@@ -407,11 +407,8 @@ function generateTabContent(id) {
     <div id="${id}-tab-layout" class="panel active">
       <div class="controls">
         <h2>Layout</h2>
-        <div class="form-group">
-          <label>Shape : Stride</label>
-          <input type="text" id="${id}-layout-input" value="(10, 10):(1, 10)">
-        </div>
-        <div id="${id}-layout-error" class="error-msg"></div>
+        ${layoutInputField({ id: `${id}-layout-input`, label: 'Shape : Stride', value: '(10, 10):(1, 10)' })}
+        ${statusDivs(`${id}-layout`)}
         <button class="btn btn-render" onclick="renderLayout('${id}')">Render</button>
         <button class="btn btn-render" style="margin-top:6px;background:#111827;display:none" id="${id}-layout-inverse-btn" onclick="toggleLayoutInverse('${id}')">Render Inverse</button>
         <div id="${id}-layout-inverse-info" class="comp-result-box"></div>
@@ -463,16 +460,17 @@ function generateTabContent(id) {
     <div id="${id}-tab-tv" class="panel">
       <div class="controls">
         <h2>TV Layout</h2>
-        <div class="form-group">
-          <label>TV Layout &mdash; (num_threads, num_values):(t_stride, v_stride)</label>
-          <input type="text" id="${id}-tv-layout-input" value="(32, 4):(1, 32)">
-        </div>
-        <div class="form-group">
-          <label>Tile &mdash; (M, N):(stride_M, stride_N)
-            <span style="color:#6b7280;font-weight:normal"> &mdash; CuTe uses col-major (1, M)</span>
-          </label>
-          <input type="text" id="${id}-tv-tile-input" value="(8, 16):(1, 8)">
-        </div>
+        ${layoutInputField({
+          id: `${id}-tv-layout-input`,
+          label: 'TV Layout &mdash; (num_threads, num_values):(t_stride, v_stride)',
+          value: '(32, 4):(1, 32)'
+        })}
+        ${layoutInputField({
+          id: `${id}-tv-tile-input`,
+          label: 'Tile &mdash; (M, N):(stride_M, stride_N)',
+          hint: 'CuTe uses col-major (1, M)',
+          value: '(8, 16):(1, 8)'
+        })}
 
         <div class="form-group">
           <label>Underlying data is</label>
@@ -490,16 +488,10 @@ function generateTabContent(id) {
         <div class="form-group" style="border-top:1px solid #374151;padding-top:12px">
           <label style="color:#93c5fd;letter-spacing:0.5px">&mdash; OR compute from thr/val &mdash;</label>
         </div>
-        <div class="form-group">
-          <label>thr_layout</label>
-          <input type="text" id="${id}-tv-thr-input" value="" placeholder="e.g. (2, 3):(3, 1)">
-        </div>
-        <div class="form-group">
-          <label>val_layout</label>
-          <input type="text" id="${id}-tv-val-input" value="" placeholder="e.g. (2, 2):(2, 1)">
-        </div>
+        ${layoutInputField({ id: `${id}-tv-thr-input`, label: 'thr_layout', value: '', placeholder: 'e.g. (2, 3):(3, 1)' })}
+        ${layoutInputField({ id: `${id}-tv-val-input`, label: 'val_layout', value: '', placeholder: 'e.g. (2, 2):(2, 1)' })}
         <button class="btn" style="width:100%;font-size:0.8rem" onclick="computeTVFromThrVal('${id}')">Compute TV + Tile from thr/val</button>
-        <div id="${id}-tv-error" class="error-msg"></div>
+        ${statusDivs(`${id}-tv`)}
         <button class="btn btn-render" onclick="renderTV('${id}')">Render</button>
         <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-tv-export" onclick="exportTV('${id}')">Export URL</button>
 
@@ -551,15 +543,9 @@ function generateTabContent(id) {
     <div id="${id}-tab-composition" class="panel">
       <div class="controls">
         <h2>Composition &amp; Complement</h2>
-        <div class="form-group">
-          <label>Layout A &mdash; the outer layout</label>
-          <input type="text" id="${id}-comp-a-input" value="(4, 4):(4, 1)">
-        </div>
-        <div class="form-group">
-          <label>Layout B &mdash; layout or tiler (one layout per line for by-mode tiler)</label>
-          <textarea id="${id}-comp-b-input" rows="2">(2, 2):(1, 2)</textarea>
-        </div>
-        <div id="${id}-comp-error" class="error-msg"></div>
+        ${layoutInputField({ id: `${id}-comp-a-input`, label: 'Layout A &mdash; the outer layout', value: '(4, 4):(4, 1)' })}
+        ${layoutInputField({ id: `${id}-comp-b-input`, label: 'Layout B &mdash; layout or tiler (one layout per line for by-mode tiler)', value: '(2, 2):(1, 2)', textarea: true, rows: 2 })}
+        ${statusDivs(`${id}-comp`)}
         <div id="${id}-comp-result" class="comp-result-box"></div>
         <button class="btn btn-render" onclick="renderComposition('${id}')">Render</button>
         <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-comp-complement-btn" onclick="toggleComplement('${id}')">Render complement</button>
@@ -675,15 +661,9 @@ function generateTabContent(id) {
     <div id="${id}-tab-complement" class="panel">
       <div class="controls">
         <h2>Complement</h2>
-        <div class="form-group">
-          <label>Layout &mdash; the inner layout to tile</label>
-          <input type="text" id="${id}-cpl-layout-input" value="(2, 2):(1, 2)">
-        </div>
-        <div class="form-group">
-          <label>Cotarget &mdash; layout or shape defining the codomain to cover</label>
-          <input type="text" id="${id}-cpl-cotarget-input" value="(4, 4):(1, 4)">
-        </div>
-        <div id="${id}-cpl-error" class="error-msg"></div>
+        ${layoutInputField({ id: `${id}-cpl-layout-input`, label: 'Layout &mdash; the inner layout to tile', value: '(2, 2):(1, 2)' })}
+        ${layoutInputField({ id: `${id}-cpl-cotarget-input`, label: 'Cotarget &mdash; layout or shape defining the codomain to cover', value: '(4, 4):(1, 4)' })}
+        ${statusDivs(`${id}-cpl`)}
         <div id="${id}-cpl-result" class="comp-result-box"></div>
         <button class="btn btn-render" onclick="renderComplementFeature('${id}')">Render</button>
         <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-cpl-export" onclick="exportCpl('${id}')">Export URL</button>
@@ -826,6 +806,86 @@ function showErr(id, msg) {
   el.style.display = msg ? 'block' : 'none';
 }
 
+function showWarn(id, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
+/** True if the layout string has an outer rank > 2 (e.g. "(2,3,4):(1,2,6)").
+ *  The visualizer collapses such inputs to a rank-2 column for display. */
+function isHighRankLayout(str) {
+  try {
+    str = (str || '').trim();
+    if (!str) return false;
+    const ci = topLevelColon(str);
+    const shapePart = ci === -1 ? str : str.slice(0, ci).trim();
+    const shape = parseValue(shapePart);
+    return Array.isArray(shape) && shape.length > 2;
+  } catch (e) {
+    return false;
+  }
+}
+
+/** Check a list of [name, str] input pairs and return names of any high-rank ones. */
+function collectHighRank(inputs) {
+  const offenders = [];
+  for (const [name, str] of inputs) {
+    if (isHighRankLayout(str)) offenders.push(name);
+  }
+  return offenders;
+}
+
+// ═══════════════════════════════════════════════════════
+//  Layout input component — reusable across tabs.
+//
+//  ANY tab that accepts a layout/shape string should use `layoutInputField()`
+//  to render the input, follow it with `statusDivs()` for the error + warning
+//  panels, and call `updateRankWarning()` in its render function to flag
+//  rank > 2 inputs. See CLAUDE.md for the full convention.
+// ═══════════════════════════════════════════════════════
+
+/** HTML for a layout-aware input field.
+ *  opts: { id, label, value?, hint?, textarea?, rows?, placeholder? } */
+function layoutInputField(opts) {
+  const {
+    id, label, value = '', hint = '', textarea = false, rows = 2, placeholder = ''
+  } = opts;
+  const hintSpan = hint
+    ? ` <span style="color:#6b7280;font-weight:normal">&mdash; ${hint}</span>`
+    : '';
+  const phAttr = placeholder ? ` placeholder="${placeholder}"` : '';
+  const field = textarea
+    ? `<textarea id="${id}" rows="${rows}"${phAttr}>${value}</textarea>`
+    : `<input type="text" id="${id}" value="${value}"${phAttr}>`;
+  return `<div class="form-group">
+      <label>${label}${hintSpan}</label>
+      ${field}
+    </div>`;
+}
+
+/** HTML for the standard error + rank-warning div pair. Use `${prefix}` where
+ *  your render function calls `showErr('${prefix}-error', ...)` and
+ *  `updateRankWarning('${prefix}-warning', ...)`. */
+function statusDivs(prefix) {
+  return `<div id="${prefix}-error" class="error-msg"></div>
+    <div id="${prefix}-warning" class="warning-msg"></div>`;
+}
+
+/** Show the rank-warning for a tab if any inputs have rank > 2. */
+function updateRankWarning(warnId, inputs) {
+  const offenders = collectHighRank(inputs);
+  if (offenders.length === 0) {
+    showWarn(warnId, '');
+  } else {
+    showWarn(warnId,
+      `Note: ${offenders.join(', ')} has rank > 2. The math is still correct, ` +
+      `but the visualization is designed for 1D/2D layouts and may not faithfully ` +
+      `show the multi-dimensional structure (it gets flattened to a 2D grid).`);
+  }
+}
+
 function updateOuterTabLabel(tabId, text) {
   const label = document.getElementById(`${tabId}-label`);
   if (label) label.textContent = text;
@@ -849,6 +909,7 @@ function renderLayout(tabId) {
   showErr(`${tabId}-layout-error`, '');
   try {
     const inputVal = document.getElementById(`${tabId}-layout-input`).value;
+    updateRankWarning(`${tabId}-layout-warning`, [['Layout', inputVal]]);
     let { shape, stride } = parseLayout(inputVal);
     const [M, N] = productEach(shape);
 
@@ -958,8 +1019,12 @@ function renderTV(tabId) {
   showErr(`${tabId}-tv-error`, '');
   try {
     const tvInput = document.getElementById(`${tabId}-tv-layout-input`).value;
+    const tileInput = document.getElementById(`${tabId}-tv-tile-input`).value;
+    updateRankWarning(`${tabId}-tv-warning`, [
+      ['TV layout', tvInput], ['Tile', tileInput]
+    ]);
     const tvL   = parseLayout(tvInput);
-    const tileL = parseLayout(document.getElementById(`${tabId}-tv-tile-input`).value);
+    const tileL = parseLayout(tileInput);
 
     const numT = product(tvL.shape[0]);
     const numV = product(tvL.shape[1]);
@@ -1124,6 +1189,11 @@ function renderComposition(tabId) {
 
     const bLines = bRaw.split('\n').map(s => s.trim()).filter(s => s.length > 0);
     if (bLines.length === 0) throw new Error('B input is empty');
+
+    // Warn if any input has outer rank > 2
+    const warnInputs = [['A', aInput]];
+    bLines.forEach((line, i) => warnInputs.push([bLines.length > 1 ? `B[${i}]` : 'B', line]));
+    updateRankWarning(`${tabId}-comp-warning`, warnInputs);
 
     const isTiler = bLines.length > 1;
     let rGrid, highlightSet, M_R, N_R, bL, bLayouts;
@@ -1455,6 +1525,9 @@ function renderComplementFeature(tabId) {
   try {
     const lStr = document.getElementById(`${tabId}-cpl-layout-input`).value;
     const ctStr = document.getElementById(`${tabId}-cpl-cotarget-input`).value;
+    updateRankWarning(`${tabId}-cpl-warning`, [
+      ['Layout', lStr], ['Cotarget', ctStr]
+    ]);
 
     // Parse L and cotarget; cotarget can be shape-only or full layout
     const lParsed = parseLayout(lStr);

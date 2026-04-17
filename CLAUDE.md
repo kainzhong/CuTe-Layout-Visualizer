@@ -71,3 +71,27 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 - Export buttons live next to each Render button and call `exportURL(btnId, feature, ...inputs)`.
 
 **Convention for new features: every feature MUST support both import (via `FEATURE_SPEC` + `applyKeyParam`) and export (an "Export URL" button + an `exportXxx` function).** When a feature has multiple input methods (like TV Layout does with direct TV+Tile vs thr/val), use a numeric method suffix: `tv-1`, `tv-2`, etc. List the allowed methods under `methods: [...]` in `FEATURE_SPEC`.
+
+## Layout input convention (rank warnings)
+
+The visualizer renders 2D grids, so any layout with outer rank > 2 (e.g. `(2,3,4):(1,2,6)`) renders value-correct but structurally-misleading. **Every tab that accepts layout-syntax input MUST surface this caveat** using the shared input component:
+
+1. **HTML**: use `layoutInputField({ id, label, value, hint?, textarea?, rows?, placeholder? })` for every layout/shape input. Do NOT hand-roll `<input>`/`<textarea>` blocks for layout inputs.
+2. **HTML (status)**: after the inputs, emit `statusDivs(prefix)` which renders the standard error + rank-warning pair (`${prefix}-error`, `${prefix}-warning`).
+3. **JS (render)**: in the render function, call `updateRankWarning('${prefix}-warning', [[label1, val1], [label2, val2], ...])` with every layout input. It shows an amber note naming the offending fields when any has rank > 2.
+
+Both helpers live in `ui.js` near `showErr`. Example:
+
+```js
+// HTML (inside generateTabContent):
+${layoutInputField({ id: `${id}-mything-input`, label: 'My Layout', value: '(4,4):(1,4)' })}
+${layoutInputField({ id: `${id}-mything-other`, label: 'Other', value: '' })}
+${statusDivs(`${id}-mything`)}
+
+// JS (inside renderMyThing):
+const a = document.getElementById(`${tabId}-mything-input`).value;
+const b = document.getElementById(`${tabId}-mything-other`).value;
+updateRankWarning(`${tabId}-mything-warning`, [['My Layout', a], ['Other', b]]);
+```
+
+This is enforced by convention, not by the framework — if you add a new layout-input without these calls, the warning simply won't appear and the user won't know their rank-3 input is being flattened.

@@ -37,7 +37,8 @@ No module system — all functions are plain globals on `window`. The `onclick` 
 - **Tab management**: `generateTabContent` (the big HTML template), `addOuterTab`, `switchOuterTab`, `closeOuterTab`, `switchInnerTab`
 - **Layout tab**: `renderLayout`, `setLayoutMode`, `setL`
 - **TV tab**: `renderTV`, `buildLegend`, `setTV`, `setTileStride`
-- **Composition tab**: `renderComposition`, `renderCompGrid`, `setCompMode`, `setComp`, `renderComplement` — handles single-layout and tiler (by-mode) composition, plus optional `complement(R, A)` visualization with amber anchor-cell edges in "A highlighted by B"
+- **Composition tab**: `renderComposition`, `renderCompGrid`, `setCompMode`, `setComp`, `toggleComplement` — handles single-layout and tiler (by-mode) composition, plus optional `complement(R, A)` visualization with anchor-cell edges and faded shifted-tile copies
+- **Complement tab**: `renderComplementFeature`, `renderCplGrid`, `setCplMode`, `setCpl`, `exportCpl` — standalone `complement(L, size(cotarget))` visualization; cotarget is a layout or shape that defines the codomain to cover
 - **Utilities**: `showErr`, `updateOuterTabLabel`, `updateModeBtns`, `downloadSVG`
 
 ### layout.js — pycute port + make_layout_tv

@@ -836,3 +836,19 @@ function make_layout_tv(thr_layout, val_layout) {
   const tiler_mn = product_each(layout_mn.shape);
   return { tiler_mn, layout_tv };
 }
+
+/** Check if a layout is bijective over its full codomain [0, size(layout)).
+ *  Sorted leaf (stride, shape) pairs must form a gap-free basis from stride 1. */
+function isBijective(layout) {
+  const shapes = flatten(layout.shape);
+  const strides = flatten(layout.stride);
+  const pairs = shapes.map((s, i) => [strides[i], s])
+                      .filter(([_, s]) => s > 1);
+  pairs.sort((a, b) => a[0] - b[0]);
+  let current = 1;
+  for (const [stride, shape] of pairs) {
+    if (stride !== current) return false;  // gap or stride-0 collision
+    current *= shape;
+  }
+  return current === layout.size();
+}

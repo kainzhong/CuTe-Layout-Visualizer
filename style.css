@@ -169,7 +169,22 @@ textarea:focus { outline: none; border-color: #3b82f6; }
   transition: background 0.15s, color 0.15s;
 }
 .btn:hover { background: #3b82f6; color: #fff; }
+.btn.active { background: #3b82f6; color: #fff; border-color: #60a5fa; }
 .btn-render { width: 100%; margin-top: 4px; padding: 9px; font-weight: 600; }
+
+.comp-result-box {
+  display: none;
+  margin: 8px 0;
+  padding: 8px 10px;
+  background: #111827;
+  border: 1px solid #1e3a5f;
+  border-radius: 5px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.8rem;
+  color: #93c5fd;
+  word-break: break-all;
+}
+.comp-result-box.visible { display: block; }
 
 .error-msg {
   color: #f87171;

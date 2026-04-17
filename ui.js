@@ -145,8 +145,11 @@ function buildLayoutSVG(shape, stride, mode) {
 }
 
 /** Build axis-label and grid SVG for a TV layout. */
-function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underlyingLayout) {
+function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underlyingLayout, highlightTid) {
   underlyingLayout = underlyingLayout || 'col';
+  // highlightTid is a number or null. When set, only cells whose entries
+  // include that tid are shown in full color; all others are dimmed.
+  if (highlightTid === undefined) highlightTid = null;
   if (!Array.isArray(tvShape) || tvShape.length < 2)
     throw new Error('TV layout must be rank 2: (num_threads, num_values):...');
 
@@ -212,6 +215,10 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underl
       const x = margin + n * cs;
       const y = margin + m * cs;
       const entries = grid[m][n];
+      // If a highlight tid is set and no entry in this cell matches, dim it.
+      const dimmed = highlightTid !== null
+        && entries.length > 0
+        && !entries.some(e => e.tid === highlightTid);
 
       if (entries.length === 0) {
         body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
@@ -219,23 +226,27 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underl
         body += cellTextSVG(x + cs/2, y + cs/2, ['\u2014'], cs, '#bbb');
       } else if (entries.length === 1) {
         const { tid, vid, offset } = entries[0];
-        const bg = colorTV(tid);
+        const bg = dimmed ? '#f0f0f0' : colorTV(tid);
+        const fg = dimmed ? '#bbb' : '#111';
         body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
           fill="${bg}" stroke="#ccc" stroke-width="0.5"/>`;
         const lines = [`T${tid}`, `V${vid}`];
         if (showOffset) lines.push(`@${offset}`);
-        body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, '#111');
+        body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fg);
       } else {
-        const bg = colorTV(entries[0].tid);
+        const bg = dimmed ? '#f0f0f0' : colorTV(entries[0].tid);
+        const fg = dimmed ? '#bbb' : '#111';
+        const stroke = dimmed ? '#ccc' : '#e53e3e';
+        const sw = dimmed ? 0.5 : 1.5;
         body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
-          fill="${bg}" stroke="#e53e3e" stroke-width="1.5"/>`;
+          fill="${bg}" stroke="${stroke}" stroke-width="${sw}"/>`;
         const lines = [];
         for (const e of entries) {
           let label = `T${e.tid}/V${e.vid}`;
           if (showOffset) label += `@${e.offset}`;
           lines.push(label);
         }
-        body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, '#111');
+        body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fg);
       }
     }
   }
@@ -247,7 +258,7 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underl
 }
 
 /** Like buildLayoutSVG but cells NOT in highlightSet are greyed out. */
-function buildHighlightedLayoutSVG(shape, stride, highlightSet, mode) {
+function buildHighlightedLayoutSVG(shape, stride, highlightSet, mode, edgeSet, shadowMap) {
   const modes = toModeSet(mode);
   const [M, N] = productEach(shape);
   if (M * N > MAX_CELLS) return errSVG(`Grid too large: ${M}x${N}`);
@@ -279,16 +290,40 @@ function buildHighlightedLayoutSVG(shape, stride, highlightSet, mode) {
       const x = margin + n * cs;
       const y = margin + m * cs;
       const lit = highlightSet.has(flatPos);
+      const shadowSrc = (!lit && shadowMap) ? shadowMap.get(idx) : undefined;
+      const inShadow = shadowSrc !== undefined;
 
-      const bg = lit ? colorHighlight(idx) : '#e8e8e8';
-      const fg = lit ? textOnBG(bg) : '#bbb';
-      const stroke = lit ? '#1e3a5f' : '#ddd';
-      const sw = lit ? 2 : 0.5;
+      let bg, fg, stroke, sw, fillOpacity;
+      if (lit) {
+        bg = colorHighlight(idx);
+        fg = textOnBG(bg);
+        stroke = '#1e3a5f';
+        sw = 2;
+        fillOpacity = 1;
+      } else if (inShadow) {
+        // Same color as the corresponding cell in the original R tile, faded
+        bg = colorHighlight(shadowSrc);
+        fg = '#555';
+        stroke = '#ccc';
+        sw = 0.5;
+        fillOpacity = 0.35;
+      } else {
+        bg = '#e8e8e8';
+        fg = '#bbb';
+        stroke = '#ddd';
+        sw = 0.5;
+        fillOpacity = 1;
+      }
 
       body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
-        fill="${bg}" stroke="${stroke}" stroke-width="${sw}"/>`;
+        fill="${bg}" fill-opacity="${fillOpacity}" stroke="${stroke}" stroke-width="${sw}"/>`;
       const lines = buildCellLines(modes, idx, flatPos, `(${m},${n})`);
       body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fg);
+      // If this cell's offset is in the edge set (complement anchor), draw an edge marker
+      if (edgeSet && edgeSet.has(idx)) {
+        body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
+          fill="none" stroke="#f59e0b" stroke-width="3"/>`;
+      }
     }
   }
 
@@ -444,6 +479,11 @@ function generateTabContent(id) {
           </div>
         </div>
 
+        <div class="form-group">
+          <label>Highlight thread (empty = none)</label>
+          <input type="text" id="${id}-tv-highlight-tid" value="" placeholder="e.g. 3" oninput="setHighlightTid('${id}')">
+        </div>
+
         <div class="form-group" style="border-top:1px solid #374151;padding-top:12px">
           <label style="color:#93c5fd;letter-spacing:0.5px">&mdash; OR compute from thr/val &mdash;</label>
         </div>
@@ -507,7 +547,7 @@ function generateTabContent(id) {
     <!-- Composition panel -->
     <div id="${id}-tab-composition" class="panel">
       <div class="controls">
-        <h2>Composition</h2>
+        <h2>Composition &amp; Complement</h2>
         <div class="form-group">
           <label>Layout A &mdash; the outer layout</label>
           <input type="text" id="${id}-comp-a-input" value="(4, 4):(4, 1)">
@@ -517,7 +557,9 @@ function generateTabContent(id) {
           <textarea id="${id}-comp-b-input" rows="2">(2, 2):(1, 2)</textarea>
         </div>
         <div id="${id}-comp-error" class="error-msg"></div>
+        <div id="${id}-comp-result" class="comp-result-box"></div>
         <button class="btn btn-render" onclick="renderComposition('${id}')">Render</button>
+        <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-comp-complement-btn" onclick="toggleComplement('${id}')">Render complement</button>
         <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-comp-export" onclick="exportComp('${id}')">Export URL</button>
 
         <div class="presets">
@@ -605,6 +647,23 @@ function generateTabContent(id) {
             </span>
           </div>
           <div class="viz-box"><div id="${id}-comp-r-svg"></div></div>
+        </div>
+      </div>
+
+      <div id="${id}-comp-complement-section" style="display:none;margin-top:16px;width:100%">
+        <div class="comp-viz-item">
+          <div class="comp-viz-header">
+            <span class="comp-viz-label">Complement layout &mdash; tiles R over A to cover the full coordinate space</span>
+            <span style="display:flex;align-items:center;gap:4px">
+              <span class="mode-btn-group" id="${id}-comp-complement-mode-btns">
+                <button class="mode-btn active" onclick="setCompMode('${id}','complement','value')">value</button>
+                <button class="mode-btn" onclick="setCompMode('${id}','complement','index')">index</button>
+                <button class="mode-btn" onclick="setCompMode('${id}','complement','coord')">coord</button>
+              </span>
+              <button class="mode-btn" id="${id}-comp-complement-svg-zoom" onclick="toggleZoom('${id}-comp-complement-svg')">Zoom in</button>
+            </span>
+          </div>
+          <div class="viz-box"><div id="${id}-comp-complement-svg"></div></div>
         </div>
       </div>
     </div>
@@ -751,13 +810,19 @@ function renderTV(tabId) {
     const prev = tvState[tabId] || {};
     const showOffset = prev.showOffset || false;
     const underlyingLayout = prev.underlyingLayout || 'col';
+    // Read the highlight-thread input; empty or invalid → null (no filter).
+    const highlightRaw = document.getElementById(`${tabId}-tv-highlight-tid`).value.trim();
+    const highlightTid = highlightRaw === '' ? null : parseInt(highlightRaw, 10);
+    const highlightValid = highlightTid !== null && !isNaN(highlightTid);
     tvState[tabId] = { tvL, tileL, showOffset, underlyingLayout };
 
+    const titleHL = highlightValid ? `  \u2014  highlight T${highlightTid}` : '';
     document.getElementById(`${tabId}-tv-title`).textContent =
-      `${numT} threads \u00d7 ${numV} values  \u2014  ${M}\u00d7${N} tile (${underlyingLayout}-major data)`;
+      `${numT} threads \u00d7 ${numV} values  \u2014  ${M}\u00d7${N} tile (${underlyingLayout}-major data)${titleHL}`;
 
     document.getElementById(`${tabId}-tv-svg-host`).innerHTML =
-      buildTVSVG(tvL.shape, tvL.stride, tileL.shape, tileL.stride, showOffset, underlyingLayout);
+      buildTVSVG(tvL.shape, tvL.stride, tileL.shape, tileL.stride, showOffset, underlyingLayout,
+                 highlightValid ? highlightTid : null);
     applyZoomState(`${tabId}-tv-svg-host`);
 
     const btn = document.getElementById(`${tabId}-tv-offset-btn`);
@@ -787,11 +852,12 @@ function toggleTVOffset(tabId) {
   const s = tvState[tabId];
   if (!s) return;
   s.showOffset = !s.showOffset;
-  document.getElementById(`${tabId}-tv-svg-host`).innerHTML =
-    buildTVSVG(s.tvL.shape, s.tvL.stride, s.tileL.shape, s.tileL.stride, s.showOffset, s.underlyingLayout);
-  applyZoomState(`${tabId}-tv-svg-host`);
-  const btn = document.getElementById(`${tabId}-tv-offset-btn`);
-  if (btn) btn.classList.toggle('active', s.showOffset);
+  renderTV(tabId);
+}
+
+/** Re-render when the highlight-thread input changes (live update). */
+function setHighlightTid(tabId) {
+  if (tvState[tabId] && tvState[tabId].tvL) renderTV(tabId);
 }
 
 function buildLegend(tabId, numT) {
@@ -869,8 +935,9 @@ function computeTVFromThrVal(tabId) {
 
     const tvString = formatLayoutStr(layout_tv.shape, layout_tv.stride);
     const [M, N] = tiler_mn;
-    // layout_tv outputs col-major flat indices into tiler_mn, so use col-major tile stride
-    const tileString = `(${M}, ${N}):(1, ${M})`;
+    // layout_tv outputs col-major flat indices into tiler_mn. parseLayout
+    // defaults shape-only inputs to col-major strides (1, M), so emit the shape.
+    const tileString = `(${M}, ${N})`;
 
     document.getElementById(`${tabId}-tv-layout-input`).value = tvString;
     document.getElementById(`${tabId}-tv-tile-input`).value = tileString;
@@ -982,9 +1049,16 @@ function renderComposition(tabId) {
       rGrid, highlightSet, M_R, N_R,
       modes: {
         a: new Set(['value']), b: new Set(['value']),
-        highlight: new Set(['value']), r: new Set(['value'])
+        highlight: new Set(['value']), r: new Set(['value']),
+        complement: new Set(['value'])
       }
     };
+
+    // Hide complement section on fresh render; user must click "Render complement"
+    const compSection = document.getElementById(`${tabId}-comp-complement-section`);
+    if (compSection) compSection.style.display = 'none';
+    const compBtn = document.getElementById(`${tabId}-comp-complement-btn`);
+    if (compBtn) { compBtn.textContent = 'Render complement'; compBtn.classList.remove('active'); }
 
     document.getElementById(`${tabId}-comp-a-title`).textContent = `A: ${aInput.trim()}`;
     document.getElementById(`${tabId}-comp-b-title`).textContent =
@@ -997,6 +1071,31 @@ function renderComposition(tabId) {
     renderCompGrid(tabId, 'highlight');
     renderCompGrid(tabId, 'r');
 
+    // Algebraic composition R = A(B) via layout.js
+    const resultEl = document.getElementById(`${tabId}-comp-result`);
+    try {
+      const aStripped = stripTrivialTrailing(aL.shape, aL.stride);
+      const aLayout = new Layout(aStripped.shape, aStripped.stride);
+      let R;
+      if (isTiler) {
+        const bTuple = bLayouts.map(b => {
+          const p = stripTrivialTrailing(b.shape, b.stride);
+          return new Layout(p.shape, p.stride);
+        });
+        R = composition(aLayout, bTuple);
+      } else {
+        const bStripped = stripTrivialTrailing(bL.shape, bL.stride);
+        const bLayout = new Layout(bStripped.shape, bStripped.stride);
+        R = composition(aLayout, bLayout);
+      }
+      const label = isTiler ? 'R = A(Tiler)' : 'R = A(B)';
+      resultEl.textContent = `${label} = ${formatLayoutStr(R.shape, R.stride)}`;
+      resultEl.classList.add('visible');
+    } catch (e) {
+      resultEl.textContent = `Algebraic composition unavailable: ${e.message}`;
+      resultEl.classList.add('visible');
+    }
+
     updateOuterTabLabel(tabId, `Compose:${aInput.trim()}`);
   } catch (e) {
     showErr(`${tabId}-comp-error`, e.message);
@@ -1004,6 +1103,8 @@ function renderComposition(tabId) {
       const el = document.getElementById(`${tabId}-${h}`);
       if (el) el.innerHTML = '';
     });
+    const resultEl = document.getElementById(`${tabId}-comp-result`);
+    if (resultEl) resultEl.classList.remove('visible');
   }
 }
 
@@ -1030,10 +1131,17 @@ function renderCompGrid(tabId, which) {
         svg = buildLayoutSVG(s.bL.shape, s.bL.stride, modes);
         break;
       case 'highlight':
-        svg = buildHighlightedLayoutSVG(s.aL.shape, s.aL.stride, s.highlightSet, modes);
+        svg = buildHighlightedLayoutSVG(s.aL.shape, s.aL.stride, s.highlightSet, modes, s.complementAnchors, s.shadowMap);
         break;
       case 'r':
         svg = buildGridSVG(s.rGrid, s.M_R, s.N_R, modes);
+        break;
+      case 'complement':
+        if (s.complementShape) {
+          svg = buildLayoutSVG(s.complementShape, s.complementStride, modes);
+        } else {
+          svg = '';
+        }
         break;
     }
     host.innerHTML = svg;
@@ -1053,6 +1161,122 @@ function setCompMode(tabId, which, mode) {
     modes.add(mode);
   }
   renderCompGrid(tabId, which);
+}
+
+/** Compute complement(R, size(A)) where R = A(B), and visualize it.
+ *  - Appends "complement(R, A) = ..." to the result box
+ *  - Shows a new viz below the 4-panel grid with the complement layout
+ *  - Adds amber edge markers to "A highlighted by B" at each anchor offset
+ *    (cells whose A(m,n) equals one of the complement's output values). */
+function toggleComplement(tabId) {
+  const s = compState[tabId];
+  if (!s) {
+    showErr(`${tabId}-comp-error`, 'Click Render first before Render complement.');
+    return;
+  }
+  if (s.shadowMap) hideComplement(tabId);
+  else             showComplement(tabId);
+}
+
+function hideComplement(tabId) {
+  const s = compState[tabId];
+  if (!s) return;
+  delete s.shadowMap;
+  delete s.complementAnchors;
+  delete s.complementShape;
+  delete s.complementStride;
+  // Restore the result text (strip the complement line)
+  const resultEl = document.getElementById(`${tabId}-comp-result`);
+  if (s.preComplementResultText !== undefined) {
+    resultEl.textContent = s.preComplementResultText;
+    delete s.preComplementResultText;
+  }
+  // Hide the complement viz section
+  document.getElementById(`${tabId}-comp-complement-section`).style.display = 'none';
+  // Re-render the highlighted A to remove edges + shadow tiles
+  renderCompGrid(tabId, 'highlight');
+  // Update button state
+  const btn = document.getElementById(`${tabId}-comp-complement-btn`);
+  if (btn) { btn.textContent = 'Render complement'; btn.classList.remove('active'); }
+}
+
+function showComplement(tabId) {
+  const s = compState[tabId];
+  if (!s) return;
+  showErr(`${tabId}-comp-error`, '');
+  try {
+    // Reconstruct R = A(B) via layout.js composition
+    const aStripped = stripTrivialTrailing(s.aL.shape, s.aL.stride);
+    const aLayout = new Layout(aStripped.shape, aStripped.stride);
+    let R;
+    if (s.isTiler) {
+      const bTuple = s.bLayouts.map(b => {
+        const p = stripTrivialTrailing(b.shape, b.stride);
+        return new Layout(p.shape, p.stride);
+      });
+      R = composition(aLayout, bTuple);
+    } else {
+      const bStripped = stripTrivialTrailing(s.bL.shape, s.bL.stride);
+      const bLayout = new Layout(bStripped.shape, bStripped.stride);
+      R = composition(aLayout, bLayout);
+    }
+
+    const sizeA = aLayout.size();
+    const C = complement(R, sizeA);
+
+    // Collect anchor offsets: C(i) for i in [0, size(C))
+    const anchors = new Set();
+    const cSize = C.size();
+    for (let i = 0; i < cSize; i++) {
+      anchors.add(C.call(i));
+    }
+
+    // R's output VALUES (not B's flat positions). These are A's values at the
+    // cells the original R tile selects — what we need to color-match against.
+    const rOutputs = new Set();
+    for (let m = 0; m < s.M_R; m++) {
+      for (let n = 0; n < s.N_R; n++) {
+        rOutputs.add(s.rGrid[m][n]);
+      }
+    }
+
+    // Build shadowMap: for each NON-zero anchor c, for each r in R's outputs,
+    // map (c + r) -> r. These cells are the shifted copies of the original R tile;
+    // they get colored like their corresponding r, but faded.
+    const shadowMap = new Map();
+    for (const c of anchors) {
+      if (c === 0) continue;
+      for (const r of rOutputs) {
+        shadowMap.set(c + r, r);
+      }
+    }
+
+    // Normalize the complement Layout to a rank-2 shape/stride for rendering
+    const cStr = formatLayoutStr(C.shape, C.stride);
+    const cParsed = parseLayout(cStr);
+
+    s.complementAnchors = anchors;
+    s.shadowMap = shadowMap;
+    s.complementShape = cParsed.shape;
+    s.complementStride = cParsed.stride;
+
+    // Append complement info to the result text box (remember prev to allow restore)
+    const resultEl = document.getElementById(`${tabId}-comp-result`);
+    s.preComplementResultText = resultEl.textContent;
+    resultEl.textContent = `${resultEl.textContent}\ncomplement(R, A) = ${cStr}`;
+    resultEl.style.whiteSpace = 'pre-wrap';
+
+    // Show the complement viz section and render it
+    document.getElementById(`${tabId}-comp-complement-section`).style.display = 'block';
+    renderCompGrid(tabId, 'complement');
+    // Re-render the highlighted A so the edge markers and shadow tiles appear
+    renderCompGrid(tabId, 'highlight');
+    // Update button state
+    const btn = document.getElementById(`${tabId}-comp-complement-btn`);
+    if (btn) { btn.textContent = 'Hide complement'; btn.classList.add('active'); }
+  } catch (e) {
+    showErr(`${tabId}-comp-error`, 'Could not compute complement: ' + e.message);
+  }
 }
 
 function setComp(tabId, a, b) {

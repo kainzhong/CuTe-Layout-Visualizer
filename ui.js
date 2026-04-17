@@ -145,7 +145,8 @@ function buildLayoutSVG(shape, stride, mode) {
 }
 
 /** Build axis-label and grid SVG for a TV layout. */
-function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset) {
+function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underlyingLayout) {
+  underlyingLayout = underlyingLayout || 'col';
   if (!Array.isArray(tvShape) || tvShape.length < 2)
     throw new Error('TV layout must be rank 2: (num_threads, num_values):...');
 
@@ -179,7 +180,10 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset) {
       const m = Math.floor(idx / sm) % M;
       const n = Math.floor(idx / sn) % N;
       if (m >= 0 && m < M && n >= 0 && n < N) {
-        grid[m][n].push({ tid, vid, offset: idx });
+        // Memory offset of cell (m, n) in the underlying data tensor.
+        // Row-major: m*N + n. Col-major: m + n*M.
+        const offset = underlyingLayout === 'row' ? (m * N + n) : (m + n * M);
+        grid[m][n].push({ tid, vid, offset });
       }
     }
   }
@@ -427,12 +431,16 @@ function generateTabContent(id) {
         </div>
         <div class="form-group">
           <label>Tile &mdash; (M, N):(stride_M, stride_N)
-            <span style="color:#6b7280;font-weight:normal"> &mdash; strides required</span>
+            <span style="color:#6b7280;font-weight:normal"> &mdash; CuTe uses col-major (1, M)</span>
           </label>
-          <input type="text" id="${id}-tv-tile-input" value="(8, 16):(16, 1)">
+          <input type="text" id="${id}-tv-tile-input" value="(8, 16):(1, 8)">
+        </div>
+
+        <div class="form-group">
+          <label>Underlying data is</label>
           <div style="display:flex;gap:5px;margin-top:5px">
-            <button class="btn" style="flex:1;font-size:0.75rem;padding:4px" onclick="setTileStride('${id}','row')">Row-major (N,1)</button>
-            <button class="btn" style="flex:1;font-size:0.75rem;padding:4px" onclick="setTileStride('${id}','col')">Col-major (1,M)</button>
+            <button class="btn" id="${id}-tv-data-row" style="flex:1;font-size:0.75rem;padding:4px" onclick="setUnderlyingLayout('${id}','row')">Row-major</button>
+            <button class="btn" id="${id}-tv-data-col" style="flex:1;font-size:0.75rem;padding:4px" onclick="setUnderlyingLayout('${id}','col')">Col-major</button>
           </div>
         </div>
 
@@ -740,18 +748,24 @@ function renderTV(tabId) {
     const M    = product(tileL.shape[0]);
     const N    = product(tileL.shape[1]);
 
-    const showOffset = tvState[tabId] ? tvState[tabId].showOffset : false;
-    tvState[tabId] = { tvL, tileL, showOffset };
+    const prev = tvState[tabId] || {};
+    const showOffset = prev.showOffset || false;
+    const underlyingLayout = prev.underlyingLayout || 'col';
+    tvState[tabId] = { tvL, tileL, showOffset, underlyingLayout };
 
     document.getElementById(`${tabId}-tv-title`).textContent =
-      `${numT} threads \u00d7 ${numV} values  \u2014  ${M}\u00d7${N} tile`;
+      `${numT} threads \u00d7 ${numV} values  \u2014  ${M}\u00d7${N} tile (${underlyingLayout}-major data)`;
 
     document.getElementById(`${tabId}-tv-svg-host`).innerHTML =
-      buildTVSVG(tvL.shape, tvL.stride, tileL.shape, tileL.stride, showOffset);
+      buildTVSVG(tvL.shape, tvL.stride, tileL.shape, tileL.stride, showOffset, underlyingLayout);
     applyZoomState(`${tabId}-tv-svg-host`);
 
     const btn = document.getElementById(`${tabId}-tv-offset-btn`);
     if (btn) btn.classList.toggle('active', showOffset);
+    const rowBtn = document.getElementById(`${tabId}-tv-data-row`);
+    const colBtn = document.getElementById(`${tabId}-tv-data-col`);
+    if (rowBtn) rowBtn.classList.toggle('active', underlyingLayout === 'row');
+    if (colBtn) colBtn.classList.toggle('active', underlyingLayout === 'col');
 
     buildLegend(tabId, numT);
     updateOuterTabLabel(tabId, `TV-Layout:${tvInput.trim()}`);
@@ -762,12 +776,19 @@ function renderTV(tabId) {
   }
 }
 
+/** Set the underlying data layout ('row' | 'col') for offset display. */
+function setUnderlyingLayout(tabId, layout) {
+  if (!tvState[tabId]) tvState[tabId] = {};
+  tvState[tabId].underlyingLayout = layout;
+  if (tvState[tabId].tvL) renderTV(tabId);
+}
+
 function toggleTVOffset(tabId) {
   const s = tvState[tabId];
   if (!s) return;
   s.showOffset = !s.showOffset;
   document.getElementById(`${tabId}-tv-svg-host`).innerHTML =
-    buildTVSVG(s.tvL.shape, s.tvL.stride, s.tileL.shape, s.tileL.stride, s.showOffset);
+    buildTVSVG(s.tvL.shape, s.tvL.stride, s.tileL.shape, s.tileL.stride, s.showOffset, s.underlyingLayout);
   applyZoomState(`${tabId}-tv-svg-host`);
   const btn = document.getElementById(`${tabId}-tv-offset-btn`);
   if (btn) btn.classList.toggle('active', s.showOffset);

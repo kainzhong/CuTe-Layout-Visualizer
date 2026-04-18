@@ -76,12 +76,6 @@ The `?key=...` query parameter deep-links to a specific visualization:
 
 ## Local development
 
-No build step. Just serve the directory:
-
-```
-cd layout-visualizer
-python3 -m http.server 8000
-# open http://localhost:8000
-```
+No build step, no server. Just open `index.html` in your browser &mdash; everything is plain HTML/CSS/JS with zero dependencies.
 
 See `CLAUDE.md` for architecture notes (file layout, adding a new tab, input conventions, URL scheme).

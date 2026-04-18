@@ -18,6 +18,7 @@ tabs/
   complement.js    Standalone "Complement" tab
   divide.js        "Logical Divide" tab
   zipped.js        "Zipped Divide" tab
+  product.js       "Logical Product" tab
 ```
 
 ## Dependency graph

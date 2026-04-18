@@ -315,7 +315,10 @@ function renderCompGrid(tabId, which) {
         break;
       case 'complement':
         if (s.complementShape) {
-          svg = buildLayoutSVG(s.complementShape, s.complementStride, modes);
+          // Every cell in the complement viz is an anchor — border them in the
+          // same amber as the cell edges on "A highlighted by B" so the
+          // correspondence is visually obvious.
+          svg = buildLayoutSVG(s.complementShape, s.complementStride, modes, null, '#f59e0b');
         } else {
           svg = '';
         }

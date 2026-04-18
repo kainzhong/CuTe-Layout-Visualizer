@@ -98,8 +98,10 @@ function toModeSet(mode) {
  *  mode: 'value' (default) shows layout output, 'index' shows 1-D coordinate,
  *  'coord' shows (m,n).
  *  cellTextColor: if set, overrides the default luminance-based cell text color
- *                 (used to draw tiler cells with an accent color). */
-function buildLayoutSVG(shape, stride, mode, cellTextColor) {
+ *                 (used to draw tiler cells with an accent color).
+ *  allCellsEdgeColor: if set, draws a colored border around every cell
+ *                    (used to mark all cells as "anchors" in complement viz). */
+function buildLayoutSVG(shape, stride, mode, cellTextColor, allCellsEdgeColor) {
   const modes = toModeSet(mode);
   const [M, N] = productEach(shape);
   if (M * N > MAX_CELLS)
@@ -138,6 +140,10 @@ function buildLayoutSVG(shape, stride, mode, cellTextColor) {
       body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
         fill="${bg}" stroke="#ccc" stroke-width="0.5"/>`;
       body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fg);
+      if (allCellsEdgeColor) {
+        body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
+          fill="none" stroke="${allCellsEdgeColor}" stroke-width="3"/>`;
+      }
     }
   }
 
@@ -485,6 +491,7 @@ function generateTabContent(id) {
       <div class="tab" onclick="switchInnerTab('${id}', 'complement')">Complement</div>
       <div class="tab" onclick="switchInnerTab('${id}', 'divide')">Logical Divide</div>
       <div class="tab" onclick="switchInnerTab('${id}', 'zipped')">Zipped Divide</div>
+      <div class="tab" onclick="switchInnerTab('${id}', 'product')">Logical Product</div>
     </div>
     ${generateLayoutTabContent(id)}
     ${generateTVTabContent(id)}
@@ -492,6 +499,7 @@ function generateTabContent(id) {
     ${generateComplementTabContent(id)}
     ${generateDivideTabContent(id)}
     ${generateZippedDivideTabContent(id)}
+    ${generateLogicalProductTabContent(id)}
   </div>`;
 }
 
@@ -553,7 +561,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, composition: 2, complement: 3, divide: 4, zipped: 5 };
+  const modeIndex = { layout: 0, tv: 1, composition: 2, complement: 3, divide: 4, zipped: 5, product: 6 };
   tabs[modeIndex[mode]].classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
 }
@@ -708,6 +716,7 @@ function downloadSVG(hostId, filename) {
 //    complement-<layout>-<cotarget>
 //    logical_divide-<A>-<tiler>
 //    zipped_divide-<A>-<tiler>
+//    logical_product-<A>-<tiler>
 //  Legacy accepted: tv-<tv_layout>-<tile>  (treated as method 1)
 // ═══════════════════════════════════════════════════════
 
@@ -720,6 +729,7 @@ const FEATURE_SPEC = {
   complement:     { inputs: 2 },
   logical_divide: { inputs: 2 },
   zipped_divide:  { inputs: 2 },
+  logical_product: { inputs: 2 },
 };
 
 function parseKeyParam() {
@@ -808,6 +818,12 @@ function applyKeyParam(tabId) {
       document.getElementById(`${tabId}-zd-tiler-input`).value = inputs[1];
       switchInnerTab(tabId, 'zipped');
       renderZippedDivide(tabId);
+      break;
+    case 'logical_product':
+      document.getElementById(`${tabId}-lp-a-input`).value = inputs[0];
+      document.getElementById(`${tabId}-lp-tiler-input`).value = inputs[1];
+      switchInnerTab(tabId, 'product');
+      renderLogicalProduct(tabId);
       break;
   }
 }

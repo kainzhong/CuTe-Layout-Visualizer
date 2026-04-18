@@ -17,6 +17,7 @@ tabs/
   composition.js   "Composition & Complement" tab (with complement-toggle)
   complement.js    Standalone "Complement" tab
   divide.js        "Logical Divide" tab
+  zipped.js        "Zipped Divide" tab
 ```
 
 ## Dependency graph

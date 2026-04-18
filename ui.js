@@ -96,8 +96,10 @@ function toModeSet(mode) {
 
 /** Build axis-label and grid SVG for a regular layout.
  *  mode: 'value' (default) shows layout output, 'index' shows 1-D coordinate,
- *  'coord' shows (m,n). */
-function buildLayoutSVG(shape, stride, mode) {
+ *  'coord' shows (m,n).
+ *  cellTextColor: if set, overrides the default luminance-based cell text color
+ *                 (used to draw tiler cells with an accent color). */
+function buildLayoutSVG(shape, stride, mode, cellTextColor) {
   const modes = toModeSet(mode);
   const [M, N] = productEach(shape);
   if (M * N > MAX_CELLS)
@@ -130,7 +132,7 @@ function buildLayoutSVG(shape, stride, mode) {
       const flatI = m + n * M;
       const lines = buildCellLines(modes, idx, flatI, `(${m},${n})`);
       const bg  = colorBW(idx);
-      const fg  = textOnBG(bg);
+      const fg  = cellTextColor || textOnBG(bg);
       const x = margin + n * cs;
       const y = margin + m * cs;
       body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
@@ -389,14 +391,28 @@ function errSVG(msg) {
 
 /** Like buildLayoutSVG, but the background color comes from a per-cell
  *  tile index (via `tileIdxFn(m, n)` returning an integer or null).
- *  Cells with null/undefined tileIdx are rendered in grey. */
-function buildTiledLayoutSVG(shape, stride, mode, tileIdxFn) {
+ *  Cells with null/undefined tileIdx are rendered in grey.
+ *
+ *  `selection` (optional) marks "first tile" picks on top of the coloring:
+ *    - edgeCells: Set<flatPos>  — draw amber 3px borders on these cells
+ *    - rows:      Set<m>        — highlight these row axis labels
+ *    - cols:      Set<n>        — highlight these column axis labels
+ */
+function buildTiledLayoutSVG(shape, stride, mode, tileIdxFn, selection) {
   const modes = toModeSet(mode);
   const [M, N] = productEach(shape);
   if (M * N > MAX_CELLS)
     return errSVG(`Grid too large: ${M}\u00d7${N} = ${M*N} cells (max ${MAX_CELLS})`);
   if (M === 0 || N === 0)
     return errSVG(`Empty grid: ${M}\u00d7${N}`);
+
+  selection = selection || {};
+  const edgeCells = selection.edgeCells || null;
+  const highlightRows = selection.rows || null;
+  const highlightCols = selection.cols || null;
+  const edgeColor = selection.edgeColor || '#f59e0b';
+  const rowColor  = selection.rowColor  || '#f59e0b';
+  const colColor  = selection.colColor  || '#f59e0b';
 
   const cs = cellSize(M, N);
   const margin = cs;
@@ -406,15 +422,23 @@ function buildTiledLayoutSVG(shape, stride, mode, tileIdxFn) {
 
   let body = '';
 
+  // Column labels (top axis)
   for (let n = 0; n < N; n++) {
     const cx = margin + (n + 0.5) * cs;
+    const hl = highlightCols && highlightCols.has(n);
+    const fill = hl ? colColor : '#555';
+    const weight = hl ? 'bold' : 'normal';
     body += `<text x="${cx}" y="${margin * 0.55}" text-anchor="middle" dominant-baseline="middle"
-      fill="#555" font-size="${axisFs}" font-family="monospace">${n}</text>`;
+      fill="${fill}" font-size="${axisFs}" font-weight="${weight}" font-family="monospace">${n}</text>`;
   }
+  // Row labels (left axis)
   for (let m = 0; m < M; m++) {
     const cy = margin + (m + 0.5) * cs;
+    const hl = highlightRows && highlightRows.has(m);
+    const fill = hl ? rowColor : '#555';
+    const weight = hl ? 'bold' : 'normal';
     body += `<text x="${margin * 0.5}" y="${cy}" text-anchor="middle" dominant-baseline="middle"
-      fill="#555" font-size="${axisFs}" font-family="monospace">${m}</text>`;
+      fill="${fill}" font-size="${axisFs}" font-weight="${weight}" font-family="monospace">${m}</text>`;
   }
 
   for (let m = 0; m < M; m++) {
@@ -431,6 +455,10 @@ function buildTiledLayoutSVG(shape, stride, mode, tileIdxFn) {
       body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
         fill="${bg}" stroke="#ccc" stroke-width="0.5"/>`;
       body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fg);
+      if (edgeCells && edgeCells.has(flatI)) {
+        body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
+          fill="none" stroke="${edgeColor}" stroke-width="3"/>`;
+      }
     }
   }
 
@@ -456,12 +484,14 @@ function generateTabContent(id) {
       <div class="tab" onclick="switchInnerTab('${id}', 'composition')">Composition</div>
       <div class="tab" onclick="switchInnerTab('${id}', 'complement')">Complement</div>
       <div class="tab" onclick="switchInnerTab('${id}', 'divide')">Logical Divide</div>
+      <div class="tab" onclick="switchInnerTab('${id}', 'zipped')">Zipped Divide</div>
     </div>
     ${generateLayoutTabContent(id)}
     ${generateTVTabContent(id)}
     ${generateCompositionTabContent(id)}
     ${generateComplementTabContent(id)}
     ${generateDivideTabContent(id)}
+    ${generateZippedDivideTabContent(id)}
   </div>`;
 }
 
@@ -523,7 +553,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, composition: 2, complement: 3, divide: 4 };
+  const modeIndex = { layout: 0, tv: 1, composition: 2, complement: 3, divide: 4, zipped: 5 };
   tabs[modeIndex[mode]].classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
 }
@@ -677,6 +707,7 @@ function downloadSVG(hostId, filename) {
 //    composition-<A>-<B>
 //    complement-<layout>-<cotarget>
 //    logical_divide-<A>-<tiler>
+//    zipped_divide-<A>-<tiler>
 //  Legacy accepted: tv-<tv_layout>-<tile>  (treated as method 1)
 // ═══════════════════════════════════════════════════════
 
@@ -688,6 +719,7 @@ const FEATURE_SPEC = {
   composition:    { inputs: 2 },
   complement:     { inputs: 2 },
   logical_divide: { inputs: 2 },
+  zipped_divide:  { inputs: 2 },
 };
 
 function parseKeyParam() {
@@ -770,6 +802,12 @@ function applyKeyParam(tabId) {
       document.getElementById(`${tabId}-ld-tiler-input`).value = inputs[1];
       switchInnerTab(tabId, 'divide');
       renderLogicalDivide(tabId);
+      break;
+    case 'zipped_divide':
+      document.getElementById(`${tabId}-zd-a-input`).value = inputs[0];
+      document.getElementById(`${tabId}-zd-tiler-input`).value = inputs[1];
+      switchInnerTab(tabId, 'zipped');
+      renderZippedDivide(tabId);
       break;
   }
 }

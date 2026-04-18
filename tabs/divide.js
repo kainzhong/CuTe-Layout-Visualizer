@@ -88,6 +88,12 @@ function generateDivideTabContent(id) {
 
 const ldState = {};
 
+// Accent colors for the "first tile" highlights. Red for mode-0, deep blue
+// for mode-1 so the two axes/tilers in mode-2 are visually distinguishable.
+const LD_ROW_COLOR  = '#dc2626';  // mode-0 (B0 / row axis labels / tiler[0] cell text)
+const LD_COL_COLOR  = '#1d4ed8';  // mode-1 (B1 / col axis labels / tiler[1] cell text)
+const LD_EDGE_COLOR = '#dc2626';  // mode-1 single-tiler edge + its cell text (red)
+
 function renderLogicalDivide(tabId) {
   showErr(`${tabId}-ld-error`, '');
   try {
@@ -137,8 +143,10 @@ function renderLogicalDivide(tabId) {
     // A tile represents one "slide" of the tiler over A; all cells belonging
     // to the same tile share a color in both A and the result. The tile size
     // is size(B) for mode-1, or size(B0)*size(B1) for mode-2.
+    // Also build `aSelection` = the "first tile" picks (edge markers for mode-1,
+    // axis-label highlights for mode-2) to show what the tiler literally selects.
     const [M_A, N_A] = productEach(aParsed.shape);
-    let aTileIdxFn, rTileIdxFn;
+    let aTileIdxFn, rTileIdxFn, aSelection;
     if (isTiler && tilerLayouts.length === 2) {
       // Mode-2 case: tile indexed by (k0, k1), flattened as k0 + k1 * sizeC0
       const [B0, B1] = tilerLayouts;
@@ -169,6 +177,13 @@ function renderLogicalDivide(tabId) {
         const k1 = Math.floor(n_r / sizeB1);
         return k0 + k1 * sizeC0;
       };
+      // Mode-2 selection: B0's outputs are mode-0 positions (row labels),
+      // B1's outputs are mode-1 positions (column labels).
+      const rows = new Set();
+      for (let i = 0; i < sizeB0; i++) rows.add(B0.call(i));
+      const cols = new Set();
+      for (let j = 0; j < sizeB1; j++) cols.add(B1.call(j));
+      aSelection = { rows, cols, rowColor: LD_ROW_COLOR, colColor: LD_COL_COLOR };
     } else {
       // Mode-1 case: single layout tiler, tile indexed by k alone
       const B = tilerLayouts[0];
@@ -186,13 +201,18 @@ function renderLogicalDivide(tabId) {
       };
       // Result shape is (sizeB, sizeC); tile index is simply the column n_r.
       rTileIdxFn = (m_r, n_r) => n_r;
+      // Mode-1 selection: edge-highlight the cells of the first tile (k=0),
+      // which are the cells whose flat 1-D coord is one of B's outputs.
+      const edgeCells = new Set();
+      for (let i = 0; i < sizeB; i++) edgeCells.add(B.call(i));
+      aSelection = { edgeCells, edgeColor: LD_EDGE_COLOR };
     }
 
     ldState[tabId] = {
       aParsed, aStr,
       tilerLayouts, tilerLines, isTiler,
       rParsed, rStr,
-      aTileIdxFn, rTileIdxFn,
+      aTileIdxFn, rTileIdxFn, aSelection,
       modes: {
         a:      new Set(['value']),
         tiler:  new Set(['value']),
@@ -235,26 +255,30 @@ function renderLdGrid(tabId, which) {
   const host = document.getElementById(`${tabId}-ld-${which}-svg`);
 
   if (which === 'tiler' && s.isTiler) {
-    // Multi-line tiler: render each element stacked with a label
+    // Multi-line tiler: render each element stacked with a label. Tiler[0]'s cells
+    // are text-colored in the row-red and Tiler[1]'s in the col-red so they visually
+    // match the highlighted axis labels on A.
     let html = '';
     s.tilerLayouts.forEach((tl, i) => {
       const lStr = s.tilerLines[i];
-      // Normalize this tiler element's shape/stride to rank-2 for rendering
       const tParsed = parseLayout(formatLayoutStr(tl.shape, tl.stride));
-      html += `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin:${i > 0 ? '10px' : '0'} 0 4px">Tiler[${i}]: ${lStr}</div>`;
-      html += buildLayoutSVG(tParsed.shape, tParsed.stride, modes);
+      const color = i === 0 ? LD_ROW_COLOR : LD_COL_COLOR;
+      html += `<div style="font-size:0.78rem;color:${color};font-family:monospace;font-weight:600;margin:${i > 0 ? '10px' : '0'} 0 4px">Tiler[${i}]: ${lStr}</div>`;
+      html += buildLayoutSVG(tParsed.shape, tParsed.stride, modes, color);
     });
     host.innerHTML = html;
   } else {
     let svg;
     switch (which) {
       case 'a':
-        svg = buildTiledLayoutSVG(s.aParsed.shape, s.aParsed.stride, modes, s.aTileIdxFn);
+        svg = buildTiledLayoutSVG(s.aParsed.shape, s.aParsed.stride, modes, s.aTileIdxFn, s.aSelection);
         break;
       case 'tiler': {
+        // Mode-1 single tiler: color cell text in the edge color (matches A's
+        // red cell-edge highlights).
         const tl = s.tilerLayouts[0];
         const tParsed = parseLayout(formatLayoutStr(tl.shape, tl.stride));
-        svg = buildLayoutSVG(tParsed.shape, tParsed.stride, modes);
+        svg = buildLayoutSVG(tParsed.shape, tParsed.stride, modes, LD_EDGE_COLOR);
         break;
       }
       case 'result':

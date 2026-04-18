@@ -90,6 +90,12 @@ function generateZippedDivideTabContent(id) {
 
 const zdState = {};
 
+// Same accent colors as the Logical Divide tab — cells from the same tile
+// get the same color in both layouts, since zipped_divide only rearranges.
+const ZD_ROW_COLOR  = '#dc2626';  // mode-0 (B0 / row axis labels / tiler[0] cell text)
+const ZD_COL_COLOR  = '#1d4ed8';  // mode-1 (B1 / col axis labels / tiler[1] cell text)
+const ZD_EDGE_COLOR = '#dc2626';  // mode-1 single-tiler edge + its cell text (red)
+
 function renderZippedDivide(tabId) {
   showErr(`${tabId}-zd-error`, '');
   try {
@@ -130,10 +136,71 @@ function renderZippedDivide(tabId) {
     const rStr = formatLayoutStr(R.shape, R.stride);
     const rParsed = parseLayout(rStr);
 
+    // Build tile-index functions + selection (mirrors Logical Divide exactly for A,
+    // but uses the zipped arrangement for R's mode-0/mode-1 decomposition).
+    const [M_A, N_A] = productEach(aParsed.shape);
+    let aTileIdxFn, rTileIdxFn, aSelection;
+    if (isTiler && tilerLayouts.length === 2) {
+      const [B0, B1] = tilerLayouts;
+      const sizeA0 = product(aLayout.shape[0]);
+      const sizeA1 = product(aLayout.shape[1]);
+      const C0 = complement(B0, sizeA0);
+      const C1 = complement(B1, sizeA1);
+      const sizeB0 = B0.size(), sizeB1 = B1.size();
+      const sizeC0 = C0.size();
+      const mode0Map = new Map();
+      for (let k0 = 0; k0 < sizeC0; k0++) {
+        for (let i = 0; i < sizeB0; i++) mode0Map.set(B0.call(i) + C0.call(k0), k0);
+      }
+      const mode1Map = new Map();
+      for (let k1 = 0; k1 < C1.size(); k1++) {
+        for (let j = 0; j < sizeB1; j++) mode1Map.set(B1.call(j) + C1.call(k1), k1);
+      }
+      aTileIdxFn = (m, n) => {
+        const k0 = mode0Map.get(m);
+        const k1 = mode1Map.get(n);
+        return (k0 === undefined || k1 === undefined) ? null : k0 + k1 * sizeC0;
+      };
+      // Zipped R's shape is ((B0.shape, B1.shape), (C0.shape, C1.shape)).
+      // Top-level grid: (sizeB0 * sizeB1) x (sizeC0 * sizeC1). Tile identity
+      // is determined entirely by the mode-1 coord (m_r is tile-local):
+      //   k0 = n_r % sizeC0,  k1 = floor(n_r / sizeC0)
+      rTileIdxFn = (m_r, n_r) => {
+        const k0 = n_r % sizeC0;
+        const k1 = Math.floor(n_r / sizeC0);
+        return k0 + k1 * sizeC0;
+      };
+      const rows = new Set();
+      for (let i = 0; i < sizeB0; i++) rows.add(B0.call(i));
+      const cols = new Set();
+      for (let j = 0; j < sizeB1; j++) cols.add(B1.call(j));
+      aSelection = { rows, cols, rowColor: ZD_ROW_COLOR, colColor: ZD_COL_COLOR };
+    } else {
+      const B = tilerLayouts[0];
+      const sizeA = aLayout.size();
+      const C = complement(B, sizeA);
+      const sizeB = B.size();
+      const valToTile = new Map();
+      for (let k = 0; k < C.size(); k++) {
+        for (let i = 0; i < sizeB; i++) valToTile.set(B.call(i) + C.call(k), k);
+      }
+      aTileIdxFn = (m, n) => {
+        const r = valToTile.get(m + n * M_A);
+        return r === undefined ? null : r;
+      };
+      // Mode-1 case: zipped_divide == logical_divide (hier_unzip is a no-op for
+      // single tilers), so R's shape is (sizeB, sizeC). Tile index == column.
+      rTileIdxFn = (m_r, n_r) => n_r;
+      const edgeCells = new Set();
+      for (let i = 0; i < sizeB; i++) edgeCells.add(B.call(i));
+      aSelection = { edgeCells, edgeColor: ZD_EDGE_COLOR };
+    }
+
     zdState[tabId] = {
       aParsed, aStr,
       tilerLayouts, tilerLines, isTiler,
       rParsed, rStr,
+      aTileIdxFn, rTileIdxFn, aSelection,
       modes: {
         a:      new Set(['value']),
         tiler:  new Set(['value']),
@@ -174,28 +241,31 @@ function renderZdGrid(tabId, which) {
   const host = document.getElementById(`${tabId}-zd-${which}-svg`);
 
   if (which === 'tiler' && s.isTiler) {
+    // Multi-line tiler: same coloring convention as the Logical Divide tab —
+    // Tiler[0] in row-red, Tiler[1] in col-blue, to match A's axis labels.
     let html = '';
     s.tilerLayouts.forEach((tl, i) => {
       const lStr = s.tilerLines[i];
       const tParsed = parseLayout(formatLayoutStr(tl.shape, tl.stride));
-      html += `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin:${i > 0 ? '10px' : '0'} 0 4px">Tiler[${i}]: ${lStr}</div>`;
-      html += buildLayoutSVG(tParsed.shape, tParsed.stride, modes);
+      const color = i === 0 ? ZD_ROW_COLOR : ZD_COL_COLOR;
+      html += `<div style="font-size:0.78rem;color:${color};font-family:monospace;font-weight:600;margin:${i > 0 ? '10px' : '0'} 0 4px">Tiler[${i}]: ${lStr}</div>`;
+      html += buildLayoutSVG(tParsed.shape, tParsed.stride, modes, color);
     });
     host.innerHTML = html;
   } else {
     let svg;
     switch (which) {
       case 'a':
-        svg = buildLayoutSVG(s.aParsed.shape, s.aParsed.stride, modes);
+        svg = buildTiledLayoutSVG(s.aParsed.shape, s.aParsed.stride, modes, s.aTileIdxFn, s.aSelection);
         break;
       case 'tiler': {
         const tl = s.tilerLayouts[0];
         const tParsed = parseLayout(formatLayoutStr(tl.shape, tl.stride));
-        svg = buildLayoutSVG(tParsed.shape, tParsed.stride, modes);
+        svg = buildLayoutSVG(tParsed.shape, tParsed.stride, modes, ZD_EDGE_COLOR);
         break;
       }
       case 'result':
-        svg = buildLayoutSVG(s.rParsed.shape, s.rParsed.stride, modes);
+        svg = buildTiledLayoutSVG(s.rParsed.shape, s.rParsed.stride, modes, s.rTileIdxFn);
         break;
     }
     host.innerHTML = svg;

@@ -492,6 +492,7 @@ function generateTabContent(id) {
       <div class="tab" onclick="switchInnerTab('${id}', 'divide')">Logical Divide</div>
       <div class="tab" onclick="switchInnerTab('${id}', 'zipped')">Zipped Divide</div>
       <div class="tab" onclick="switchInnerTab('${id}', 'product')">Logical Product</div>
+      <div class="tab" onclick="switchInnerTab('${id}', 'zipped_product')">Zipped Product</div>
     </div>
     ${generateLayoutTabContent(id)}
     ${generateTVTabContent(id)}
@@ -500,6 +501,7 @@ function generateTabContent(id) {
     ${generateDivideTabContent(id)}
     ${generateZippedDivideTabContent(id)}
     ${generateLogicalProductTabContent(id)}
+    ${generateZippedProductTabContent(id)}
   </div>`;
 }
 
@@ -561,7 +563,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, composition: 2, complement: 3, divide: 4, zipped: 5, product: 6 };
+  const modeIndex = { layout: 0, tv: 1, composition: 2, complement: 3, divide: 4, zipped: 5, product: 6, zipped_product: 7 };
   tabs[modeIndex[mode]].classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
 }
@@ -717,6 +719,7 @@ function downloadSVG(hostId, filename) {
 //    logical_divide-<A>-<tiler>
 //    zipped_divide-<A>-<tiler>
 //    logical_product-<A>-<tiler>
+//    zipped_product-<A>-<tiler>
 //  Legacy accepted: tv-<tv_layout>-<tile>  (treated as method 1)
 // ═══════════════════════════════════════════════════════
 
@@ -730,6 +733,7 @@ const FEATURE_SPEC = {
   logical_divide: { inputs: 2 },
   zipped_divide:  { inputs: 2 },
   logical_product: { inputs: 2 },
+  zipped_product:  { inputs: 2 },
 };
 
 function parseKeyParam() {
@@ -824,6 +828,12 @@ function applyKeyParam(tabId) {
       document.getElementById(`${tabId}-lp-tiler-input`).value = inputs[1];
       switchInnerTab(tabId, 'product');
       renderLogicalProduct(tabId);
+      break;
+    case 'zipped_product':
+      document.getElementById(`${tabId}-zp-a-input`).value = inputs[0];
+      document.getElementById(`${tabId}-zp-tiler-input`).value = inputs[1];
+      switchInnerTab(tabId, 'zipped_product');
+      renderZippedProduct(tabId);
       break;
   }
 }

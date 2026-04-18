@@ -19,6 +19,7 @@ tabs/
   divide.js        "Logical Divide" tab
   zipped.js        "Zipped Divide" tab
   product.js       "Logical Product" tab
+  zipped_product.js "Zipped Product" tab (single-layout tiler only)
 ```
 
 ## Dependency graph
@@ -91,6 +92,7 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=tv-2-(2,3):(3,1)-(2,2):(2,1)
 ?key=complement-(2,2):(1,2)-(4,4):(1,4)
 ?key=logical_divide-(12,32):(32,1)-3:1\n8:1
+?key=zipped_product-(2,2):(1,2)-(2,2):(1,2)
 ```
 - Parsing is in `parseKeyParam()` (driven by `FEATURE_SPEC` in ui.js).
 - Rendering is in `applyKeyParam()` (dispatches to the tab's render function).

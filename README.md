@@ -4,7 +4,9 @@ An interactive browser-based tool for visualizing [CUTLASS CuTe](https://github.
 
 **Try now:** https://kainzhong.github.io/CuTe-Layout-Visualizer/
 
-<img width="1482" height="849" alt="image" src="https://github.com/user-attachments/assets/3a18b20c-1c84-44cc-a8f0-ce2e3e9c62a7" />
+
+Know which address you are reading and tell if the load is vectorized / coalseced instantly!
+<img width="1477" height="851" alt="image" src="https://github.com/user-attachments/assets/cd6693d3-5fe9-4351-a82c-3737ae8dc36f" />
 
 ## Why not just `print_latex`?
 

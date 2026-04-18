@@ -4,6 +4,8 @@ An interactive browser-based tool for visualizing [CUTLASS CuTe](https://github.
 
 **Try now:** https://kainzhong.github.io/CuTe-Layout-Visualizer/
 
+<img width="1482" height="849" alt="image" src="https://github.com/user-attachments/assets/3a18b20c-1c84-44cc-a8f0-ce2e3e9c62a7" />
+
 ## Why not just `print_latex`?
 
 CUTLASS ships `cute::print_latex(...)`, which dumps a LaTeX snippet you then have to paste into a `.tex` file, compile with `pdflatex`, and open in a PDF viewer every time you want to look at a layout. And all it ever shows you is *one static layout*.
@@ -15,6 +17,12 @@ This tool runs in your browser and lets you:
 - **Toggle display modes per cell** between value (`layout(i)`), index (1D flat coord), and coord (`(m,n)`) to match whatever mental model you're working in.
 - **Share a URL** to a specific visualization and have a colleague open it in one click.
 - **Open multiple tabs** so you can compare layouts or operations side by side.
+
+| Live editing, link sharing, multi-tab support | Illustrative display, more than just `print_latex` |
+| --- | --- | 
+| <img width="1478" height="842" alt="image" src="https://github.com/user-attachments/assets/427ade71-c0a9-4189-9e02-aa3c3a0af7df" /> | <img width="1482" height="851" alt="image" src="https://github.com/user-attachments/assets/c689b69b-9e0e-4bd2-b9c0-457f02bdd2fa" /> |
+
+
 
 ## Features
 

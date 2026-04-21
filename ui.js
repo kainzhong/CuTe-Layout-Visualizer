@@ -494,6 +494,10 @@ function generateTabContent(id) {
           <span class="tab-scope-icon">\u25A3</span>Layout Operations
           <span class="tab-scope-count">8</span>
         </div>
+        <div class="tab-scope-btn" data-scope="copy" onclick="switchTabGroup('${id}', 'copy')">
+          <span class="tab-scope-icon">⇄</span>Copy
+          <span class="tab-scope-count">1</span>
+        </div>
       </div>
     <div class="tab-bar" data-scope="basics">
       <div class="tab active" data-scope="basics" onclick="switchInnerTab('${id}', 'layout')">Layout</div>
@@ -506,6 +510,7 @@ function generateTabContent(id) {
       <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'zipped_product')">Zipped / Tiled / Flat Product</div>
       <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'blocked_product')">Blocked Product</div>
       <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'raked_product')">Raked Product</div>
+      <div class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'copy_universal_op')">CopyUniversalOp</div>
     </div>
     </div>
     ${generateLayoutTabContent(id)}
@@ -518,6 +523,7 @@ function generateTabContent(id) {
     ${generateZippedProductTabContent(id)}
     ${generateBlockedProductTabContent(id)}
     ${generateRakedProductTabContent(id)}
+    ${generateCopyUniversalOpTabContent(id)}
   </div>`;
 }
 
@@ -579,7 +585,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, composition: 2, complement: 3, divide: 4, zipped: 5, product: 6, zipped_product: 7, blocked_product: 8, raked_product: 9 };
+  const modeIndex = { layout: 0, tv: 1, composition: 2, complement: 3, divide: 4, zipped: 5, product: 6, zipped_product: 7, blocked_product: 8, raked_product: 9, copy_universal_op: 10 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -768,6 +774,7 @@ function downloadSVG(hostId, filename) {
 //    zipped_product-<A>-<tiler>
 //    blocked_product-<A>-<tiler>
 //    raked_product-<A>-<tiler>
+//    copy_universal_op-<num_bits>-<etype>-<thr>-<val>-<dir>-<tensor>
 //  Legacy accepted: tv-<tv_layout>-<tile>  (treated as method 1)
 // ═══════════════════════════════════════════════════════
 
@@ -784,6 +791,7 @@ const FEATURE_SPEC = {
   zipped_product:  { inputs: 2 },
   blocked_product: { inputs: 2 },
   raked_product:   { inputs: 2 },
+  copy_universal_op: { inputs: 6 },  // bits, etype, thr, val, dir, tensor
 };
 
 function parseKeyParam() {
@@ -896,6 +904,17 @@ function applyKeyParam(tabId) {
       document.getElementById(`${tabId}-rp-tiler-input`).value = inputs[1];
       switchInnerTab(tabId, 'raked_product');
       renderRakedProduct(tabId);
+      break;
+    case 'copy_universal_op':
+      document.getElementById(`${tabId}-cuo-bits-input`).value   = inputs[0];
+      document.getElementById(`${tabId}-cuo-etype-input`).value  = inputs[1];
+      document.getElementById(`${tabId}-cuo-thr-input`).value    = inputs[2];
+      document.getElementById(`${tabId}-cuo-val-input`).value    = inputs[3];
+      document.getElementById(`${tabId}-cuo-tensor-input`).value = inputs[5];
+      if (!cuoState[tabId]) cuoState[tabId] = {};
+      cuoState[tabId].direction = inputs[4] || 'src';
+      switchInnerTab(tabId, 'copy_universal_op');
+      renderCopyUniversalOp(tabId);
       break;
   }
 }

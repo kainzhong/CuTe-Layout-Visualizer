@@ -118,6 +118,7 @@ header p { font-size: 0.82rem; color: #6b7280; flex: 1; }
   transition: background 0.2s;
 }
 .tab-nav[data-scope="operations"]::before { background: #a855f7; }
+.tab-nav[data-scope="copy"]::before       { background: #10b981; }
 
 .tab-scope-bar {
   display: flex;
@@ -154,6 +155,11 @@ header p { font-size: 0.82rem; color: #6b7280; flex: 1; }
   color: #c4b5fd;
   border-color: #a855f7;
 }
+.tab-scope-btn[data-scope="copy"].active {
+  background: #064e3b;
+  color: #6ee7b7;
+  border-color: #10b981;
+}
 .tab-scope-btn:hover:not(.active) {
   background: #1f2937;
   color: #d1d5db;
@@ -175,11 +181,15 @@ header p { font-size: 0.82rem; color: #6b7280; flex: 1; }
 .tab-scope-btn[data-scope="operations"].active .tab-scope-count {
   background: rgba(196, 181, 253, 0.18); color: #ddd6fe;
 }
+.tab-scope-btn[data-scope="copy"].active .tab-scope-count {
+  background: rgba(110, 231, 183, 0.18); color: #a7f3d0;
+}
 
 /* Scope-based filtering: only show tabs whose data-scope matches the tab-bar.
    One rule per scope — add a new line when you add a new scope. */
 .tab-bar[data-scope="basics"]     .tab:not([data-scope="basics"])     { display: none; }
 .tab-bar[data-scope="operations"] .tab:not([data-scope="operations"]) { display: none; }
+.tab-bar[data-scope="copy"]       .tab:not([data-scope="copy"])       { display: none; }
 
 /* ── Inner tabs (Layout / TV Layout switcher) ── */
 .tab-bar { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
@@ -197,6 +207,7 @@ header p { font-size: 0.82rem; color: #6b7280; flex: 1; }
 }
 .tab.active { background: #1e3a5f; color: #60a5fa; border-color: #3b82f6; font-weight: 600; }
 .tab[data-scope="operations"].active { background: #3b1e5f; color: #c4b5fd; border-color: #a855f7; }
+.tab[data-scope="copy"].active       { background: #064e3b; color: #6ee7b7; border-color: #10b981; }
 .tab:hover:not(.active) { background: #283548; color: #d1d5db; }
 
 /* ── Panel layout ── */
@@ -386,6 +397,54 @@ textarea:focus { outline: none; border-color: #3b82f6; }
 /* Complement viz spans both columns of the composition grid, so it sits
    directly under the 2x2 layout area and never reaches the controls column. */
 .comp-viz-complement { grid-column: 1 / -1; }
+
+/* ── Collapsible sections (CopyUniversalOp's 3-part menu) ── */
+.cuo-section {
+  border: 1px solid #374151;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  background: #111827;
+}
+.cuo-section > summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #93c5fd;
+  letter-spacing: 0.3px;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cuo-section > summary::before {
+  content: "▸";
+  font-size: 0.7rem;
+  color: #6b7280;
+  transition: transform 0.15s;
+}
+.cuo-section[open] > summary::before { transform: rotate(90deg); }
+.cuo-section > summary::-webkit-details-marker { display: none; }
+.cuo-section:hover { border-color: #4b5563; }
+.cuo-section-body {
+  padding: 10px 12px 12px;
+  border-top: 1px solid #1f2937;
+}
+.cuo-section-body .form-group { margin-bottom: 8px; }
+.cuo-result {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #0b1220;
+  border: 1px solid #1f2937;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: #d1d5db;
+}
+.cuo-result:empty { display: none; }
+.cuo-result-line { padding: 2px 0; }
+.cuo-result-line b { color: #6ee7b7; }
 .comp-viz-header {
   display: flex;
   justify-content: space-between;

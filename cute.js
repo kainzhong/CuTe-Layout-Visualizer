@@ -211,6 +211,7 @@ function colorBW(idx) { return BW_COLORS[((idx % 8) + 8) % 8]; }
 function colorTV(tid) { return TV_COLORS[((tid % 8) + 8) % 8]; }
 function colorHighlight(idx) { return HIGHLIGHT_COLORS[((idx % 8) + 8) % 8]; }
 
+
 /** Pick black or white text based on background luminance. */
 function textOnBG(hex) {
   const r = parseInt(hex.slice(1,3),16);

@@ -22,6 +22,7 @@ tabs/
   zipped_product.js "Zipped / Tiled / Flat Product" tab (single-layout tiler, dropdown picks result form)
   blocked_product.js "Blocked Product" tab (rank-preserving matrix tiling)
   raked_product.js  "Raked Product" tab (block-interleaved, scattered)
+  copy_universal_op.js  "CopyUniversalOp" tab (COPY scope; 3 collapsible sections — atom, tile, partition — with one viz per section; no coloring yet)
 ```
 
 ## Dependency graph
@@ -97,6 +98,7 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=zipped_product-(2,2):(1,2)-(2,2):(1,2)
 ?key=blocked_product-(2,2):(1,2)-(3,3):(1,3)
 ?key=raked_product-(2,2):(1,2)-(3,3):(1,3)
+?key=copy_universal_op-128-half_t-(4,8):(8,1)-(2,8):(8,1)-src-(16,64):(64,1)
 ```
 - Parsing is in `parseKeyParam()` (driven by `FEATURE_SPEC` in ui.js).
 - Rendering is in `applyKeyParam()` (dispatches to the tab's render function).
@@ -130,6 +132,7 @@ The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. E
 
 - `basics` — Layout, TV Layout. Accent color: blue (`#3b82f6`).
 - `operations` — the CuTe layout-algebra tabs (composition, complement, divide/product variants). Accent color: purple (`#a855f7`).
+- `copy` — copy-atom / copy-related tabs. Accent color: emerald (`#10b981`).
 
 ### How scopes are wired
 

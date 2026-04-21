@@ -51,8 +51,9 @@ Every operation tab shows the inputs and the result as linked visualizations, no
 - **Scoped navigation** — Tabs are grouped into scopes so the tab bar doesn't turn into a wall of buttons as more features are added. The current scopes are:
   - **Basics** (blue) — Layout, TV Layout.
   - **Layout Operations** (purple) — Composition, Complement, Logical Divide, Zipped / Tiled / Flat Divide, Logical Product, Zipped / Tiled / Flat Product, Blocked Product, Raked Product.
+  - **Copy** (emerald) — CopyUniversalOp (3-section menu: atom / tile / partition, with a layout viz per section).
 
-  Click a scope at the top of the nav card to swap in its tabs. The active scope has a color accent (left stripe + active-tab highlight) so you always know which section you're in. Deep-link URLs auto-flip to the right scope. Scopes are designed to be extended — future groups like **MMA** or **Copy** can be added without cluttering the existing ones.
+  Click a scope at the top of the nav card to swap in its tabs. The active scope has a color accent (left stripe + active-tab highlight) so you always know which section you're in. Deep-link URLs auto-flip to the right scope. Scopes are designed to be extended — future groups like **MMA** can be added without cluttering the existing ones.
 - **Multiple tabs** — Open several independent workspaces side by side. Each tab is fully self-contained.
 - **Shareable URLs** — Every operation has an "Export URL" button that copies a deep link to the current visualization. Paste it into chat or a doc and the recipient lands on the same view.
 - **Zoom** — Click "Zoom in" on any panel to fit by the shortest side (useful for very wide or very tall layouts).

@@ -221,6 +221,50 @@ function textOnBG(hex) {
   return lum > 0.45 ? '#000' : '#fff';
 }
 
+/** Extract [r,g,b] from a "#rrggbb" or "rgb(r,g,b)" string, or null if unparseable. */
+function parseColor(c) {
+  if (!c) return null;
+  if (c[0] === '#' && c.length === 7) {
+    return [parseInt(c.slice(1,3),16), parseInt(c.slice(3,5),16), parseInt(c.slice(5,7),16)];
+  }
+  const m = c.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
+  if (!m) return null;
+  return [parseInt(m[1],10), parseInt(m[2],10), parseInt(m[3],10)];
+}
+
+/** Text color for any supported color string (hex or rgb()). */
+function textOnRGB(color) {
+  const rgb = parseColor(color);
+  if (!rgb) return '#000';
+  const [r, g, b] = rgb;
+  const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
+  return lum > 0.45 ? '#000' : '#fff';
+}
+
+/** Interpolate toward black by `factor` in [0, 1]. factor=0 → original, factor=1 → black. */
+function darkenRGB(color, factor) {
+  const rgb = parseColor(color);
+  if (!rgb) return color;
+  const [r, g, b] = rgb;
+  const k = 1 - Math.max(0, Math.min(1, factor));
+  return `rgb(${Math.round(r*k)},${Math.round(g*k)},${Math.round(b*k)})`;
+}
+
+/** Interpolate toward white by `factor` in [0, 1]. factor=0 → original, factor=1 → white. */
+function lightenRGB(color, factor) {
+  const rgb = parseColor(color);
+  if (!rgb) return color;
+  const [r, g, b] = rgb;
+  const k = Math.max(0, Math.min(1, factor));
+  return `rgb(${Math.round(r + (255-r)*k)},${Math.round(g + (255-g)*k)},${Math.round(b + (255-b)*k)})`;
+}
+
+/** Gray with a given 0..255 lightness. */
+function grayRGB(shade) {
+  const s = Math.max(0, Math.min(255, Math.round(shade)));
+  return `rgb(${s},${s},${s})`;
+}
+
 /** Convert rgb(...) string to hex. */
 function rgbToHex(str) {
   const m = str.match(/\d+/g);

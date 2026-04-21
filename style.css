@@ -390,10 +390,12 @@ textarea:focus { outline: none; border-color: #3b82f6; }
 }
 .comp-viz-item { min-width: 0; }
 .comp-viz-item .viz-box { padding: 10px; }
-/* Keep per-viz SVGs compact so the complement row below the 2x2 grid is
-   actually visible without scrolling. `!important` overrides the inline
-   max-height:70vh emitted by `svgFitStyle` for tall SVGs. */
-.comp-results .viz-box svg { max-height: 38vh !important; }
+/* Keep per-viz SVGs compact in the Composition tab so the complement row
+   below the 2×2 grid is actually visible without scrolling. `!important`
+   overrides the inline max-height:70vh emitted by `svgFitStyle`. Scoped to
+   the composition tab only — other tabs (copy_universal_op especially) need
+   to honour explicit per-viz heights. */
+[id$="-tab-composition"] .comp-results .viz-box svg { max-height: 38vh !important; }
 /* Complement viz spans both columns of the composition grid, so it sits
    directly under the 2x2 layout area and never reaches the controls column. */
 .comp-viz-complement { grid-column: 1 / -1; }

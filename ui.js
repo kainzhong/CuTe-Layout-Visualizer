@@ -388,6 +388,79 @@ function buildGridSVG(grid, M, N, mode) {
   </svg>`;
 }
 
+/** Render a 2-D layout with a caller-supplied per-cell style resolver.
+ *  `cellFn(m, n, offset)` returns `{ bg?, fg?, stroke?, sw?, text? }`:
+ *    text === null     → no cell text
+ *    text === [strs]   → use these strings
+ *    text === undefined → default label from `modes` (value / index / coord)
+ *  `opts.pixelScale` (default 1) forces the SVG to render at `pixelScale ×`
+ *  its natural pixel size (square cells preserved). Values > 1 bypass the
+ *  default `width:100%` fit, which means the containing `.viz-box` may need
+ *  to scroll horizontally when the tensor is wider than the container —
+ *  this is the only way to get both "bigger cells" and "square cells" since
+ *  `width:100%` fundamentally couples cell size to container width.
+ *  Used by the Copy Atom visualizations. */
+function buildColoredLayoutSVG(shape, stride, modes, cellFn, opts) {
+  opts = opts || {};
+  modes = toModeSet(modes);
+  const [M, N] = productEach(shape);
+  if (M * N > MAX_CELLS)
+    return errSVG(`Grid too large: ${M}×${N} = ${M*N} cells (max ${MAX_CELLS})`);
+  if (M === 0 || N === 0)
+    return errSVG(`Empty grid: ${M}×${N}`);
+
+  const cs = cellSize(M, N);
+  const margin = cs;
+  const W = margin + N * cs;
+  const H = margin + M * cs;
+  const axisFs = Math.max(8, Math.min(14, Math.floor(cs * 0.38)));
+  let body = '';
+
+  for (let n = 0; n < N; n++) {
+    const cx = margin + (n + 0.5) * cs;
+    body += `<text x="${cx}" y="${margin * 0.55}" text-anchor="middle" dominant-baseline="middle"
+      fill="#555" font-size="${axisFs}" font-family="monospace">${n}</text>`;
+  }
+  for (let m = 0; m < M; m++) {
+    const cy = margin + (m + 0.5) * cs;
+    body += `<text x="${margin * 0.5}" y="${cy}" text-anchor="middle" dominant-baseline="middle"
+      fill="#555" font-size="${axisFs}" font-family="monospace">${m}</text>`;
+  }
+
+  for (let m = 0; m < M; m++) {
+    for (let n = 0; n < N; n++) {
+      const offset = layoutAt(shape, stride, m, n);
+      const flatI = m + n * M;
+      const style = cellFn(m, n, offset, flatI) || {};
+      const bg = style.bg || '#f0f0f0';
+      const stroke = style.stroke || '#ccc';
+      const sw = (style.sw != null) ? style.sw : 0.5;
+      const x = margin + n * cs;
+      const y = margin + m * cs;
+      body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
+        fill="${bg}" stroke="${stroke}" stroke-width="${sw}"/>`;
+      let lines;
+      if (style.text === null)            lines = null;
+      else if (Array.isArray(style.text)) lines = style.text;
+      else                                 lines = buildCellLines(modes, offset, flatI, `(${m},${n})`);
+      if (lines && lines.length > 0) {
+        const fg = style.fg || textOnRGB(bg);
+        body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fg);
+      }
+    }
+  }
+
+  const scale = opts.pixelScale || 1;
+  const styleStr = scale > 1
+    ? `width:${Math.round(W * scale)}px;height:${Math.round(H * scale)}px;max-width:none;max-height:none;display:block;margin:0 auto`
+    : svgFitStyle(W, H);
+
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="${styleStr}">
+    <rect width="${W}" height="${H}" fill="white"/>
+    ${body}
+  </svg>`;
+}
+
 function errSVG(msg) {
   return `<svg viewBox="0 0 400 60" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
     <rect width="400" height="60" fill="white"/>
@@ -774,7 +847,7 @@ function downloadSVG(hostId, filename) {
 //    zipped_product-<A>-<tiler>
 //    blocked_product-<A>-<tiler>
 //    raked_product-<A>-<tiler>
-//    copy_universal_op-<num_bits>-<etype>-<thr>-<val>-<dir>-<tensor>
+//    copy_universal_op-<num_bits>-<dtype>-<thr>-<val>-<dir>-<tensor>
 //  Legacy accepted: tv-<tv_layout>-<tile>  (treated as method 1)
 // ═══════════════════════════════════════════════════════
 
@@ -791,7 +864,7 @@ const FEATURE_SPEC = {
   zipped_product:  { inputs: 2 },
   blocked_product: { inputs: 2 },
   raked_product:   { inputs: 2 },
-  copy_universal_op: { inputs: 6 },  // bits, etype, thr, val, dir, tensor
+  copy_universal_op: { inputs: 6 },  // bits, dtype, thr, val, dir, tensor
 };
 
 function parseKeyParam() {
@@ -907,7 +980,7 @@ function applyKeyParam(tabId) {
       break;
     case 'copy_universal_op':
       document.getElementById(`${tabId}-cuo-bits-input`).value   = inputs[0];
-      document.getElementById(`${tabId}-cuo-etype-input`).value  = inputs[1];
+      document.getElementById(`${tabId}-cuo-dtype-input`).value  = inputs[1];
       document.getElementById(`${tabId}-cuo-thr-input`).value    = inputs[2];
       document.getElementById(`${tabId}-cuo-val-input`).value    = inputs[3];
       document.getElementById(`${tabId}-cuo-tensor-input`).value = inputs[5];

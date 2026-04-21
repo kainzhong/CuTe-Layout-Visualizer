@@ -379,6 +379,13 @@ textarea:focus { outline: none; border-color: #3b82f6; }
 }
 .comp-viz-item { min-width: 0; }
 .comp-viz-item .viz-box { padding: 10px; }
+/* Keep per-viz SVGs compact so the complement row below the 2x2 grid is
+   actually visible without scrolling. `!important` overrides the inline
+   max-height:70vh emitted by `svgFitStyle` for tall SVGs. */
+.comp-results .viz-box svg { max-height: 38vh !important; }
+/* Complement viz spans both columns of the composition grid, so it sits
+   directly under the 2x2 layout area and never reaches the controls column. */
+.comp-viz-complement { grid-column: 1 / -1; }
 .comp-viz-header {
   display: flex;
   justify-content: space-between;

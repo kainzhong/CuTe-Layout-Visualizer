@@ -15,9 +15,9 @@ function generateTVTabContent(id) {
         })}
         ${layoutInputField({
           id: `${id}-tv-tile-input`,
-          label: 'Tile &mdash; (M, N):(stride_M, stride_N)',
-          hint: 'CuTe uses col-major (1, M)',
-          value: '(8, 16):(1, 8)'
+          label: 'Tile &mdash; (M, N)',
+          hint: 'a tile is just a shape; the TV layout’s output is col-major into it',
+          value: '(8, 16)'
         })}
 
         <div class="form-group">
@@ -44,14 +44,13 @@ function generateTVTabContent(id) {
         <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-tv-export" onclick="exportTV('${id}')">Export URL</button>
 
         <div class="presets">
-          <h3>Presets</h3>
+          <h3>Presets &mdash; thr_layout &times; val_layout</h3>
           <div class="preset-list">
-            <button class="preset-btn" onclick="setTV('${id}','(4,(4,4)):(4,(16,1))','(16, 4):(4, 1)')">4Tx16V nested -> 16x4 row-major</button>
-            <button class="preset-btn" onclick="setTV('${id}','(32, 4):(1, 32)','(8, 16):(16, 1)')">32Tx4V -> 8x16 row-major</button>
-            <button class="preset-btn" onclick="setTV('${id}','(32, 4):(1, 32)','(8, 16):(1, 8)')">32Tx4V -> 8x16 col-major</button>
-            <button class="preset-btn" onclick="setTV('${id}','(8, 8):(1, 8)','(8, 8):(8, 1)')">8Tx8V -> 8x8 tile</button>
-            <button class="preset-btn" onclick="setTV('${id}','(4, 32):(32, 1)','(4, 32):(32, 1)')">Warp 4Tx32V</button>
-            <button class="preset-btn" onclick="setTV('${id}','(128, 4):(1, 128)','(16, 32):(32, 1)')">128Tx4V -> 16x32</button>
+            <button class="preset-btn" onclick="setTVFromThrVal('${id}','(2,3):(3,1)','(2,2):(2,1)')">2x3 threads, 2x2 values (row-maj) &rarr; 4x6 tile</button>
+            <button class="preset-btn" onclick="setTVFromThrVal('${id}','(4,4):(1,4)','(2,2):(1,2)')">4x4 threads, 2x2 values (col-maj) &rarr; 8x8 tile</button>
+            <button class="preset-btn" onclick="setTVFromThrVal('${id}','(4,8):(8,1)','(2,2):(2,1)')">4x8 threads, 2x2 values (row-maj) &rarr; 8x16 tile</button>
+            <button class="preset-btn" onclick="setTVFromThrVal('${id}','(8,4):(1,8)','(2,2):(1,2)')">8x4 threads, 2x2 values (col-maj) &rarr; 16x8 tile</button>
+            <button class="preset-btn" onclick="setTVFromThrVal('${id}','(16,2):(1,16)','(2,2):(1,2)')">32 threads (16x2), 2x2 values &rarr; 32x4 tile</button>
           </div>
         </div>
 
@@ -61,13 +60,11 @@ function generateTVTabContent(id) {
           Cell color = thread ID.<br>
           Cell text = T<i>tid</i> / V<i>vid</i>.<br>
           Empty cells (&mdash;) are not covered by any thread.<br><br>
-          <b>Tiler strides matter.</b> Tilers returned by
-          CuTe's <code>make_layout_tv</code> are typically
-          <b>row-major</b> <code>(N, 1)</code>. Use the buttons
-          above to quickly switch, or enter strides manually.<br><br>
-          In Python, print the full tiler with:<br>
-          <code>print(f"{tiler_mn}")</code><br>
-          to see <code>(M, N):(sm, sn)</code>.
+          <b>Tile is just a shape</b> &mdash; <code>(M, N)</code>. In CuTe,
+          <code>make_layout_tv</code> returns <code>tiler_mn</code> as a plain
+          shape tuple, and the TV layout's output is a column-major flat index
+          into that tile. If you want a row-major visualization, encode that
+          in the TV layout's own strides rather than the tile.
         </div>
       </div>
 
@@ -179,16 +176,13 @@ function setTV(tabId, tv, tile) {
   renderTV(tabId);
 }
 
-function setTileStride(tabId, mode) {
-  const el = document.getElementById(`${tabId}-tv-tile-input`);
-  try {
-    const {shape} = parseLayout(el.value);
-    const [M, N] = productEach(shape);
-    el.value = mode === 'row' ? `(${M}, ${N}):(${N}, 1)` : `(${M}, ${N}):(1, ${M})`;
-    renderTV(tabId);
-  } catch (e) {
-    showErr(`${tabId}-tv-error`, 'Could not parse tile shape: ' + e.message);
-  }
+/** Preset helper that populates thr_layout + val_layout and derives TV + Tile
+ *  via `make_layout_tv`. Use this for presets that teach the thr/val mental
+ *  model rather than the already-combined TV form. */
+function setTVFromThrVal(tabId, thr, val) {
+  document.getElementById(`${tabId}-tv-thr-input`).value = thr;
+  document.getElementById(`${tabId}-tv-val-input`).value = val;
+  computeTVFromThrVal(tabId);
 }
 
 /** Fill TV Layout + Tile inputs from thr_layout and val_layout via make_layout_tv. */

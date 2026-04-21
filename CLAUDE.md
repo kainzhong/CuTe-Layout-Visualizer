@@ -90,7 +90,7 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ```
 ?key=layout-(10,10):(1,10)
 ?key=composition-(4,4):(4,1)-(2,2):(1,2)
-?key=tv-1-(32,4):(1,32)-(8,16):(16,1)
+?key=tv-1-(32,4):(1,32)-(8,16)
 ?key=tv-2-(2,3):(3,1)-(2,2):(2,1)
 ?key=complement-(2,2):(1,2)-(4,4):(1,4)
 ?key=logical_divide-(12,32):(32,1)-3:1\n8:1

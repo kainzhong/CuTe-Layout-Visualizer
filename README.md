@@ -81,7 +81,7 @@ The `?key=...` query parameter deep-links to a specific visualization:
 
 ```
 ?key=layout-(10,10):(1,10)
-?key=tv-1-(32,4):(1,32)-(8,16):(16,1)
+?key=tv-1-(32,4):(1,32)-(8,16)
 ?key=tv-2-(2,3):(3,1)-(2,2):(2,1)
 ?key=composition-(4,4):(4,1)-(2,2):(1,2)
 ?key=complement-(2,2):(1,2)-(4,4):(1,4)

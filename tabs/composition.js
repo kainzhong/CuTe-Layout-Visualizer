@@ -102,10 +102,7 @@ function generateCompositionTabContent(id) {
           </div>
           <div class="viz-box"><div id="${id}-comp-r-svg"></div></div>
         </div>
-      </div>
-
-      <div id="${id}-comp-complement-section" style="display:none;margin-top:16px;width:100%">
-        <div class="comp-viz-item">
+        <div id="${id}-comp-complement-section" class="comp-viz-item comp-viz-complement" style="display:none">
           <div class="comp-viz-header">
             <span class="comp-viz-label">Complement layout &mdash; tiles R over A to cover the full coordinate space</span>
             <span style="display:flex;align-items:center;gap:4px">

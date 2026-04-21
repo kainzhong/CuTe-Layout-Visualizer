@@ -484,15 +484,29 @@ let activeOuterTabId = null;
 function generateTabContent(id) {
   return `
   <div class="container">
-    <div class="tab-bar">
-      <div class="tab active" onclick="switchInnerTab('${id}', 'layout')">Layout</div>
-      <div class="tab" onclick="switchInnerTab('${id}', 'tv')">TV Layout</div>
-      <div class="tab" onclick="switchInnerTab('${id}', 'composition')">Composition</div>
-      <div class="tab" onclick="switchInnerTab('${id}', 'complement')">Complement</div>
-      <div class="tab" onclick="switchInnerTab('${id}', 'divide')">Logical Divide</div>
-      <div class="tab" onclick="switchInnerTab('${id}', 'zipped')">Zipped Divide</div>
-      <div class="tab" onclick="switchInnerTab('${id}', 'product')">Logical Product</div>
-      <div class="tab" onclick="switchInnerTab('${id}', 'zipped_product')">Zipped Product</div>
+    <div class="tab-nav" data-scope="basics">
+      <div class="tab-scope-bar">
+        <div class="tab-scope-btn active" data-scope="basics" onclick="switchTabGroup('${id}', 'basics')">
+          <span class="tab-scope-icon">\u2756</span>Basics
+          <span class="tab-scope-count">2</span>
+        </div>
+        <div class="tab-scope-btn" data-scope="operations" onclick="switchTabGroup('${id}', 'operations')">
+          <span class="tab-scope-icon">\u25A3</span>Layout Operations
+          <span class="tab-scope-count">8</span>
+        </div>
+      </div>
+    <div class="tab-bar" data-scope="basics">
+      <div class="tab active" data-scope="basics" onclick="switchInnerTab('${id}', 'layout')">Layout</div>
+      <div class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'tv')">TV Layout</div>
+      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'composition')">Composition</div>
+      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'complement')">Complement</div>
+      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'divide')">Logical Divide</div>
+      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'zipped')">Zipped / Tiled / Flat Divide</div>
+      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'product')">Logical Product</div>
+      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'zipped_product')">Zipped / Tiled / Flat Product</div>
+      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'blocked_product')">Blocked Product</div>
+      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'raked_product')">Raked Product</div>
+    </div>
     </div>
     ${generateLayoutTabContent(id)}
     ${generateTVTabContent(id)}
@@ -502,6 +516,8 @@ function generateTabContent(id) {
     ${generateZippedDivideTabContent(id)}
     ${generateLogicalProductTabContent(id)}
     ${generateZippedProductTabContent(id)}
+    ${generateBlockedProductTabContent(id)}
+    ${generateRakedProductTabContent(id)}
   </div>`;
 }
 
@@ -563,9 +579,39 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, composition: 2, complement: 3, divide: 4, zipped: 5, product: 6, zipped_product: 7 };
-  tabs[modeIndex[mode]].classList.add('active');
+  const modeIndex = { layout: 0, tv: 1, composition: 2, complement: 3, divide: 4, zipped: 5, product: 6, zipped_product: 7, blocked_product: 8, raked_product: 9 };
+  const activeTab = tabs[modeIndex[mode]];
+  activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
+
+  // Keep the scope selector in sync with whichever tab is now active, so
+  // opening a tab from a URL also flips the scope buttons / visible row.
+  const scope = activeTab.getAttribute('data-scope') || 'basics';
+  const tabNav = panel.querySelector('.tab-nav');
+  const tabBar = panel.querySelector('.tab-bar');
+  if (tabNav) tabNav.setAttribute('data-scope', scope);
+  if (tabBar) tabBar.setAttribute('data-scope', scope);
+  panel.querySelectorAll('.tab-scope-btn').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('data-scope') === scope);
+  });
+}
+
+function switchTabGroup(tabId, scope) {
+  const panel = document.getElementById(`${tabId}-panel`);
+  const tabNav = panel.querySelector('.tab-nav');
+  const tabBar = panel.querySelector('.tab-bar');
+  if (tabNav) tabNav.setAttribute('data-scope', scope);
+  tabBar.setAttribute('data-scope', scope);
+  panel.querySelectorAll('.tab-scope-btn').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('data-scope') === scope);
+  });
+  // If the currently-active tab belongs to the other scope, jump to the
+  // first tab of the scope we just switched to so something stays visible.
+  const activeTab = tabBar.querySelector('.tab.active');
+  if (!activeTab || activeTab.getAttribute('data-scope') !== scope) {
+    const firstTab = tabBar.querySelector(`.tab[data-scope="${scope}"]`);
+    if (firstTab) firstTab.click();
+  }
 }
 
 function showErr(id, msg) {
@@ -720,6 +766,8 @@ function downloadSVG(hostId, filename) {
 //    zipped_divide-<A>-<tiler>
 //    logical_product-<A>-<tiler>
 //    zipped_product-<A>-<tiler>
+//    blocked_product-<A>-<tiler>
+//    raked_product-<A>-<tiler>
 //  Legacy accepted: tv-<tv_layout>-<tile>  (treated as method 1)
 // ═══════════════════════════════════════════════════════
 
@@ -734,6 +782,8 @@ const FEATURE_SPEC = {
   zipped_divide:  { inputs: 2 },
   logical_product: { inputs: 2 },
   zipped_product:  { inputs: 2 },
+  blocked_product: { inputs: 2 },
+  raked_product:   { inputs: 2 },
 };
 
 function parseKeyParam() {
@@ -834,6 +884,18 @@ function applyKeyParam(tabId) {
       document.getElementById(`${tabId}-zp-tiler-input`).value = inputs[1];
       switchInnerTab(tabId, 'zipped_product');
       renderZippedProduct(tabId);
+      break;
+    case 'blocked_product':
+      document.getElementById(`${tabId}-bp-a-input`).value = inputs[0];
+      document.getElementById(`${tabId}-bp-tiler-input`).value = inputs[1];
+      switchInnerTab(tabId, 'blocked_product');
+      renderBlockedProduct(tabId);
+      break;
+    case 'raked_product':
+      document.getElementById(`${tabId}-rp-a-input`).value = inputs[0];
+      document.getElementById(`${tabId}-rp-tiler-input`).value = inputs[1];
+      switchInnerTab(tabId, 'raked_product');
+      renderRakedProduct(tabId);
       break;
   }
 }

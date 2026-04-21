@@ -1,16 +1,33 @@
-// Zipped Divide tab: HTML panel, state, render/mode/preset/export helpers.
+// Zipped / Tiled / Flat Divide tab: HTML panel, state, render/mode/preset/export helpers.
+// All three variants represent the same set of cells at the same positions;
+// only the mode grouping of the returned layout differs. We render the shared
+// 2D grid once (from zipped_divide's result) and let the user pick which
+// *textual* form to display via a dropdown.
 // Functions become globals on `window` (no module system).
 
 function generateZippedDivideTabContent(id) {
   return `
-    <!-- Zipped Divide panel -->
+    <!-- Zipped / Tiled / Flat Divide panel -->
     <div id="${id}-tab-zipped" class="panel">
       <div class="controls">
-        <h2>Zipped Divide</h2>
+        <h2>Zipped / Tiled / Flat Divide</h2>
         ${layoutInputField({ id: `${id}-zd-a-input`, label: 'Layout A &mdash; the target to partition', value: '(12, 32):(32, 1)' })}
         ${layoutInputField({ id: `${id}-zd-tiler-input`, label: 'Tiler &mdash; layout or multi-line tiler (one per line)', value: '3:4\n8:4', textarea: true, rows: 2 })}
+        <div class="form-group">
+          <label>Variant &mdash; pick how the result layout is grouped</label>
+          <select id="${id}-zd-variant" onchange="updateZdVariant('${id}')">
+            <option value="zipped">zipped_divide</option>
+            <option value="tiled">tiled_divide</option>
+            <option value="flat">flat_divide</option>
+          </select>
+        </div>
         ${statusDivs(`${id}-zd`)}
         <div id="${id}-zd-result" class="comp-result-box"></div>
+        <div id="${id}-zd-variant-note" style="font-size:0.78rem;color:#6b7280;margin-top:-8px;margin-bottom:10px">
+          All three variants produce the same cells at the same positions &mdash;
+          they differ only in how the returned layout's modes are grouped. The
+          visualization below is identical for all three.
+        </div>
         <button class="btn btn-render" onclick="renderZippedDivide('${id}')">Render</button>
         <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-zd-export" onclick="exportZD('${id}')">Export URL</button>
 
@@ -90,6 +107,12 @@ function generateZippedDivideTabContent(id) {
 
 const zdState = {};
 
+const ZD_VARIANT_NAMES = {
+  zipped: 'zipped_divide',
+  tiled:  'tiled_divide',
+  flat:   'flat_divide',
+};
+
 // Same accent colors as the Logical Divide tab — cells from the same tile
 // get the same color in both layouts, since zipped_divide only rearranges.
 const ZD_ROW_COLOR  = '#dc2626';  // mode-0 (B0 / row axis labels / tiler[0] cell text)
@@ -131,10 +154,20 @@ function renderZippedDivide(tabId) {
       tilerArg = singleTiler;
     }
 
-    const R = zipped_divide(aLayout, tilerArg);
+    const RZipped = zipped_divide(aLayout, tilerArg);
+    const RTiled  = tiled_divide(aLayout, tilerArg);
+    const RFlat   = flat_divide(aLayout, tilerArg);
 
-    const rStr = formatLayoutStr(R.shape, R.stride);
-    const rParsed = parseLayout(rStr);
+    const resultStrs = {
+      zipped: formatLayoutStr(RZipped.shape, RZipped.stride),
+      tiled:  formatLayoutStr(RTiled.shape,  RTiled.stride),
+      flat:   formatLayoutStr(RFlat.shape,   RFlat.stride),
+    };
+
+    // Visualization always uses zipped_divide's (rank-2) form so productEach
+    // flattens cleanly into a 2D grid. The three variants re-group the same
+    // cells, so the picture would be identical under any of them.
+    const rParsed = parseLayout(resultStrs.zipped);
 
     // Build tile-index functions + selection (mirrors Logical Divide exactly for A,
     // but uses the zipped arrangement for R's mode-0/mode-1 decomposition).
@@ -196,10 +229,12 @@ function renderZippedDivide(tabId) {
       aSelection = { edgeCells, edgeColor: ZD_EDGE_COLOR };
     }
 
+    const tilerText = isTiler ? `<${tilerLines.join(', ')}>` : tilerLines[0];
+
     zdState[tabId] = {
       aParsed, aStr,
-      tilerLayouts, tilerLines, isTiler,
-      rParsed, rStr,
+      tilerLayouts, tilerLines, isTiler, tilerText,
+      rParsed, resultStrs,
       aTileIdxFn, rTileIdxFn, aSelection,
       modes: {
         a:      new Set(['value']),
@@ -208,19 +243,14 @@ function renderZippedDivide(tabId) {
       }
     };
 
-    const resultEl = document.getElementById(`${tabId}-zd-result`);
-    const tilerText = isTiler ? `<${tilerLines.join(', ')}>` : tilerLines[0];
-    resultEl.textContent = `zipped_divide(${aStr.trim()}, ${tilerText}) = ${rStr}`;
-    resultEl.classList.add('visible');
-
     document.getElementById(`${tabId}-zd-a-title`).textContent = `A: ${aStr.trim()}`;
     document.getElementById(`${tabId}-zd-tiler-title`).textContent =
       isTiler ? `Tiler: ${tilerText}` : `Tiler: ${tilerLines[0]}`;
-    document.getElementById(`${tabId}-zd-result-title`).textContent = `Result: ${rStr}`;
 
     renderZdGrid(tabId, 'a');
     renderZdGrid(tabId, 'tiler');
     renderZdGrid(tabId, 'result');
+    updateZdVariant(tabId);
 
     updateOuterTabLabel(tabId, `ZipDivide:${aStr.trim()}`);
   } catch (e) {
@@ -232,6 +262,22 @@ function renderZippedDivide(tabId) {
       if (el) el.innerHTML = '';
     });
   }
+}
+
+// Refresh only the text output (result box + result title) to match the
+// current dropdown selection. The visualization is unaffected.
+function updateZdVariant(tabId) {
+  const s = zdState[tabId];
+  if (!s) return;
+  const variant = document.getElementById(`${tabId}-zd-variant`).value;
+  const fnName  = ZD_VARIANT_NAMES[variant];
+  const rStr    = s.resultStrs[variant];
+
+  const resultEl = document.getElementById(`${tabId}-zd-result`);
+  resultEl.textContent = `${fnName}(${s.aStr.trim()}, ${s.tilerText}) = ${rStr}`;
+  resultEl.classList.add('visible');
+  document.getElementById(`${tabId}-zd-result-title`).textContent =
+    `Result (${fnName}): ${rStr}`;
 }
 
 function renderZdGrid(tabId, which) {

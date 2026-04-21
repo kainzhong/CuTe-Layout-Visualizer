@@ -97,8 +97,92 @@ header p { font-size: 0.82rem; color: #6b7280; flex: 1; }
 
 .container { max-width: 1440px; margin: 0 auto; padding: 24px 28px; }
 
+/* ── Unified tab-nav card (scope selector on top, filtered tabs below) ── */
+.tab-nav {
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 10px;
+  padding: 10px 12px 12px;
+  margin-bottom: 22px;
+  position: relative;
+}
+/* Thin accent stripe on the left edge that shifts color by scope, giving
+   an at-a-glance hint of which section is active. */
+.tab-nav::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 10px; bottom: 10px;
+  width: 3px;
+  border-radius: 3px;
+  background: #3b82f6;
+  transition: background 0.2s;
+}
+.tab-nav[data-scope="operations"]::before { background: #a855f7; }
+
+.tab-scope-bar {
+  display: flex;
+  gap: 6px;
+  padding: 0 0 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #1f2937;
+  align-items: center;
+}
+.tab-scope-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  color: #6b7280;
+  border: 1px solid transparent;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  user-select: none;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.tab-scope-btn.active {
+  background: #1e3a5f;
+  color: #93c5fd;
+  border-color: #3b82f6;
+}
+.tab-scope-btn[data-scope="operations"].active {
+  background: #3b1e5f;
+  color: #c4b5fd;
+  border-color: #a855f7;
+}
+.tab-scope-btn:hover:not(.active) {
+  background: #1f2937;
+  color: #d1d5db;
+}
+.tab-scope-icon { font-size: 0.8rem; opacity: 0.8; }
+.tab-scope-count {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #9ca3af;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.tab-scope-btn.active .tab-scope-count { background: rgba(147, 197, 253, 0.18); color: #bfdbfe; }
+.tab-scope-btn[data-scope="operations"].active .tab-scope-count {
+  background: rgba(196, 181, 253, 0.18); color: #ddd6fe;
+}
+
+/* Scope-based filtering: only show tabs whose data-scope matches the tab-bar.
+   One rule per scope — add a new line when you add a new scope. */
+.tab-bar[data-scope="basics"]     .tab:not([data-scope="basics"])     { display: none; }
+.tab-bar[data-scope="operations"] .tab:not([data-scope="operations"]) { display: none; }
+
 /* ── Inner tabs (Layout / TV Layout switcher) ── */
-.tab-bar { display: flex; gap: 6px; margin-bottom: 22px; }
+.tab-bar { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
 .tab {
   padding: 7px 18px;
   border-radius: 6px;
@@ -109,8 +193,10 @@ header p { font-size: 0.82rem; color: #6b7280; flex: 1; }
   font-size: 0.88rem;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
   user-select: none;
+  white-space: nowrap;
 }
 .tab.active { background: #1e3a5f; color: #60a5fa; border-color: #3b82f6; font-weight: 600; }
+.tab[data-scope="operations"].active { background: #3b1e5f; color: #c4b5fd; border-color: #a855f7; }
 .tab:hover:not(.active) { background: #283548; color: #d1d5db; }
 
 /* ── Panel layout ── */

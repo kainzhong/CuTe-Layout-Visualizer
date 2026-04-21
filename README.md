@@ -40,12 +40,19 @@ Every operation tab shows the inputs and the result as linked visualizations, no
 - **Composition & Complement** — Render `A`, `B`, `B_complement`, and `composition(A, B)`. Toggle the complement view to see how `complement(B, size(A))` fills in the remaining layout. Cells from the first tile in A are edge-highlighted in amber; the complement layout mirrors those highlights so the correspondence is immediate.
 - **Complement** (standalone) — Render a layout and its complement against a given cotarget size. Useful for isolating what the complement operation actually produces before involving composition.
 - **Logical Divide** — `logical_divide(A, tiler)` with full tile coloring: cells belonging to the same tile share a color across A and the result. Supports single-layout and multi-line (by-mode) tilers. For 2-mode tilers, the two axes use distinct accent colors (red for mode-0, deep blue for mode-1) so the row-axis and column-axis selections are visually separable.
-- **Zipped Divide** — `zipped_divide(A, tiler)` with the same coloring as Logical Divide, but with the result rearranged into `((tile-local...), (across-tile...))`. Colors stay consistent so you can see that zipped_divide is purely a rearrangement of the same cells.
+- **Zipped / Tiled / Flat Divide** — `zipped_divide(A, tiler)` and its two reshape-only siblings `tiled_divide` (unpacks outer one level) and `flat_divide` (every mode flat). All three produce the same set of cells at the same positions; a dropdown picks which textual form to display while the visualization stays identical. Coloring matches Logical Divide so you can see that these are pure rearrangements of the same cells.
 - **Logical Product** — `logical_product(A, tiler)` with slide-based coloring: A is the block being reproduced and gets color 0; each "slide" of A across the tiler produces the next tile, colored in the next shade. Supports single-layout and multi-line (by-mode) tilers.
-- **Zipped Product** — `zipped_product(A, tiler)` (single-layout tiler). Each column of the result is one copy of A, so column `k` gets color `k` and column 0 matches A.
+- **Zipped / Tiled / Flat Product** — `zipped_product(A, tiler)` and its two reshape-only siblings `tiled_product` (unpacks outer one level) and `flat_product` (every mode flat). All three produce the same set of cells at the same positions; a dropdown lets you see the *textual* layout for each variant while the visualization stays identical. Each column is one copy of A → column `k` gets color `k`, column 0 matches A.
+- **Blocked Product** — `blocked_product(A, tiler)`, the rank-preserving cousin of `logical_product`: each output axis carries `(block_i, tile_i)` merged, so copies of A are laid down as contiguous sub-blocks of a bigger matrix (grid is `size(A_i) * size(tiler_i)` per axis). This is what you want when building a matrix tile from a per-thread block and a thread layout — it's also the primitive behind `tile_to_shape`. A gets color 0, and each block-copy at tile position `(t0, t1)` gets color `t0 + t1 * size(tiler[0])`.
+- **Raked Product** — `raked_product(A, tiler)`, the interleaved twin of `blocked_product`. Same set of cells, same 2D shape, but the zip order is reversed — tile-mode first, block-mode second — so cells of a single copy of A are scattered across the output tile at stride `size(tiler_i)` along each axis instead of clumped into a contiguous sub-block. This is the primitive behind `make_layout_tv`: it's why each thread's values are spread across the tile for coalesced memory access. Same coloring scheme as Blocked Product — compare the two tabs with identical inputs to see the scattered-vs-clumped difference at a glance.
 
 ### Workspace
 
+- **Scoped navigation** — Tabs are grouped into scopes so the tab bar doesn't turn into a wall of buttons as more features are added. The current scopes are:
+  - **Basics** (blue) — Layout, TV Layout.
+  - **Layout Operations** (purple) — Composition, Complement, Logical Divide, Zipped / Tiled / Flat Divide, Logical Product, Zipped / Tiled / Flat Product, Blocked Product, Raked Product.
+
+  Click a scope at the top of the nav card to swap in its tabs. The active scope has a color accent (left stripe + active-tab highlight) so you always know which section you're in. Deep-link URLs auto-flip to the right scope. Scopes are designed to be extended — future groups like **MMA** or **Copy** can be added without cluttering the existing ones.
 - **Multiple tabs** — Open several independent workspaces side by side. Each tab is fully self-contained.
 - **Shareable URLs** — Every operation has an "Export URL" button that copies a deep link to the current visualization. Paste it into chat or a doc and the recipient lands on the same view.
 - **Zoom** — Click "Zoom in" on any panel to fit by the shortest side (useful for very wide or very tall layouts).
@@ -82,6 +89,8 @@ The `?key=...` query parameter deep-links to a specific visualization:
 ?key=zipped_divide-(12,32):(32,1)-3:1\n8:1
 ?key=logical_product-(2,2):(1,2)-(2,2):(1,2)
 ?key=zipped_product-(2,2):(1,2)-(2,2):(1,2)
+?key=blocked_product-(2,2):(1,2)-(3,3):(1,3)
+?key=raked_product-(2,2):(1,2)-(3,3):(1,3)
 ```
 
 ## Local development

@@ -17,9 +17,11 @@ tabs/
   composition.js   "Composition & Complement" tab (with complement-toggle)
   complement.js    Standalone "Complement" tab
   divide.js        "Logical Divide" tab
-  zipped.js        "Zipped Divide" tab
+  zipped.js        "Zipped / Tiled / Flat Divide" tab (dropdown picks result form)
   product.js       "Logical Product" tab
-  zipped_product.js "Zipped Product" tab (single-layout tiler only)
+  zipped_product.js "Zipped / Tiled / Flat Product" tab (single-layout tiler, dropdown picks result form)
+  blocked_product.js "Blocked Product" tab (rank-preserving matrix tiling)
+  raked_product.js  "Raked Product" tab (block-interleaved, scattered)
 ```
 
 ## Dependency graph
@@ -93,6 +95,8 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=complement-(2,2):(1,2)-(4,4):(1,4)
 ?key=logical_divide-(12,32):(32,1)-3:1\n8:1
 ?key=zipped_product-(2,2):(1,2)-(2,2):(1,2)
+?key=blocked_product-(2,2):(1,2)-(3,3):(1,3)
+?key=raked_product-(2,2):(1,2)-(3,3):(1,3)
 ```
 - Parsing is in `parseKeyParam()` (driven by `FEATURE_SPEC` in ui.js).
 - Rendering is in `applyKeyParam()` (dispatches to the tab's render function).
@@ -114,11 +118,47 @@ Every new tab MUST:
 
 Then wire it into the shell:
 
-7. **Register the tab button** in `generateTabContent` in ui.js: add `<div class="tab" onclick="switchInnerTab('${id}', 'yourtab')">Your Tab</div>` to the tab bar.
-8. **Add to `modeIndex`** in `switchInnerTab` in ui.js: `{ ..., yourtab: <next index> }`.
+7. **Register the tab button** in `generateTabContent` in ui.js with a `data-scope` — e.g. `<div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'yourtab')">Your Tab</div>`. Pick the scope the tab belongs to (see "Scopes" below).
+8. **Add to `modeIndex`** in `switchInnerTab` in ui.js: `{ ..., yourtab: <next index> }`. The index must match the tab's order inside `.tab-bar`.
 9. **Call your generator** from `generateTabContent`: append `${generateYourTabContent(id)}`.
 10. **Load the script** in `index.html`: `<script src="tabs/yourtab.js"></script>` (must appear after ui.js, before the inline init).
 11. **Document it in this CLAUDE.md** under "What lives where → tabs/*.js".
+
+## Scopes (tab groups)
+
+The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. Each scope is a named bucket; only one scope's tabs are visible at a time. Current scopes:
+
+- `basics` — Layout, TV Layout. Accent color: blue (`#3b82f6`).
+- `operations` — the CuTe layout-algebra tabs (composition, complement, divide/product variants). Accent color: purple (`#a855f7`).
+
+### How scopes are wired
+
+- **Markup**: `generateTabContent` emits a `<div class="tab-nav" data-scope="...">` wrapping the scope selector (`.tab-scope-bar` with `.tab-scope-btn` pills) and the tab bar (`.tab-bar` with one `<div class="tab" data-scope="...">` per tab). The `data-scope` attribute on each tab assigns it to a group.
+- **CSS**: `.tab-bar[data-scope="X"] .tab[data-scope="Y"] { display: none; }` hides tabs that don't belong to the current scope. Accent colors also key off `data-scope` — e.g. `.tab[data-scope="operations"].active` is purple.
+- **JS**: `switchTabGroup(tabId, scope)` flips the attribute on `.tab-nav` + `.tab-bar`, toggles the `.active` class on the scope buttons, and auto-activates the first tab in the new scope if the previously-active tab is now hidden. `switchInnerTab` also syncs the scope attribute + scope-button active state so URL deep-links (and programmatic tab switches) keep the selector in sync with the visible tab.
+
+### Adding a new scope (e.g. `mma`, `copy`)
+
+1. **Add a scope button** to `.tab-scope-bar` in `generateTabContent` with a unique `data-scope` value and a count of tabs it will hold:
+   ```html
+   <div class="tab-scope-btn" data-scope="mma" onclick="switchTabGroup('${id}', 'mma')">
+     <span class="tab-scope-icon">⬡</span>MMA
+     <span class="tab-scope-count">N</span>
+   </div>
+   ```
+2. **Tag every new tab** with your scope — `data-scope="mma"` on the `.tab` div.
+3. **Add accent-color CSS** in `style.css` for the new scope:
+   - Left-stripe color: `.tab-nav[data-scope="mma"]::before { background: <color>; }`
+   - Active scope-button: `.tab-scope-btn[data-scope="mma"].active { ... }`
+   - Active tab within that scope: `.tab[data-scope="mma"].active { ... }`
+   - Optional: active-count badge tint inside the active scope button.
+4. **Filter CSS** — add one line in `style.css` for the new scope:
+   ```css
+   .tab-bar[data-scope="mma"] .tab:not([data-scope="mma"]) { display: none; }
+   ```
+   This hides any tab that doesn't belong to `mma` while the `mma` scope is active. No other CSS edits needed.
+
+Adding a tab to an existing scope is just step 2 with the existing scope name — no CSS changes needed.
 
 ## Layout input convention (rank warnings)
 

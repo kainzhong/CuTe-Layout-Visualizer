@@ -731,6 +731,14 @@ function tiled_divide(layoutA, layoutB) {
 }
 
 
+// Fully flatten zipped_divide's output -- every leaf of mode(0) and mode(1)
+// becomes a top-level mode. Port of include/cute/layout.hpp:1635.
+function flat_divide(layoutA, layoutB) {
+  const result = zipped_divide(layoutA, layoutB);
+  return new Layout(flatten(result.shape), flatten(result.stride));
+}
+
+
 // Apply logical product hierarchically and gather the split modes into two modes
 function zipped_product(layoutA, layoutB) {
   return hier_unzip(logical_product, layoutA, layoutB);
@@ -745,6 +753,14 @@ function tiled_product(layoutA, layoutB) {
     parts.push(result.mode(1).mode(i));
   }
   return make_layout(parts);
+}
+
+
+// Fully flatten zipped_product's output -- every leaf of mode(0) and mode(1)
+// becomes a top-level mode. Port of include/cute/layout.hpp:1712.
+function flat_product(layoutA, layoutB) {
+  const result = zipped_product(layoutA, layoutB);
+  return new Layout(flatten(result.shape), flatten(result.stride));
 }
 
 
@@ -806,6 +822,18 @@ function append_layout(layout, N) {
   const stride = is_tuple(layout.stride) ? layout.stride.slice() : [layout.stride];
   while (shape.length < N) { shape.push(1); stride.push(0); }
   return new Layout(shape, stride);
+}
+
+// blocked_product -- Reproduce a block over a tiler with block-contiguity.
+// Each output axis carries (block_i, tile_i) merged, so copies of the block
+//   are laid down as contiguous sub-blocks of a larger matrix-shaped layout.
+// post: rank(result) == max(rank(block), rank(tiler), 2)
+// Port of include/cute/layout.hpp:1734. R is floored at 2 so single-mode
+// inputs still produce a 2-D-renderable result.
+function blocked_product(block, tiler) {
+  const R = Math.max(block.rank(), tiler.rank(), 2);
+  const result = logical_product(append_layout(block, R), append_layout(tiler, R));
+  return zip_layouts(result.mode(0), result.mode(1));
 }
 
 // raked_product -- Reproduce a block over a tiler with block-interleaving.

@@ -124,7 +124,7 @@ function generateCopyUniversalOpTabContent(id) {
           <b>Pipeline (matches CuTe)</b>:
           <code>layout_mn = raked_product(thr, val)</code>,
           <code>Tiler_MN = product_each(shape(layout_mn))</code>,
-          <code>layout_tv = right_inverse(layout_mn).with_shape(thr_size, val_size)</code>.
+          <code>layout_tv = right_inverse(layout_mn)<br>.with_shape(thr_size, val_size)</code>.
           Partition: <code>zipped_divide(tensor, Tiler_MN)</code> then compose
           the tile-local mode with <code>layout_tv</code>. (For
           <code>UniversalCopy</code>, <code>AtomLayoutRef == AtomLayoutSrc</code>,

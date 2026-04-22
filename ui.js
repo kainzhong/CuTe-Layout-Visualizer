@@ -154,7 +154,8 @@ function buildLayoutSVG(shape, stride, mode, cellTextColor, allCellsEdgeColor) {
 }
 
 /** Build axis-label and grid SVG for a TV layout. */
-function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underlyingLayout, highlightTid) {
+function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underlyingLayout, highlightTid, labelMode) {
+  labelMode = labelMode || 'value';  // 'value' = T/V labels, 'index' = col-major flat index
   underlyingLayout = underlyingLayout || 'col';
   // highlightTid is a number or null. When set, only cells whose entries
   // include that tid are shown in full color; all others are dimmed.
@@ -239,8 +240,13 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underl
         const fg = dimmed ? '#bbb' : '#111';
         body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
           fill="${bg}" stroke="#ccc" stroke-width="0.5"/>`;
-        const lines = [`T${tid}`, `V${vid}`];
-        if (showOffset) lines.push(`@${offset}`);
+        let lines;
+        if (labelMode === 'index') {
+          lines = [String(m + n * M)];
+        } else {
+          lines = [`T${tid}`, `V${vid}`];
+          if (showOffset) lines.push(`@${offset}`);
+        }
         body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fg);
       } else {
         const bg = dimmed ? '#f0f0f0' : colorTV(entries[0].tid);
@@ -249,11 +255,16 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underl
         const sw = dimmed ? 0.5 : 1.5;
         body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
           fill="${bg}" stroke="${stroke}" stroke-width="${sw}"/>`;
-        const lines = [];
-        for (const e of entries) {
-          let label = `T${e.tid}/V${e.vid}`;
-          if (showOffset) label += `@${e.offset}`;
-          lines.push(label);
+        let lines;
+        if (labelMode === 'index') {
+          lines = [String(m + n * M)];
+        } else {
+          lines = [];
+          for (const e of entries) {
+            let label = `T${e.tid}/V${e.vid}`;
+            if (showOffset) label += `@${e.offset}`;
+            lines.push(label);
+          }
         }
         body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fg);
       }
@@ -583,7 +594,7 @@ function generateTabContent(id) {
       <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'zipped_product')">Zipped / Tiled / Flat Product</div>
       <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'blocked_product')">Blocked Product</div>
       <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'raked_product')">Raked Product</div>
-      <div class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'copy_universal_op')">CopyUniversalOp</div>
+      <div class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'copy_universal_op')">CopyUniversalOp / cpasync.CopyG2SOp</div>
     </div>
     </div>
     ${generateLayoutTabContent(id)}

@@ -21,14 +21,6 @@ function generateTVTabContent(id) {
         })}
 
         <div class="form-group">
-          <label>Underlying data is</label>
-          <div style="display:flex;gap:5px;margin-top:5px">
-            <button class="btn" id="${id}-tv-data-row" style="flex:1;font-size:0.75rem;padding:4px" onclick="setUnderlyingLayout('${id}','row')">Row-major</button>
-            <button class="btn" id="${id}-tv-data-col" style="flex:1;font-size:0.75rem;padding:4px" onclick="setUnderlyingLayout('${id}','col')">Col-major</button>
-          </div>
-        </div>
-
-        <div class="form-group">
           <label>Highlight thread (empty = none)</label>
           <input type="text" id="${id}-tv-highlight-tid" value="" placeholder="e.g. 3" oninput="setHighlightTid('${id}')">
         </div>
@@ -72,7 +64,10 @@ function generateTVTabContent(id) {
         <div class="viz-header">
           <span class="viz-title" id="${id}-tv-title">&mdash;</span>
           <span style="display:flex;align-items:center;gap:8px">
-            <button class="mode-btn" id="${id}-tv-offset-btn" onclick="toggleTVOffset('${id}')">Show offset</button>
+            <span class="mode-btn-group" id="${id}-tv-mode-btns">
+              <button class="mode-btn active" onclick="setTVMode('${id}','value')">value</button>
+              <button class="mode-btn" onclick="setTVMode('${id}','index')">index</button>
+            </span>
             <button class="btn" id="${id}-tv-svg-host-zoom" onclick="toggleZoom('${id}-tv-svg-host')">Zoom in</button>
             <button class="btn" onclick="downloadSVG('${id}-tv-svg-host', 'tv_layout.svg')">Download SVG</button>
           </span>
@@ -103,30 +98,23 @@ function renderTV(tabId) {
     const M    = product(tileL.shape[0]);
     const N    = product(tileL.shape[1]);
 
-    const prev = tvState[tabId] || {};
-    const showOffset = prev.showOffset || false;
-    const underlyingLayout = prev.underlyingLayout || 'col';
     // Read the highlight-thread input; empty or invalid → null (no filter).
     const highlightRaw = document.getElementById(`${tabId}-tv-highlight-tid`).value.trim();
     const highlightTid = highlightRaw === '' ? null : parseInt(highlightRaw, 10);
     const highlightValid = highlightTid !== null && !isNaN(highlightTid);
-    tvState[tabId] = { tvL, tileL, showOffset, underlyingLayout };
+    const prev = tvState[tabId] || {};
+    const mode = prev.mode || 'value';
+    tvState[tabId] = { tvL, tileL, mode };
 
     const titleHL = highlightValid ? `  \u2014  highlight T${highlightTid}` : '';
     document.getElementById(`${tabId}-tv-title`).textContent =
-      `${numT} threads \u00d7 ${numV} values  \u2014  ${M}\u00d7${N} tile (${underlyingLayout}-major data)${titleHL}`;
+      `${numT} threads \u00d7 ${numV} values  \u2014  ${M}\u00d7${N} tile${titleHL}`;
 
     document.getElementById(`${tabId}-tv-svg-host`).innerHTML =
-      buildTVSVG(tvL.shape, tvL.stride, tileL.shape, tileL.stride, showOffset, underlyingLayout,
-                 highlightValid ? highlightTid : null);
+      buildTVSVG(tvL.shape, tvL.stride, tileL.shape, tileL.stride, false, 'col',
+                 highlightValid ? highlightTid : null, mode);
     applyZoomState(`${tabId}-tv-svg-host`);
-
-    const btn = document.getElementById(`${tabId}-tv-offset-btn`);
-    if (btn) btn.classList.toggle('active', showOffset);
-    const rowBtn = document.getElementById(`${tabId}-tv-data-row`);
-    const colBtn = document.getElementById(`${tabId}-tv-data-col`);
-    if (rowBtn) rowBtn.classList.toggle('active', underlyingLayout === 'row');
-    if (colBtn) colBtn.classList.toggle('active', underlyingLayout === 'col');
+    updateModeBtns(`${tabId}-tv-mode-btns`, mode);
 
     buildLegend(tabId, numT);
     updateOuterTabLabel(tabId, `TV-Layout:${tvInput.trim()}`);
@@ -137,23 +125,16 @@ function renderTV(tabId) {
   }
 }
 
-/** Set the underlying data layout ('row' | 'col') for offset display. */
-function setUnderlyingLayout(tabId, layout) {
-  if (!tvState[tabId]) tvState[tabId] = {};
-  tvState[tabId].underlyingLayout = layout;
-  if (tvState[tabId].tvL) renderTV(tabId);
-}
-
-function toggleTVOffset(tabId) {
-  const s = tvState[tabId];
-  if (!s) return;
-  s.showOffset = !s.showOffset;
-  renderTV(tabId);
-}
-
 /** Re-render when the highlight-thread input changes (live update). */
 function setHighlightTid(tabId) {
   if (tvState[tabId] && tvState[tabId].tvL) renderTV(tabId);
+}
+
+/** Switch between 'value' (T/V labels) and 'index' (col-major flat index). */
+function setTVMode(tabId, mode) {
+  if (!tvState[tabId]) tvState[tabId] = {};
+  tvState[tabId].mode = mode;
+  if (tvState[tabId].tvL) renderTV(tabId);
 }
 
 function buildLegend(tabId, numT) {

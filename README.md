@@ -51,7 +51,7 @@ Every operation tab shows the inputs and the result as linked visualizations, no
 - **Scoped navigation** — Tabs are grouped into scopes so the tab bar doesn't turn into a wall of buttons as more features are added. The current scopes are:
   - **Basics** (blue) — Layout, TV Layout.
   - **Layout Operations** (purple) — Composition, Complement, Logical Divide, Zipped / Tiled / Flat Divide, Logical Product, Zipped / Tiled / Flat Product, Blocked Product, Raked Product.
-  - **Copy** (emerald) — CopyUniversalOp (3-section menu: atom / tile / partition, with a layout viz per section).
+  - **Copy** (emerald) — CopyUniversalOp / cpasync.CopyG2SOp (one tab covers both since their `Copy_Traits` are byte-identical; 4-section menu: atom / tile / partition / highlight-thread, with a layout viz per section).
 
   Click a scope at the top of the nav card to swap in its tabs. The active scope has a color accent (left stripe + active-tab highlight) so you always know which section you're in. Deep-link URLs auto-flip to the right scope. Scopes are designed to be extended — future groups like **MMA** can be added without cluttering the existing ones.
 - **Multiple tabs** — Open several independent workspaces side by side. Each tab is fully self-contained.
@@ -99,3 +99,45 @@ The `?key=...` query parameter deep-links to a specific visualization:
 No build step, no server. Just open `index.html` in your browser &mdash; everything is plain HTML/CSS/JS with zero dependencies.
 
 See `CLAUDE.md` for architecture notes (file layout, adding a new tab, input conventions, URL scheme).
+
+## TODO
+
+### Copy Atoms
+
+`CopyUniversalOp` and `cpasync.CopyG2SOp` are covered by a single merged tab (their `Copy_Traits` are byte-identical, so one visualization suffices). Four more tabs, each with dropdown-driven variants, cover everything non-trivial that's left. Rough order by implementation complexity:
+
+1. **ldmatrix / stmatrix** (warp copy) — single tab with:
+   - Direction toggle: load (`ldmatrix`, src = shuffled smem) vs store (`stmatrix`, dst = shuffled smem).
+   - Transpose picker: `N` (no transpose) / `T` (transpose).
+   - Count picker: `x1` / `x2` / `x4` / `x8`.
+   - Dtype picker: `u32` (SM75/SM90), `u16` (SM75/SM90), `u8` / sub-byte (SM100 additions).
+
+   All SM75 LDSM, SM90 STSM, and SM100 LDSM/STSM variants fold into this one tab. Same pipeline as the existing Copy tabs — direct extension, easiest to build first.
+
+2. **TMA bulk tensor** (`cpasync.CopyBulk*`) — single tab with:
+   - Variant picker: `LOAD` / `LOAD_MULTICAST` / `STORE` / `REDUCE_ADD`. Optionally include the non-tensor `BULK_COPY_G2S` / `BULK_COPY_S2G` as extra items.
+   - CTA picker: 1-CTA (SM90) vs 2-CTA (SM100 `SM100_TMA_2SM_LOAD*`; `ThrID = 2`).
+   - Existing `thr_layout` / `val_layout` / tensor inputs drive the tile shape.
+
+   Quirk: TMA traits carry a runtime `TmaDescriptor`, but the TV layouts are static so the atom → TiledCopy → partition pipeline still applies.
+
+3. **tcgen05 TMEM load / store** — single tab collapses all ~160 `SM100_TMEM_LOAD_*` / `SM100_TMEM_STORE_*` variants:
+   - Direction toggle: load (TMEM → regs) vs store (regs → TMEM).
+   - DP picker: `16dp` / `32dp` (rows per warp).
+   - Width picker: `64b` / `128b` / `256b`.
+   - Repeat picker: `1` / `2` / `4` / `8` / `16` / `32` / `64`.
+   - `_16b` packing toggle.
+
+   Most combinatorial space of the four. Needs the shared SVG builder (`buildColoredLayoutSVG` and the tile-lookup helpers) to generalize beyond the rank-2 `(1, elements)` atom-val-layout assumption — TMEM atoms have rank ≥ 3 atom layouts like `(tid, (dp, bit, rep))`.
+
+4. **UTCCP** (tcgen05 multicast into TMEM) — single tab, smallest family:
+   - Shape picker: `128dp{256,128}bit`, `4dp256bit`, `4x32dp128bit`, `2x64dp128bitlw{0213,0123}` (4-5 options).
+   - 1-CTA / 2-CTA toggle.
+
+   Structurally distinct from TMA and from TMEM load/store, so a separate tab rather than merging.
+
+**Coverage rationale**: the `Copy_Traits` families with *trivial* layouts (`ThrID = Layout<_1>`, `SrcLayout = DstLayout = Layout<Shape<_1, bits>>`) — all four `SM80_CP_ASYNC_*` variants, `SM75_U32x1_MOVM_T`, `SM100_LOAD/STORE_256bit_CACHE_NOALLOCATION` — are pixel-identical to `UniversalCopy` and don't need their own tabs. They fold into the existing `CopyUniversalOp` / `cpasync.CopyG2SOp` coverage.
+
+### MMA Atoms
+
+TBD.

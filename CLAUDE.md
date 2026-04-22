@@ -22,7 +22,7 @@ tabs/
   zipped_product.js "Zipped / Tiled / Flat Product" tab (single-layout tiler, dropdown picks result form)
   blocked_product.js "Blocked Product" tab (rank-preserving matrix tiling)
   raked_product.js  "Raked Product" tab (block-interleaved, scattered)
-  copy_universal_op.js  "CopyUniversalOp" tab (COPY scope; 3 collapsible sections — atom, tile, partition — with one viz per section; no coloring yet)
+  copy_universal_op.js  "CopyUniversalOp / cpasync.CopyG2SOp" tab (COPY scope; covers both atoms since their Copy_Traits are byte-identical — 4 collapsible sections: atom / tile / partition / highlight-thread, with one viz per section)
 ```
 
 ## Dependency graph

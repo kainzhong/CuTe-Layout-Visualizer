@@ -150,8 +150,7 @@ function generateCopyUniversalOpTabContent(id) {
             <span class="comp-viz-label" id="${id}-cuo-atom-title">1. Copy_Atom &mdash; single-atom data</span>
             <span style="display:flex;align-items:center;gap:4px">
               <span class="mode-btn-group" id="${id}-cuo-atom-mode-btns">
-                <button class="mode-btn active" onclick="setCuoMode('${id}','atom','value')">value</button>
-                <button class="mode-btn" onclick="setCuoMode('${id}','atom','index')">index</button>
+                <button class="mode-btn" onclick="setCuoMode('${id}','atom','value')">value</button>
               </span>
               <button class="mode-btn" id="${id}-cuo-atom-svg-zoom" onclick="toggleZoom('${id}-cuo-atom-svg')">Zoom in</button>
             </span>
@@ -163,11 +162,14 @@ function generateCopyUniversalOpTabContent(id) {
             <span class="comp-viz-label" id="${id}-cuo-tile-title">2. TiledCopy TV layout</span>
             <span style="display:flex;align-items:center;gap:4px">
               <span class="mode-btn-group" id="${id}-cuo-tile-mode-btns">
-                <button class="mode-btn active" onclick="setCuoMode('${id}','tile','value')">value</button>
-                <button class="mode-btn" onclick="setCuoMode('${id}','tile','index')">index</button>
+                <button class="mode-btn" onclick="setCuoMode('${id}','tile','value')">value</button>
               </span>
               <button class="mode-btn" id="${id}-cuo-tile-svg-zoom" onclick="toggleZoom('${id}-cuo-tile-svg')">Zoom in</button>
             </span>
+          </div>
+          <div class="cuo-viz-desc">
+            The TV layout maps <code>(t, v)</code> to a <b>logical offset</b>
+            (col-major flat position inside the tile).
           </div>
           <div class="viz-box"><div id="${id}-cuo-tile-svg"></div></div>
         </div>
@@ -176,11 +178,17 @@ function generateCopyUniversalOpTabContent(id) {
             <span class="comp-viz-label" id="${id}-cuo-tensor-title">3. Tensor layout</span>
             <span style="display:flex;align-items:center;gap:4px">
               <span class="mode-btn-group" id="${id}-cuo-tensor-mode-btns">
-                <button class="mode-btn active" onclick="setCuoMode('${id}','tensor','value')">value</button>
+                <button class="mode-btn" onclick="setCuoMode('${id}','tensor','value')">value</button>
                 <button class="mode-btn" onclick="setCuoMode('${id}','tensor','index')">index</button>
               </span>
               <button class="mode-btn" id="${id}-cuo-tensor-svg-zoom" onclick="toggleZoom('${id}-cuo-tensor-svg')">Zoom in</button>
             </span>
+          </div>
+          <div class="cuo-viz-desc">
+            The src/dst tensor layout maps a <b>logical offset</b> to a
+            <b>physical memory offset</b> &mdash; that's what the tensor's
+            strides encode for any kernel written the standard way (no weird
+            address aliasing or hand-crafted indexing tricks).
           </div>
           <div class="viz-box"><div id="${id}-cuo-tensor-svg"></div></div>
         </div>
@@ -337,9 +345,12 @@ function renderCopyUniversalOp(tabId) {
       atomNumVal, frgX, perThreadShape, perThreadCount,
       tvTensor, partitionFull, partitionPerThread, partitionFullStr, partitionPerThreadStr,
       highlightTid,
-      atomMode:   prev.atomMode   || 'value',
-      tileMode:   prev.tileMode   || 'value',
-      tensorMode: prev.tensorMode || 'value',
+      // Picker state as Sets so zero or more modes can be active per viz.
+      // Default is empty (unselected) — the viz shows T/V labels out of the
+      // box, and the user opts in to the numeric overlays.
+      atomMode:   (prev.atomMode   instanceof Set) ? prev.atomMode   : new Set(),
+      tileMode:   (prev.tileMode   instanceof Set) ? prev.tileMode   : new Set(),
+      tensorMode: (prev.tensorMode instanceof Set) ? prev.tensorMode : new Set(),
     };
 
     document.getElementById(`${tabId}-cuo-atom-result`).innerHTML =
@@ -442,17 +453,19 @@ function renderCuoAtomViz(tabId) {
   // Single atom, single thread: every cell gets the "initial" color
   // (= thread 0's base color, reused by the first atom of thread 0 in viz 2).
   const initColor = colorTV(0);
-  const mode = s.atomMode || 'value';
+  const modes = s.atomMode instanceof Set ? s.atomMode : new Set();
   host.innerHTML =
     `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
     `Val layout (src = dst) = ${fmt} &mdash; 1 thread, ${s.elements} ${s.dtype} element${s.elements === 1 ? '' : 's'}` +
     `</div>` +
-    buildColoredLayoutSVG(p.shape, p.stride, 'value', (m, n, offset, flatI) => ({
-      bg: initColor,
-      text: mode === 'index' ? [String(flatI)] : [`T0`, `V${offset}`],
-    }));
+    buildColoredLayoutSVG(p.shape, p.stride, 'value', (m, n, offset) => {
+      // T/V always visible; 'value' picker adds the atom layout's output (= v).
+      const lines = [`T0`, `V${offset}`];
+      if (modes.has('value')) lines.push(String(offset));
+      return { bg: initColor, text: lines };
+    });
   applyZoomState(`${tabId}-cuo-atom-svg`);
-  updateModeBtns(`${tabId}-cuo-atom-mode-btns`, mode);
+  updateModeBtns(`${tabId}-cuo-atom-mode-btns`, modes);
   document.getElementById(`${tabId}-cuo-atom-title`).textContent =
     `1. Copy_Atom — ${s.numBits}b / ${s.dtype} → ${s.elements} element${s.elements === 1 ? '' : 's'}`;
 }
@@ -465,14 +478,14 @@ function renderCuoTileViz(tabId) {
   const tileShape = s.tiler_mn.slice();
   const tileStride = [1, M_tile];  // col-major over Tiler_MN
   const filterTid = s.highlightTid;  // may be null
-  const mode = s.tileMode || 'value';
+  const modes = s.tileMode instanceof Set ? s.tileMode : new Set();
   host.innerHTML =
     `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
     `Tile ${s.tiler_mn[0]}×${s.tiler_mn[1]} &mdash; same color = same thread; ` +
     `brightness = atom invocation (frgX=${s.frgX}${s.frgX > 1 ? ', darker for later atoms' : ''})` +
     (filterTid !== null ? ` &mdash; <b>filtered to T${filterTid}</b>` : '') +
     `</div>` +
-    buildColoredLayoutSVG(tileShape, tileStride, 'value', (m, n, _offset, flatI) => {
+    buildColoredLayoutSVG(tileShape, tileStride, 'value', (m, n, offset) => {
       const flat = m + n * M_tile;
       const e = lookup[flat];
       if (!e) return { bg: '#f0f0f0', text: null };
@@ -481,13 +494,17 @@ function renderCuoTileViz(tabId) {
         return { bg: '#e8e8e8', stroke: '#d1d5db', text: null };
       }
       const atomIdx = Math.floor(e.vid / s.atomNumVal);
+      // T/V always visible; 'value' picker adds the tile layout's output at
+      // (m, n) = col-major flat = the TV layout's output at this cell.
+      const lines = [`T${e.tid}`, `V${e.vid}`];
+      if (modes.has('value')) lines.push(String(offset));
       return {
         bg: cuoThreadAtomColor(e.tid, atomIdx, s.frgX),
-        text: mode === 'index' ? [String(flatI)] : [`T${e.tid}`, `V${e.vid}`],
+        text: lines,
       };
     });
   applyZoomState(`${tabId}-cuo-tile-svg`);
-  updateModeBtns(`${tabId}-cuo-tile-mode-btns`, mode);
+  updateModeBtns(`${tabId}-cuo-tile-mode-btns`, modes);
   document.getElementById(`${tabId}-cuo-tile-title`).textContent =
     `2. TiledCopy tile (${s.tiler_mn[0]}×${s.tiler_mn[1]}) — ${s.thrL.size()} threads × ${s.valL.size()} values (FrgV=${s.atomNumVal}, FrgX=${s.frgX})` +
     (filterTid !== null ? ` — filtered to T${filterTid}` : '');
@@ -501,7 +518,7 @@ function renderCuoTensorViz(tabId) {
   const [, N_tile] = s.tiler_mn;
   const totalTiles = s.restM * s.restN;
   const filterTid = s.highlightTid;  // may be null
-  const mode = s.tensorMode || 'value';
+  const modes = s.tensorMode instanceof Set ? s.tensorMode : new Set();
 
   const fmt = formatLayoutStr(s.tensorL.shape, s.tensorL.stride);
   const p = parseLayout(fmt);
@@ -512,7 +529,7 @@ function renderCuoTensorViz(tabId) {
     `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
     `${s.direction.toUpperCase()} tensor &mdash; ${headerSuffix}` +
     `</div>` +
-    buildColoredLayoutSVG(p.shape, p.stride, 'value', (m, n, _offset, flatI) => {
+    buildColoredLayoutSVG(p.shape, p.stride, 'value', (m, n, offset, flatI) => {
       const tm = Math.floor(m / M_tile);
       const tn = Math.floor(n / N_tile);
       const tileIdx = tm + tn * s.restM;  // col-major over tiles
@@ -532,14 +549,22 @@ function renderCuoTensorViz(tabId) {
       } else {
         bg = cuoGrayForTileIdx(tileIdx, totalTiles);
       }
-      // In 'index' mode, show the col-major flat index of the cell in the
-      // tensor (m + n*M_tensor). Otherwise no cell text — the tensor is
-      // dense and T/V labels per cell would be unreadable.
-      const text = mode === 'index' ? [String(flatI)] : null;
-      return { bg, text };
+      // T/V always visible for every cell with a mapping (bijective TV → every
+      // tensor cell has one). 'value' = tensor layout output (physical offset),
+      // 'index' = col-major input (m + n*M_tensor). Prefix when both are on.
+      const lines = e ? [`T${e.tid}`, `V${e.vid}`] : [];
+      if (modes.has('value') && modes.has('index')) {
+        lines.push(`val=${offset}`);
+        lines.push(`idx=${flatI}`);
+      } else if (modes.has('value')) {
+        lines.push(String(offset));
+      } else if (modes.has('index')) {
+        lines.push(String(flatI));
+      }
+      return { bg, text: lines.length ? lines : null };
     });
   applyZoomState(`${tabId}-cuo-tensor-svg`);
-  updateModeBtns(`${tabId}-cuo-tensor-mode-btns`, mode);
+  updateModeBtns(`${tabId}-cuo-tensor-mode-btns`, modes);
   document.getElementById(`${tabId}-cuo-tensor-title`).textContent =
     `3. ${s.direction.toUpperCase()} tensor — ${s.restM}×${s.restN} tiles` +
     (filterTid !== null ? ` (T${filterTid} highlighted)` : ` (tile 0 highlighted)`);
@@ -596,9 +621,11 @@ function setCuoHighlight(tabId) {
   renderCopyUniversalOp(tabId);
 }
 
-// Exclusive toggle between 'value' (T/V labels) and 'index' (col-major flat
-// index of the cell within its grid). One picker per viz (atom / tile / tensor),
-// each only repaints its own viz.
+// Independent toggle per mode per viz. Sets can be empty (user may turn all
+// labels off). For the atom and tile vizzes the only option is 'value' (the
+// layout's output, == col-major flat position of the cell). For the tensor
+// viz both 'value' (tensor layout's physical offset) and 'index' (col-major
+// logical offset = input to the tensor layout) are independently toggleable.
 function setCuoMode(tabId, which, mode) {
   const s = cuoState[tabId];
   if (!s) return;
@@ -607,7 +634,9 @@ function setCuoMode(tabId, which, mode) {
     which === 'tile'   ? 'tileMode'   :
     which === 'tensor' ? 'tensorMode' : null;
   if (!key) return;
-  s[key] = mode;
+  let modes = s[key];
+  if (!(modes instanceof Set)) { modes = new Set(); s[key] = modes; }
+  if (modes.has(mode)) modes.delete(mode); else modes.add(mode);
   if (which === 'atom')                       renderCuoAtomViz(tabId);
   else if (which === 'tile')                  renderCuoTileViz(tabId);
   else if (which === 'tensor' && s.hasTensor) renderCuoTensorViz(tabId);

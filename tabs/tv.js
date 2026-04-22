@@ -65,8 +65,7 @@ function generateTVTabContent(id) {
           <span class="viz-title" id="${id}-tv-title">&mdash;</span>
           <span style="display:flex;align-items:center;gap:8px">
             <span class="mode-btn-group" id="${id}-tv-mode-btns">
-              <button class="mode-btn active" onclick="setTVMode('${id}','value')">value</button>
-              <button class="mode-btn" onclick="setTVMode('${id}','index')">index</button>
+              <button class="mode-btn" onclick="setTVMode('${id}','value')">value</button>
             </span>
             <button class="btn" id="${id}-tv-svg-host-zoom" onclick="toggleZoom('${id}-tv-svg-host')">Zoom in</button>
             <button class="btn" onclick="downloadSVG('${id}-tv-svg-host', 'tv_layout.svg')">Download SVG</button>
@@ -103,7 +102,9 @@ function renderTV(tabId) {
     const highlightTid = highlightRaw === '' ? null : parseInt(highlightRaw, 10);
     const highlightValid = highlightTid !== null && !isNaN(highlightTid);
     const prev = tvState[tabId] || {};
-    const mode = prev.mode || 'value';
+    // Default to '' (no labels) — user opts in by clicking `value`.
+    // Using `!== undefined` preserves an explicitly-cleared mode on re-render.
+    const mode = (prev.mode !== undefined) ? prev.mode : '';
     tvState[tabId] = { tvL, tileL, mode };
 
     const titleHL = highlightValid ? `  \u2014  highlight T${highlightTid}` : '';
@@ -114,7 +115,7 @@ function renderTV(tabId) {
       buildTVSVG(tvL.shape, tvL.stride, tileL.shape, tileL.stride, false, 'col',
                  highlightValid ? highlightTid : null, mode);
     applyZoomState(`${tabId}-tv-svg-host`);
-    updateModeBtns(`${tabId}-tv-mode-btns`, mode);
+    updateModeBtns(`${tabId}-tv-mode-btns`, mode ? new Set([mode]) : new Set());
 
     buildLegend(tabId, numT);
     updateOuterTabLabel(tabId, `TV-Layout:${tvInput.trim()}`);
@@ -130,10 +131,11 @@ function setHighlightTid(tabId) {
   if (tvState[tabId] && tvState[tabId].tvL) renderTV(tabId);
 }
 
-/** Switch between 'value' (T/V labels) and 'index' (col-major flat index). */
+/** Toggle the 'value' label (the TV layout's output = col-major flat position).
+ *  Empty state is allowed — click the active button to hide labels entirely. */
 function setTVMode(tabId, mode) {
   if (!tvState[tabId]) tvState[tabId] = {};
-  tvState[tabId].mode = mode;
+  tvState[tabId].mode = (tvState[tabId].mode === mode) ? '' : mode;
   if (tvState[tabId].tvL) renderTV(tabId);
 }
 

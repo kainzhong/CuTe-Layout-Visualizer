@@ -155,7 +155,10 @@ function buildLayoutSVG(shape, stride, mode, cellTextColor, allCellsEdgeColor) {
 
 /** Build axis-label and grid SVG for a TV layout. */
 function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underlyingLayout, highlightTid, labelMode) {
-  labelMode = labelMode || 'value';  // 'value' = T/V labels, 'index' = col-major flat index
+  // labelMode === 'value' → show the TV layout's output at each cell, i.e. the
+  // col-major flat position (m + n*M). Anything else (including '' / undefined)
+  // → no cell text. Thread id remains encoded by cell color.
+  const showIdx = labelMode === 'value';
   underlyingLayout = underlyingLayout || 'col';
   // highlightTid is a number or null. When set, only cells whose entries
   // include that tid are shown in full color; all others are dimmed.
@@ -235,18 +238,15 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underl
           fill="#f0f0f0" stroke="#ccc" stroke-width="0.5"/>`;
         body += cellTextSVG(x + cs/2, y + cs/2, ['\u2014'], cs, '#bbb');
       } else if (entries.length === 1) {
-        const { tid, vid, offset } = entries[0];
+        const { tid, vid } = entries[0];
         const bg = dimmed ? '#f0f0f0' : colorTV(tid);
         const fg = dimmed ? '#bbb' : '#111';
         body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
           fill="${bg}" stroke="#ccc" stroke-width="0.5"/>`;
-        let lines;
-        if (labelMode === 'index') {
-          lines = [String(m + n * M)];
-        } else {
-          lines = [`T${tid}`, `V${vid}`];
-          if (showOffset) lines.push(`@${offset}`);
-        }
+        // T/V labels always visible; 'value' picker adds the col-major flat
+        // position (= the TV layout's output at this cell) on top.
+        const lines = [`T${tid}`, `V${vid}`];
+        if (showIdx) lines.push(String(m + n * M));
         body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fg);
       } else {
         const bg = dimmed ? '#f0f0f0' : colorTV(entries[0].tid);
@@ -255,17 +255,8 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underl
         const sw = dimmed ? 0.5 : 1.5;
         body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
           fill="${bg}" stroke="${stroke}" stroke-width="${sw}"/>`;
-        let lines;
-        if (labelMode === 'index') {
-          lines = [String(m + n * M)];
-        } else {
-          lines = [];
-          for (const e of entries) {
-            let label = `T${e.tid}/V${e.vid}`;
-            if (showOffset) label += `@${e.offset}`;
-            lines.push(label);
-          }
-        }
+        const lines = entries.map(e => `T${e.tid}/V${e.vid}`);
+        if (showIdx) lines.push(String(m + n * M));
         body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fg);
       }
     }

@@ -447,6 +447,21 @@ textarea:focus { outline: none; border-color: #3b82f6; }
 .cuo-result:empty { display: none; }
 .cuo-result-line { padding: 2px 0; }
 .cuo-result-line b { color: #6ee7b7; }
+
+/* Highlighted per-viz description sit under the Copy tab's viz headers and
+   explain what mapping the layout encodes. Uses the scope's emerald accent. */
+.cuo-viz-desc {
+  margin: 4px 0 10px;
+  padding: 7px 11px;
+  background: rgba(16, 185, 129, 0.08);
+  border-left: 3px solid #10b981;
+  border-radius: 4px;
+  color: #a7f3d0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.cuo-viz-desc code { color: #6ee7b7; }
+.cuo-viz-desc b    { color: #6ee7b7; }
 .comp-viz-header {
   display: flex;
   justify-content: space-between;

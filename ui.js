@@ -620,9 +620,40 @@ function addOuterTab() {
   panel.innerHTML = generateTabContent(id);
   document.getElementById('outer-panels').appendChild(panel);
 
+  attachVizCollapsibles(panel);
+
   switchOuterTab(id);
   renderLayout(id);
   return id;
+}
+
+/** Inject a collapse/expand chevron into every visualization header inside
+ *  `root`, so users can fold any viz they're not looking at. Handles both
+ *  layout families: `.comp-viz-item > .comp-viz-header` (multi-viz grid tabs
+ *  like Composition, Divide, Product, Copy) and `.visualization > .viz-header`
+ *  (single-viz tabs like Layout, TV Layout). Collapsed state is carried on
+ *  the item element via `.collapsed`, and CSS hides the body content — so the
+ *  state survives in-place re-renders that only update the SVG contents. */
+function attachVizCollapsibles(root) {
+  const items = [
+    ...root.querySelectorAll('.comp-viz-item'),
+    ...root.querySelectorAll('.visualization'),
+  ];
+  items.forEach(item => {
+    const header = item.querySelector('.comp-viz-header, .viz-header');
+    if (!header || header.querySelector('.viz-collapse-btn')) return;  // idempotent
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'viz-collapse-btn';
+    btn.title = 'Collapse / expand';
+    btn.textContent = '▾';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nowCollapsed = item.classList.toggle('collapsed');
+      btn.textContent = nowCollapsed ? '▸' : '▾';
+    });
+    header.insertBefore(btn, header.firstChild);
+  });
 }
 
 function switchOuterTab(id) {

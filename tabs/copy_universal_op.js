@@ -83,6 +83,22 @@ function generateCopyUniversalOpTabContent(id) {
               </div>
             </div>
             ${layoutInputField({ id: `${id}-cuo-tensor-input`, label: 'Tensor layout (gmem / smem) &mdash; optional', hint: 'leave blank to skip the partition viz and just see atom + tile', value: '(16, 64):(64, 1)' })}
+            <div class="form-group">
+              <button class="btn" id="${id}-cuo-coalesced-btn" style="width:100%;font-size:0.75rem;padding:5px;display:flex;align-items:center;justify-content:center;gap:6px" onclick="toggleCuoCoalesced('${id}')">
+                <span>Check Coalesced Read (GMEM)</span>
+                <span class="cuo-info-icon" onclick="event.stopPropagation()" data-tooltip="Each color = one atom invocation per warp (one hardware memory issue). Each cell is labelled with its tensor physical offset. If the offsets inside one color form a consecutive run, that issue is coalesced (1 cache-line transaction). If they're scattered across multiple rows, the warp needs multiple transactions.">i</span>
+              </button>
+            </div>
+            <div class="form-group">
+              <button class="btn" id="${id}-cuo-bank-check-btn" style="width:100%;font-size:0.75rem;padding:5px;display:flex;align-items:center;justify-content:center;gap:6px" onclick="toggleCuoBankCheck('${id}')">
+                <span>Check Bank Conflict (SMEM)</span>
+                <span class="cuo-info-icon" onclick="event.stopPropagation()" data-tooltip="Each color = one atom invocation per warp. Each cell is labelled with its physical offset and its SMEM bank id (#0..#31). Within one color (one invocation), count cells that share the same bank id — that's an N-way bank conflict and the load takes ~N× longer. Zero duplicates per color = no conflict.">i</span>
+              </button>
+            </div>
+            <div class="form-group">
+              <label>Bank filter (0..31, empty = off) &mdash; amber edge on matching cells; only active while <b>Check Bank Conflict</b> is enabled</label>
+              <input type="text" id="${id}-cuo-bank-input" value="" placeholder="e.g. 7" oninput="setCuoBank('${id}')">
+            </div>
             <div id="${id}-cuo-partition-result" class="cuo-result"></div>
           </div>
         </details>
@@ -351,6 +367,10 @@ function renderCopyUniversalOp(tabId) {
       atomMode:   (prev.atomMode   instanceof Set) ? prev.atomMode   : new Set(),
       tileMode:   (prev.tileMode   instanceof Set) ? prev.tileMode   : new Set(),
       tensorMode: (prev.tensorMode instanceof Set) ? prev.tensorMode : new Set(),
+      // Memory-access analyses (apply to viz 3 only).
+      coalescedCheck:  !!prev.coalescedCheck,
+      bankCheck:       !!prev.bankCheck,
+      bankToHighlight: (prev.bankToHighlight != null) ? prev.bankToHighlight : null,
     };
 
     document.getElementById(`${tabId}-cuo-atom-result`).innerHTML =
@@ -394,6 +414,10 @@ function renderCopyUniversalOp(tabId) {
     // Sync direction buttons
     document.getElementById(`${tabId}-cuo-dir-src`).classList.toggle('active', direction === 'src');
     document.getElementById(`${tabId}-cuo-dir-dst`).classList.toggle('active', direction === 'dst');
+    const coalBtn = document.getElementById(`${tabId}-cuo-coalesced-btn`);
+    if (coalBtn) coalBtn.classList.toggle('active', !!cuoState[tabId].coalescedCheck);
+    const bankBtn = document.getElementById(`${tabId}-cuo-bank-check-btn`);
+    if (bankBtn) bankBtn.classList.toggle('active', !!cuoState[tabId].bankCheck);
 
     updateOuterTabLabel(tabId, `CopyUniversalOp:${numBits}b/${dtype}`);
   } catch (e) {
@@ -519,12 +543,28 @@ function renderCuoTensorViz(tabId) {
   const totalTiles = s.restM * s.restN;
   const filterTid = s.highlightTid;  // may be null
   const modes = s.tensorMode instanceof Set ? s.tensorMode : new Set();
+  const coalOn = !!s.coalescedCheck;
+  const bankOn = !!s.bankCheck;
+  const groupOn = coalOn || bankOn;  // either check uses invocation-colored groups
+  const coalGroups = groupOn ? cuoComputeCoalescedGroups(s) : null;
+  const bytesPerElement = s.elemBits / 8;
+  const bankHL = s.bankToHighlight;
 
   const fmt = formatLayoutStr(s.tensorL.shape, s.tensorL.stride);
   const p = parseLayout(fmt);
-  const headerSuffix = filterTid !== null
-    ? `T${filterTid}'s cells colored in every tile; non-T${filterTid} cells gray (brightness = tile index)`
-    : `tile 0 (top-left) colored as in viz 2; other tiles gray (brightness = tile index)`;
+  let headerSuffix;
+  if (bankOn) {
+    headerSuffix = `bank-conflict check: color = atom invocation; each cell shows <b>value</b> (physical offset) and <b>#bank</b>. ` +
+      `<b style="color:#ef4444">Duplicate bank ids within one color = N-way bank conflict.</b>`;
+  } else if (coalOn) {
+    headerSuffix = `coalesced check: color = atom invocation (one warp-wide memory issue); each cell shows <b>value</b> (physical offset). ` +
+      `<b style="color:#ef4444">Consecutive values within one color = coalesced read.</b>`;
+  } else if (filterTid !== null) {
+    headerSuffix = `T${filterTid}'s cells colored in every tile; non-T${filterTid} cells gray (brightness = tile index)`;
+  } else {
+    headerSuffix = `tile 0 (top-left) colored as in viz 2; other tiles gray (brightness = tile index)`;
+  }
+  if (bankHL != null) headerSuffix += ` &mdash; bank ${bankHL} edge-highlighted (amber)`;
   host.innerHTML =
     `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
     `${s.direction.toUpperCase()} tensor &mdash; ${headerSuffix}` +
@@ -535,8 +575,20 @@ function renderCuoTensorViz(tabId) {
       const tileIdx = tm + tn * s.restM;  // col-major over tiles
       const flat = (m % M_tile) + (n % N_tile) * M_tile;
       const e = lookup[flat];
+
+      // ── Choose bg ────────────────────────────────────────────────────
       let bg;
-      if (filterTid === null) {
+      if (groupOn) {
+        // Coalesced and bank checks both color by atom invocation.
+        if (!e) {
+          bg = '#f0f0f0';
+        } else {
+          const wIdx = Math.floor(e.tid / 32);
+          const atomIdx = Math.floor(e.vid / s.atomNumVal);
+          const g = coalGroups.get(`${tileIdx}:${wIdx}:${atomIdx}`);
+          bg = g ? cuoCoalescedColor(g.groupId) : '#f0f0f0';
+        }
+      } else if (filterTid === null) {
         if (tileIdx === 0 && e) {
           const atomIdx = Math.floor(e.vid / s.atomNumVal);
           bg = cuoThreadAtomColor(e.tid, atomIdx, s.frgX);
@@ -549,19 +601,39 @@ function renderCuoTensorViz(tabId) {
       } else {
         bg = cuoGrayForTileIdx(tileIdx, totalTiles);
       }
-      // T/V always visible for every cell with a mapping (bijective TV → every
-      // tensor cell has one). 'value' = tensor layout output (physical offset),
-      // 'index' = col-major input (m + n*M_tensor). Prefix when both are on.
-      const lines = e ? [`T${e.tid}`, `V${e.vid}`] : [];
-      if (modes.has('value') && modes.has('index')) {
-        lines.push(`val=${offset}`);
-        lines.push(`idx=${flatI}`);
-      } else if (modes.has('value')) {
-        lines.push(String(offset));
-      } else if (modes.has('index')) {
-        lines.push(String(flatI));
+
+      // ── Text ────────────────────────────────────────────────────────
+      // Check modes hide T/V and show analysis-specific labels instead.
+      // Default mode keeps T/V plus the user's value/index toggles.
+      let lines;
+      if (bankOn) {
+        const cellBank = Math.floor(offset * bytesPerElement / 4) % 32;
+        lines = e ? [String(offset), `#${cellBank}`] : null;
+      } else if (coalOn) {
+        lines = e ? [String(offset)] : null;
+      } else {
+        const tvLines = e ? [`T${e.tid}`, `V${e.vid}`] : [];
+        if (modes.has('value') && modes.has('index')) {
+          tvLines.push(`val=${offset}`);
+          tvLines.push(`idx=${flatI}`);
+        } else if (modes.has('value')) {
+          tvLines.push(String(offset));
+        } else if (modes.has('index')) {
+          tvLines.push(String(flatI));
+        }
+        lines = tvLines.length ? tvLines : null;
       }
-      return { bg, text: lines.length ? lines : null };
+
+      // ── Bank-filter overlay: amber edge on matching cells ───────────
+      // Only active when bank-check mode is on — otherwise the bank input is
+      // ignored (no stray highlights while analysing coalescing or default).
+      let stroke, sw;
+      if (bankOn && bankHL != null) {
+        const cellBank = Math.floor(offset * bytesPerElement / 4) % 32;
+        if (cellBank === bankHL) { stroke = '#f59e0b'; sw = 3; }
+      }
+
+      return { bg, text: lines, stroke, sw };
     });
   applyZoomState(`${tabId}-cuo-tensor-svg`);
   updateModeBtns(`${tabId}-cuo-tensor-mode-btns`, modes);
@@ -619,6 +691,79 @@ function setCuoHighlight(tabId) {
   const s = cuoState[tabId];
   if (!s || !s.layout_tv) return;
   renderCopyUniversalOp(tabId);
+}
+
+// Toggle GMEM coalesced-read coloring on viz 3. Mutually exclusive with the
+// bank-check button — turning this on forces the other off.
+function toggleCuoCoalesced(tabId) {
+  const s = cuoState[tabId];
+  if (!s) return;
+  s.coalescedCheck = !s.coalescedCheck;
+  if (s.coalescedCheck) s.bankCheck = false;
+  const coalBtn = document.getElementById(`${tabId}-cuo-coalesced-btn`);
+  if (coalBtn) coalBtn.classList.toggle('active', s.coalescedCheck);
+  const bankBtn = document.getElementById(`${tabId}-cuo-bank-check-btn`);
+  if (bankBtn) bankBtn.classList.toggle('active', s.bankCheck);
+  if (s.hasTensor && s.layout_tv) renderCuoTensorViz(tabId);
+}
+
+// Toggle SMEM bank-conflict coloring on viz 3. Mutually exclusive with the
+// coalesced-check button — turning this on forces the other off.
+function toggleCuoBankCheck(tabId) {
+  const s = cuoState[tabId];
+  if (!s) return;
+  s.bankCheck = !s.bankCheck;
+  if (s.bankCheck) s.coalescedCheck = false;
+  const bankBtn = document.getElementById(`${tabId}-cuo-bank-check-btn`);
+  if (bankBtn) bankBtn.classList.toggle('active', s.bankCheck);
+  const coalBtn = document.getElementById(`${tabId}-cuo-coalesced-btn`);
+  if (coalBtn) coalBtn.classList.toggle('active', s.coalescedCheck);
+  if (s.hasTensor && s.layout_tv) renderCuoTensorViz(tabId);
+}
+
+// Live update when the bank-filter input changes. Empty or invalid = off.
+function setCuoBank(tabId) {
+  const s = cuoState[tabId];
+  if (!s) return;
+  const raw = (document.getElementById(`${tabId}-cuo-bank-input`).value || '').trim();
+  let bank = null;
+  if (raw !== '') {
+    const n = parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 0 && n < 32) bank = n;
+  }
+  s.bankToHighlight = bank;
+  if (s.hasTensor && s.layout_tv) renderCuoTensorViz(tabId);
+}
+
+// One group per (tile, warp, atom_invocation). Each atom invocation = one
+// pass of the warp through memory (every thread issues one atom at once),
+// which is exactly what the user wants to visualize for coalescing checks.
+// Cells with vid ∈ [atomIdx * atomNumVal, (atomIdx+1) * atomNumVal) for all
+// threads in the warp get the same color — that's the set of elements loaded
+// by a single warp-wide memory issue.
+function cuoComputeCoalescedGroups(s) {
+  const thr_size = s.thrL.size();
+  const frgX = s.frgX;  // atom invocations per thread per tile
+  const WARP = 32;
+  const numWarps = Math.max(1, Math.ceil(thr_size / WARP));
+  const totalTiles = s.restM * s.restN;
+  const map = new Map();
+  let nextGid = 0;
+  for (let tileIdx = 0; tileIdx < totalTiles; tileIdx++) {
+    for (let atomIdx = 0; atomIdx < frgX; atomIdx++) {
+      for (let wIdx = 0; wIdx < numWarps; wIdx++) {
+        map.set(`${tileIdx}:${wIdx}:${atomIdx}`, { groupId: nextGid++ });
+      }
+    }
+  }
+  return map;
+}
+
+// Color for a coalesced-group id: cycle through TV_COLORS, darken on each lap.
+function cuoCoalescedColor(gid) {
+  const base = colorTV(gid % 8);
+  const loops = Math.floor(gid / 8);
+  return loops === 0 ? base : darkenRGB(base, Math.min(loops * 0.2, 0.6));
 }
 
 // Independent toggle per mode per viz. Sets can be empty (user may turn all

@@ -400,6 +400,33 @@ textarea:focus { outline: none; border-color: #3b82f6; }
    directly under the 2x2 layout area and never reaches the controls column. */
 .comp-viz-complement { grid-column: 1 / -1; }
 
+/* ── Collapsible visualizations ─────────────────────────────────────
+   Any `.comp-viz-item` or `.visualization` can be folded by toggling the
+   `.collapsed` class (done via the injected `.viz-collapse-btn` in each
+   header). `!important` overrides inline `display` styles that some tabs
+   set on their viz-box or legend. */
+.viz-collapse-btn {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  margin-right: 2px;
+  user-select: none;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+.viz-collapse-btn:hover { color: #f3f4f6; }
+
+.comp-viz-item.collapsed > .viz-box,
+.comp-viz-item.collapsed > .cuo-viz-desc,
+.visualization.collapsed  > .viz-box,
+.visualization.collapsed  > .legend {
+  display: none !important;
+}
+
 /* ── Collapsible sections (CopyUniversalOp's 3-part menu) ── */
 .cuo-section {
   border: 1px solid #374151;
@@ -462,6 +489,76 @@ textarea:focus { outline: none; border-color: #3b82f6; }
 }
 .cuo-viz-desc code { color: #6ee7b7; }
 .cuo-viz-desc b    { color: #6ee7b7; }
+
+/* Small 'i' hint icon sitting inside check buttons. Hovering shows a custom
+   CSS tooltip (built from `data-tooltip`). We use a custom popover instead of
+   the native `title=` attribute because native tooltips take 1-2s to appear
+   and can be swallowed by the parent button's click handling. */
+.cuo-info-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: currentColor;
+  font-family: serif;
+  font-style: italic;
+  font-weight: 700;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: help;
+  flex-shrink: 0;
+}
+.cuo-info-icon:hover { background: rgba(255, 255, 255, 0.22); }
+
+/* Popover bubble — appears above the icon on hover. `overflow:visible` on
+   the parents is needed for the popover to extend outside its container. */
+.cuo-info-icon[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 280px;
+  padding: 9px 11px;
+  background: #0b1220;
+  color: #e5e7eb;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+  z-index: 100;
+}
+.cuo-info-icon[data-tooltip]:hover::after { opacity: 1; }
+
+/* Small arrow pointing down to the icon. */
+.cuo-info-icon[data-tooltip]::before {
+  content: "";
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #0b1220;
+  opacity: 0;
+  transition: opacity 0.12s;
+  z-index: 101;
+}
+.cuo-info-icon[data-tooltip]:hover::before { opacity: 1; }
 .comp-viz-header {
   display: flex;
   justify-content: space-between;

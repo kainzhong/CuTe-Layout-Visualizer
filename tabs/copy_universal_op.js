@@ -92,12 +92,16 @@ function generateCopyUniversalOpTabContent(id) {
             <div class="form-group">
               <button class="btn" id="${id}-cuo-bank-check-btn" style="width:100%;font-size:0.75rem;padding:5px;display:flex;align-items:center;justify-content:center;gap:6px" onclick="toggleCuoBankCheck('${id}')">
                 <span>Check Bank Conflict (SMEM)</span>
-                <span class="cuo-info-icon" onclick="event.stopPropagation()" data-tooltip="Each color = one atom invocation per warp. Each cell is labelled with its physical offset and its SMEM bank id (#0..#31). Within one color (one invocation), count cells that share the same bank id — that's an N-way bank conflict and the load takes ~N× longer. Zero duplicates per color = no conflict.">i</span>
+                <span class="cuo-info-icon" onclick="event.stopPropagation()" data-tooltip="Each color = one atom invocation per warp. Each cell is labelled with its physical offset and its SMEM bank id (#0..#31). Within one color (one invocation), count cells that share the same bank id — that's an N-way bank conflict and the load takes ~N× longer. Zero duplicates per color = no conflict. Set the Swizzle input below to apply CuTe's Swizzle<B,M,S> transform to the element offset before bank is computed — useful for verifying that a swizzled SMEM layout eliminates conflicts.">i</span>
               </button>
             </div>
             <div class="form-group">
               <label>Bank filter (0..31, empty = off) &mdash; amber edge on matching cells; only active while <b>Check Bank Conflict</b> is enabled</label>
               <input type="text" id="${id}-cuo-bank-input" value="" placeholder="e.g. 7" oninput="setCuoBank('${id}')">
+            </div>
+            <div class="form-group">
+              <label>Swizzle &mdash; <code>B, M, S</code> (empty = no swizzle; e.g. <code>3, 3, 3</code>). Applied to the element offset before bank is computed</label>
+              <input type="text" id="${id}-cuo-swizzle-input" value="" placeholder="e.g. 3, 3, 3" oninput="setCuoSwizzle('${id}')">
             </div>
             <div id="${id}-cuo-partition-result" class="cuo-result"></div>
           </div>
@@ -371,6 +375,7 @@ function renderCopyUniversalOp(tabId) {
       coalescedCheck:  !!prev.coalescedCheck,
       bankCheck:       !!prev.bankCheck,
       bankToHighlight: (prev.bankToHighlight != null) ? prev.bankToHighlight : null,
+      swizzle:         prev.swizzle || null,  // { B, M, S } | null
     };
 
     document.getElementById(`${tabId}-cuo-atom-result`).innerHTML =
@@ -554,7 +559,10 @@ function renderCuoTensorViz(tabId) {
   const p = parseLayout(fmt);
   let headerSuffix;
   if (bankOn) {
-    headerSuffix = `bank-conflict check: color = atom invocation; each cell shows <b>value</b> (physical offset) and <b>#bank</b>. ` +
+    const swNote = s.swizzle
+      ? ` (swizzle Swizzle&lt;${s.swizzle.B}, ${s.swizzle.M}, ${s.swizzle.S}&gt; applied)`
+      : '';
+    headerSuffix = `bank-conflict check: color = atom invocation; each cell shows <b>value</b> (physical offset) and <b>#bank</b>${swNote}. ` +
       `<b style="color:#ef4444">Duplicate bank ids within one color = N-way bank conflict.</b>`;
   } else if (coalOn) {
     headerSuffix = `coalesced check: color = atom invocation (one warp-wide memory issue); each cell shows <b>value</b> (physical offset). ` +
@@ -607,7 +615,8 @@ function renderCuoTensorViz(tabId) {
       // Default mode keeps T/V plus the user's value/index toggles.
       let lines;
       if (bankOn) {
-        const cellBank = Math.floor(offset * bytesPerElement / 4) % 32;
+        const swizzledOffset = cuoApplySwizzle(offset, s.swizzle);
+        const cellBank = Math.floor(swizzledOffset * bytesPerElement / 4) % 32;
         lines = e ? [String(offset), `#${cellBank}`] : null;
       } else if (coalOn) {
         lines = e ? [String(offset)] : null;
@@ -629,7 +638,8 @@ function renderCuoTensorViz(tabId) {
       // ignored (no stray highlights while analysing coalescing or default).
       let stroke, sw;
       if (bankOn && bankHL != null) {
-        const cellBank = Math.floor(offset * bytesPerElement / 4) % 32;
+        const swizzledOffset = cuoApplySwizzle(offset, s.swizzle);
+        const cellBank = Math.floor(swizzledOffset * bytesPerElement / 4) % 32;
         if (cellBank === bankHL) { stroke = '#f59e0b'; sw = 3; }
       }
 
@@ -718,6 +728,39 @@ function toggleCuoBankCheck(tabId) {
   if (bankBtn) bankBtn.classList.toggle('active', s.bankCheck);
   const coalBtn = document.getElementById(`${tabId}-cuo-coalesced-btn`);
   if (coalBtn) coalBtn.classList.toggle('active', s.coalescedCheck);
+  if (s.hasTensor && s.layout_tv) renderCuoTensorViz(tabId);
+}
+
+// Apply a CuTe Swizzle<B, M, S> to an element offset. The B bits starting at
+// position M+S of `x` get XOR'd into the B bits at position M — i.e. the same
+// semantics as `cute::Swizzle<B, M, S>::apply(x)`. Returns `x` unchanged if
+// `sw` is null. Matches CuTe's convention of swizzling the layout's *element*
+// index (not a byte address), so the caller converts to bytes afterwards.
+function cuoApplySwizzle(x, sw) {
+  if (!sw) return x;
+  const { B, M, S } = sw;
+  const mask = (1 << B) - 1;
+  const srcBits = (x >>> (M + S)) & mask;
+  return x ^ (srcBits << M);
+}
+
+// Live update when the swizzle input changes. Parses `B,M,S` (commas or
+// whitespace ok; angle brackets ok); empty or unparseable = no swizzle.
+function setCuoSwizzle(tabId) {
+  const s = cuoState[tabId];
+  if (!s) return;
+  const raw = (document.getElementById(`${tabId}-cuo-swizzle-input`).value || '').trim();
+  let sw = null;
+  if (raw !== '') {
+    const m = raw.match(/^\s*(?:Swizzle\s*<\s*)?(\d+)\s*[,\s]\s*(\d+)\s*[,\s]\s*(\d+)\s*>?\s*$/i);
+    if (m) {
+      const B = parseInt(m[1], 10);
+      const M = parseInt(m[2], 10);
+      const S = parseInt(m[3], 10);
+      if (B >= 0 && M >= 0 && S >= 0 && (M + S + B) < 31) sw = { B, M, S };
+    }
+  }
+  s.swizzle = sw;
   if (s.hasTensor && s.layout_tv) renderCuoTensorViz(tabId);
 }
 

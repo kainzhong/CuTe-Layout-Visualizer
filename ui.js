@@ -563,7 +563,7 @@ function generateTabContent(id) {
       <div class="tab-scope-bar">
         <div class="tab-scope-btn active" data-scope="basics" onclick="switchTabGroup('${id}', 'basics')">
           <span class="tab-scope-icon">\u2756</span>Basics
-          <span class="tab-scope-count">2</span>
+          <span class="tab-scope-count">3</span>
         </div>
         <div class="tab-scope-btn" data-scope="operations" onclick="switchTabGroup('${id}', 'operations')">
           <span class="tab-scope-icon">\u25A3</span>Layout Operations
@@ -577,6 +577,7 @@ function generateTabContent(id) {
     <div class="tab-bar" data-scope="basics">
       <div class="tab active" data-scope="basics" onclick="switchInnerTab('${id}', 'layout')">Layout</div>
       <div class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'tv')">TV Layout</div>
+      <div class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'swizzle')">Swizzle</div>
       <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'composition')">Composition</div>
       <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'complement')">Complement</div>
       <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'divide')">Logical Divide</div>
@@ -590,6 +591,7 @@ function generateTabContent(id) {
     </div>
     ${generateLayoutTabContent(id)}
     ${generateTVTabContent(id)}
+    ${generateSwizzleTabContent(id)}
     ${generateCompositionTabContent(id)}
     ${generateComplementTabContent(id)}
     ${generateDivideTabContent(id)}
@@ -691,7 +693,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, composition: 2, complement: 3, divide: 4, zipped: 5, product: 6, zipped_product: 7, blocked_product: 8, raked_product: 9, copy_universal_op: 10 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, product: 7, zipped_product: 8, blocked_product: 9, raked_product: 10, copy_universal_op: 11 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -881,6 +883,7 @@ function downloadSVG(hostId, filename) {
 //    blocked_product-<A>-<tiler>
 //    raked_product-<A>-<tiler>
 //    copy_universal_op-<num_bits>-<dtype>-<thr>-<val>-<dir>-<tensor>
+//    swizzle-<layout>-<swizzle>
 //  Legacy accepted: tv-<tv_layout>-<tile>  (treated as method 1)
 // ═══════════════════════════════════════════════════════
 
@@ -898,6 +901,7 @@ const FEATURE_SPEC = {
   blocked_product: { inputs: 2 },
   raked_product:   { inputs: 2 },
   copy_universal_op: { inputs: 6 },  // bits, dtype, thr, val, dir, tensor
+  swizzle:         { inputs: 2 },
 };
 
 function parseKeyParam() {
@@ -1021,6 +1025,12 @@ function applyKeyParam(tabId) {
       cuoState[tabId].direction = inputs[4] || 'src';
       switchInnerTab(tabId, 'copy_universal_op');
       renderCopyUniversalOp(tabId);
+      break;
+    case 'swizzle':
+      document.getElementById(`${tabId}-sw-layout-input`).value  = inputs[0];
+      document.getElementById(`${tabId}-sw-swizzle-input`).value = inputs[1];
+      switchInnerTab(tabId, 'swizzle');
+      renderSwizzle(tabId);
       break;
   }
 }

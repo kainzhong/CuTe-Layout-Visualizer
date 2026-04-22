@@ -14,6 +14,7 @@ ui.js          Shared UI infrastructure: SVG builders, tab framework, URL import
 tabs/
   layout.js    "Layout" tab — generateLayoutTabContent + renderLayout + state + helpers
   tv.js        "TV Layout" tab
+  swizzle.js   "Swizzle" tab — BASICS scope; two stacked grids (base + Swizzle<B,M,S> applied), bottom cells show "a → b"
   composition.js   "Composition & Complement" tab (with complement-toggle)
   complement.js    Standalone "Complement" tab
   divide.js        "Logical Divide" tab
@@ -100,6 +101,7 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=blocked_product-(2,2):(1,2)-(3,3):(1,3)
 ?key=raked_product-(2,2):(1,2)-(3,3):(1,3)
 ?key=copy_universal_op-128-half_t-(4,8):(8,1)-(2,8):(8,1)-src-(16,64):(64,1)
+?key=swizzle-(8, 8):(8, 1)-3, 0, 3
 ```
 - Parsing is in `parseKeyParam()` (driven by `FEATURE_SPEC` in ui.js).
 - Rendering is in `applyKeyParam()` (dispatches to the tab's render function).
@@ -131,7 +133,7 @@ Then wire it into the shell:
 
 The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. Each scope is a named bucket; only one scope's tabs are visible at a time. Current scopes:
 
-- `basics` — Layout, TV Layout. Accent color: blue (`#3b82f6`).
+- `basics` — Layout, TV Layout, Swizzle. Accent color: blue (`#3b82f6`).
 - `operations` — the CuTe layout-algebra tabs (composition, complement, divide/product variants). Accent color: purple (`#a855f7`).
 - `copy` — copy-atom / copy-related tabs. Accent color: emerald (`#10b981`).
 

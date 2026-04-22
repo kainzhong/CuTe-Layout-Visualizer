@@ -32,6 +32,7 @@ This tool runs in your browser and lets you:
 
 - **Layout** — Render any CuTe layout specified as `shape:stride`, including nested/hierarchical modes (e.g. `((2,4),(2,4)):((1,8),(2,16))`). Auto-stride: omit the stride to default to column-major.
 - **TV Layout** — Map a thread-value layout onto a tile to see how threads and values are distributed across a 2D grid. Supports two input methods: direct `(TV_Layout, Tile)` or derived-from `(Thread_Layout, Value_Layout)` via `make_layout_tv`. Click a thread to isolate its cells.
+- **Swizzle** — Visualize a CuTe `Swizzle<B, M, S>` as a before/after pair over a base layout. Top grid shows the raw base layout (cell = logical offset `a`); bottom grid shows the same coords with each cell labelled `a → b` where `b = a ⊕ (((a >> (M+S)) & ((1<<B)-1)) << M)`. Bottom-cell colour is keyed to the swizzled offset `b`, so same colour = same post-swizzle address bucket — makes conflict-avoidance patterns visible at a glance.
 
 ### Operations
 
@@ -49,7 +50,7 @@ Every operation tab shows the inputs and the result as linked visualizations, no
 ### Workspace
 
 - **Scoped navigation** — Tabs are grouped into scopes so the tab bar doesn't turn into a wall of buttons as more features are added. The current scopes are:
-  - **Basics** (blue) — Layout, TV Layout.
+  - **Basics** (blue) — Layout, TV Layout, Swizzle.
   - **Layout Operations** (purple) — Composition, Complement, Logical Divide, Zipped / Tiled / Flat Divide, Logical Product, Zipped / Tiled / Flat Product, Blocked Product, Raked Product.
   - **Copy** (emerald) — CopyUniversalOp / cpasync.CopyG2SOp (one tab covers both since their `Copy_Traits` are byte-identical; 4-section menu: atom / tile / partition / highlight-thread, with a layout viz per section).
 

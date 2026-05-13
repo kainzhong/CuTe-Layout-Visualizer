@@ -775,18 +775,19 @@ function collectHighRank(inputs) {
 // ═══════════════════════════════════════════════════════
 
 /** HTML for a layout-aware input field.
- *  opts: { id, label, value?, hint?, textarea?, rows?, placeholder? } */
+ *  opts: { id, label, value?, hint?, textarea?, rows?, placeholder?, oninput? } */
 function layoutInputField(opts) {
   const {
-    id, label, value = '', hint = '', textarea = false, rows = 2, placeholder = ''
+    id, label, value = '', hint = '', textarea = false, rows = 2, placeholder = '', oninput = ''
   } = opts;
   const hintSpan = hint
     ? ` <span style="color:#6b7280;font-weight:normal">&mdash; ${hint}</span>`
     : '';
   const phAttr = placeholder ? ` placeholder="${placeholder}"` : '';
+  const oiAttr = oninput ? ` oninput="${oninput}"` : '';
   const field = textarea
-    ? `<textarea id="${id}" rows="${rows}"${phAttr}>${value}</textarea>`
-    : `<input type="text" id="${id}" value="${value}"${phAttr}>`;
+    ? `<textarea id="${id}" rows="${rows}"${phAttr}${oiAttr}>${value}</textarea>`
+    : `<input type="text" id="${id}" value="${value}"${phAttr}${oiAttr}>`;
   return `<div class="form-group">
       <label>${label}${hintSpan}</label>
       ${field}

@@ -50,6 +50,10 @@ function generateTVTabContent(id) {
               </button>
             </div>
             <div class="form-group">
+              <label>All threads access V#<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; one wave (every thread reads vid=N); other cells gray</span></label>
+              <input type="text" id="${id}-tv-wave-input" value="" placeholder="e.g. 0" oninput="setTVWaveVid('${id}')">
+            </div>
+            <div class="form-group">
               <label>Bank filter (0..31, empty = off) &mdash; amber edge on matching cells; only active while <b>Check Bank Conflict</b> is enabled</label>
               <input type="text" id="${id}-tv-bank-input" value="" placeholder="e.g. 7" oninput="setTVBank('${id}')">
             </div>
@@ -159,6 +163,7 @@ function renderTV(tabId) {
       bankCheck:       !!prev.bankCheck,
       bankToHighlight: (prev.bankToHighlight != null) ? prev.bankToHighlight : null,
       swizzle:         prev.swizzle || null,
+      waveVid:         (prev.waveVid != null) ? prev.waveVid : null,
     };
 
     const titleHL = highlightValid ? `  \u2014  highlight T${highlightTid}` : '';
@@ -243,6 +248,16 @@ function renderTVBankSVG(tabId, tvL, tileL, numT, numV, M, N, highlightTid, labe
 
   const bankHL = s.bankToHighlight;
   const sw = s.swizzle;
+  const waveVid = s.waveVid;
+  // A cell entry "matches" the active filters if it lines up with the
+  // highlight thread (when set) AND the wave vid (when set). With neither
+  // filter active, every entry matches.
+  const matchesFilters = (e) => {
+    if (highlightTid !== null && e.tid !== highlightTid) return false;
+    if (waveVid !== null && e.vid !== waveVid) return false;
+    return true;
+  };
+  const anyFilter = highlightTid !== null || waveVid !== null;
   return buildColoredLayoutSVG([M, N], [1, M], 'value', (m, n) => {
     const entries = grid[m][n];
     const logical = m + n * M;
@@ -254,7 +269,7 @@ function renderTVBankSVG(tabId, tvL, tileL, numT, numV, M, N, highlightTid, labe
     if (entries.length === 0) {
       return { bg: '#f0f0f0', fg: '#bbb', text: ['\u2014', bankLine] };
     }
-    const dimmed = highlightTid !== null && !entries.some(e => e.tid === highlightTid);
+    const dimmed = anyFilter && !entries.some(matchesFilters);
     if (entries.length === 1) {
       const { tid, vid } = entries[0];
       const bg = dimmed ? '#f0f0f0' : colorTV(tid);
@@ -303,6 +318,21 @@ function setTVSwizzle(tabId) {
     }
   }
   tvState[tabId].swizzle = sw;
+  if (tvState[tabId].tvL && tvState[tabId].bankCheck) renderTV(tabId);
+}
+
+// Live update when the wave-vid input changes. Selects the (warp-wide) wave
+// where every thread is reading values at vid=N — cells whose entry's vid
+// doesn't match are dimmed.
+function setTVWaveVid(tabId) {
+  if (!tvState[tabId]) tvState[tabId] = {};
+  const raw = (document.getElementById(`${tabId}-tv-wave-input`).value || '').trim();
+  let vid = null;
+  if (raw !== '') {
+    const n = parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 0) vid = n;
+  }
+  tvState[tabId].waveVid = vid;
   if (tvState[tabId].tvL && tvState[tabId].bankCheck) renderTV(tabId);
 }
 

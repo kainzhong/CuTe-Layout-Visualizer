@@ -385,11 +385,19 @@ function renderCopyUniversalOp(tabId) {
       `<div class="cuo-result-line">ValLayoutSrc = ${atomStr}</div>` +
       `<div class="cuo-result-line">ValLayoutDst = ${atomStr}</div>`;
 
+    // Run CuTe's upcast<atom_num_val> check on T0's first atom invocation.
+    // If the val_layout + tensor combo can't coalesce to (atom_num_val):(1) in
+    // source memory, the JIT would reject this with "cannot vectorize copy".
+    // We surface the same error here at design time. When no tensor is given,
+    // we check against the implicit col-major tile (offset = tile_flat).
+    const atomCheck = cuoUpcastCheck(atomNumVal, layout_tv, tiler_mn, tensorStr.trim());
+
     document.getElementById(`${tabId}-cuo-tile-result`).innerHTML =
       `<div class="cuo-result-line">layout_mn = raked_product(thr, val) = <b>${layoutMNStr}</b></div>` +
       `<div class="cuo-result-line">Tiler_MN  = product_each(shape) = <b>${tilerMNStr}</b></div>` +
       `<div class="cuo-result-line">layout_tv = right_inverse(layout_mn) = <b>${layoutTVStr}</b></div>` +
-      `<div class="cuo-result-line">TiledNumThr = ${thrL.size()}, TiledNumVal = ${tiledNumVal}, FrgX = ${frgX}</div>`;
+      `<div class="cuo-result-line">TiledNumThr = ${thrL.size()}, TiledNumVal = ${tiledNumVal}, FrgX = ${frgX}</div>` +
+      cuoFormatAtomCheck(atomCheck, atomNumVal);
 
     const tensorItem = document.getElementById(`${tabId}-cuo-tensor-item`);
     if (hasTensor) {
@@ -409,6 +417,26 @@ function renderCopyUniversalOp(tabId) {
       if (tensorItem) tensorItem.style.display = 'none';
       const svg = document.getElementById(`${tabId}-cuo-tensor-svg`);
       if (svg) svg.innerHTML = '';
+    }
+
+    if (!atomCheck.ok) {
+      // Atom-value layout is incompatible — CuTe's upcast<atom_num_val> would
+      // reject this at JIT time. Don't visualize; the result divs already show
+      // the math up to where it broke, and the inline diagnostic in tile-result
+      // explains the offset mismatch. Surface a short summary at the top too.
+      showErr(`${tabId}-cuo-error`,
+        `Atom-value layout incompatible: ${atomNumVal}-element atom requires ` +
+        `T0's first ${atomNumVal} vids at stride-1 source offsets, but they land at ` +
+        `[${atomCheck.offsets.join(', ')}]. Visualization skipped — CuTe's JIT ` +
+        `would reject this layout. See the red diagnostic below for details.`);
+      ['atom', 'tile', 'tensor'].forEach(w => {
+        const el = document.getElementById(`${tabId}-cuo-${w}-svg`);
+        if (el) el.innerHTML = '';
+      });
+      const tpItem = document.getElementById(`${tabId}-cuo-thread-partition-item`);
+      if (tpItem) tpItem.style.display = 'none';
+      updateOuterTabLabel(tabId, `CopyUniversalOp:${numBits}b/${dtype} (broken)`);
+      return;
     }
 
     renderCuoAtomViz(tabId);
@@ -849,4 +877,85 @@ function exportCUO(tabId) {
   const tensor = document.getElementById(`${tabId}-cuo-tensor-input`).value;
   const dir = (cuoState[tabId] && cuoState[tabId].direction) || 'src';
   exportURL(`${tabId}-cuo-export`, 'copy_universal_op', bits, dtype, thr, val, dir, tensor);
+}
+
+// CuTe's atom-vectorization check, ported. CuTe's copy_unpack does
+//   recast<RegTypeSrc>(src)  -> calls upcast<atom_num_val>(per-thread-slice)
+//   static_assert(size(rS) == RegNumSrc)   // typically 1 for a single-reg atom
+// i.e. the per-thread atom-invocation source slice must coalesce to
+// (atom_num_val):(1) — atom_num_val consecutive source-memory offsets.
+// We compute T0's first atom invocation's source offsets and check they
+// form 0, 1, 2, ..., atom_num_val-1 relative to the base. All other atom
+// invocations have the same RELATIVE pattern (the linear layout repeats),
+// so checking T0 is sufficient. tensorStr empty -> use the col-major tile
+// as the implicit source layout (= identity on tile_flat).
+function cuoUpcastCheck(atomNumVal, layout_tv, tiler_mn, tensorStr) {
+  if (atomNumVal <= 1) return { ok: true, trivial: true };
+  const M = tiler_mn[0];
+  let tensorL = null;
+  if (tensorStr && tensorStr.length > 0) {
+    try {
+      const tp = parseLayout(tensorStr);
+      const sp = stripTrivialTrailing(tp.shape, tp.stride);
+      tensorL = new Layout(sp.shape, sp.stride);
+    } catch (_) {
+      tensorL = null;
+    }
+  }
+  const offsets = [];
+  for (let v = 0; v < atomNumVal; v++) {
+    const tileFlat = layout_tv.call(0, v);
+    const m = tileFlat % M;
+    const n = Math.floor(tileFlat / M);
+    let off;
+    if (tensorL) {
+      try { off = tensorL.call(m, n); }
+      catch (_) { off = tileFlat; }
+    } else {
+      off = tileFlat;
+    }
+    offsets.push(off);
+  }
+  const base = offsets[0];
+  for (let v = 1; v < atomNumVal; v++) {
+    if (offsets[v] - base !== v) {
+      return {
+        ok: false,
+        offsets,
+        firstBadVid: v,
+        expected: base + v,
+        actual: offsets[v],
+        usedTensor: !!tensorL,
+      };
+    }
+  }
+  return { ok: true, offsets, usedTensor: !!tensorL };
+}
+
+// Format the atom-vectorization check result as a result-line. Red if the
+// check fails (with the exact offsets that broke contiguity), green if it
+// passes, hidden if trivial (atom_num_val=1).
+function cuoFormatAtomCheck(check, atomNumVal) {
+  if (check.trivial) return '';
+  const srcDesc = check.usedTensor
+    ? 'the tensor layout you provided'
+    : 'the implicit col-major tile (offset = m + n*M)';
+  if (check.ok) {
+    return `<div class="cuo-result-line" style="color:#10b981">` +
+      `<b>✓ Atom vectorization OK</b> &mdash; T0's first ${atomNumVal} vids hit ` +
+      `source offsets [${check.offsets.join(', ')}] (stride-1 run). ` +
+      `CuTe's <code>upcast&lt;${atomNumVal}&gt;</code> would coalesce this to <code>(${atomNumVal}):(1)</code>.` +
+      `</div>`;
+  }
+  return `<div class="cuo-result-line" style="color:#ef4444">` +
+    `<b>✗ Atom-value layout incompatible</b> &mdash; ${atomNumVal}-element atom ` +
+    `(num_bits / sizeof_bits(dtype)) requires T0's first ${atomNumVal} vids at ` +
+    `stride-1 contiguous source offsets, but against ${srcDesc} they land at ` +
+    `[${check.offsets.join(', ')}] &mdash; vid ${check.firstBadVid} should be at ` +
+    `offset ${check.expected}, got ${check.actual}. ` +
+    `CuTe's <code>upcast&lt;${atomNumVal}&gt;</code> check would reject this layout at JIT time ` +
+    `("<i>cannot vectorize copy to ${atomNumVal} elements</i>"). ` +
+    `Try a val_layout whose first ${atomNumVal} vids are contiguous in the source axis, ` +
+    `or shrink the atom (num_bits_per_copy = sizeof_bits(dtype) for atom_num_val=1).` +
+    `</div>`;
 }

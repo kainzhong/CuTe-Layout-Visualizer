@@ -13,15 +13,16 @@ function cellSize(M, N) {
   return Math.max(12, Math.min(BASE_CS, Math.floor(1200 / Math.max(M, N, 1))));
 }
 
-/** Pick CSS to fit the SVG by longest side (default) or shortest side (zoomed). */
+/** Pick CSS for the SVG. Default state fits by longest side so the whole viz
+ *  is visible without scrolling. Zoomed state always fits the viz-box's WIDTH
+ *  and lets the container scroll vertically if the viz is taller than fits —
+ *  matches the natural "make this thing fill the column and let me scroll
+ *  down" expectation, and keeps horizontal scrollbars out of grid layouts. */
 function svgFitStyle(W, H, zoomed) {
   if (zoomed) {
-    // Fit by shortest side — image may overflow, container scrolls
-    return W >= H
-      ? 'height:70vh;width:auto'
-      : 'width:100%;height:auto';
+    return 'width:100%;height:auto';
   }
-  // Fit by longest side — always fully visible
+  // Default: fit by longest side — always fully visible
   return W >= H
     ? 'width:100%;height:auto'
     : 'max-height:70vh;width:auto;max-width:100%';

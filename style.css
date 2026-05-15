@@ -396,6 +396,13 @@ textarea:focus { outline: none; border-color: #3b82f6; }
    the composition tab only — other tabs (copy_universal_op especially) need
    to honour explicit per-viz heights. */
 [id$="-tab-composition"] .comp-results .viz-box svg { max-height: 38vh !important; }
+/* …but when the user clicks "Zoom in", lift the cap so the diagram can grow
+   to its full width and scroll vertically if needed. The host div carries
+   data-zoom="true" while zoomed, which makes this selector more specific
+   than the cap rule above. */
+[id$="-tab-composition"] .comp-results .viz-box [data-zoom="true"] svg {
+  max-height: none !important;
+}
 /* Complement viz spans both columns of the composition grid, so it sits
    directly under the 2x2 layout area and never reaches the controls column. */
 .comp-viz-complement { grid-column: 1 / -1; }

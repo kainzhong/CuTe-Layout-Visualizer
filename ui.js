@@ -623,6 +623,7 @@ function addOuterTab() {
   document.getElementById('outer-panels').appendChild(panel);
 
   attachVizCollapsibles(panel);
+  attachVizFullscreenButtons(panel);
 
   switchOuterTab(id);
   renderLayout(id);
@@ -656,6 +657,113 @@ function attachVizCollapsibles(root) {
     });
     header.insertBefore(btn, header.firstChild);
   });
+}
+
+/** Inject a "Fullscreen" button into every viz inside `root`. The button is
+ *  placed at the top-right corner of the viz-box itself (overlaid on the
+ *  diagram) so it's always visually paired with the visualization it controls.
+ *  Clicking it opens the SVG in a viewport-filling overlay. Idempotent. */
+function attachVizFullscreenButtons(root) {
+  const items = [
+    ...root.querySelectorAll('.comp-viz-item'),
+    ...root.querySelectorAll('.visualization'),
+  ];
+  items.forEach(item => {
+    const vizBox = item.querySelector('.viz-box');
+    if (!vizBox || vizBox.querySelector(':scope > .viz-fullscreen-btn')) return;  // idempotent
+    // Every viz puts its SVG inside a div with an id (the same id toggleZoom /
+    // downloadSVG already key off). Find it so we can pass it to viewFullscreen.
+    const host = vizBox.querySelector('div[id]');
+    if (!host || !host.id) return;
+
+    // Make the viz-box a positioning ancestor so the absolutely-positioned
+    // button anchors to its top-right corner. Done inline so we don't have to
+    // touch style.css and so it's idempotent.
+    if (!vizBox.style.position) vizBox.style.position = 'relative';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'viz-fullscreen-btn';
+    btn.title = 'Open in fullscreen overlay (Esc to close)';
+    btn.textContent = '⛶';
+    btn.style.cssText =
+      'position:absolute;top:8px;right:8px;z-index:2;' +
+      'font-size:14px;line-height:1;padding:5px 8px;' +
+      'background:rgba(17,24,39,0.78);color:white;' +
+      'border:none;border-radius:4px;cursor:pointer;' +
+      'opacity:0.55;transition:opacity 0.15s';
+    btn.addEventListener('mouseenter', () => { btn.style.opacity = '1'; });
+    btn.addEventListener('mouseleave', () => { btn.style.opacity = '0.55'; });
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      viewFullscreen(host.id);
+    });
+    vizBox.appendChild(btn);
+  });
+}
+
+/** Open the SVG inside `hostId` in a viewport-filling overlay. The SVG is
+ *  scaled so its LONGEST axis matches the corresponding viewport dimension,
+ *  which keeps cells as large as possible while letting the short axis scroll
+ *  if the SVG is more lopsided than the viewport. Click the close button,
+ *  click the empty background, or hit Esc to dismiss. */
+function viewFullscreen(hostId) {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  const origSvg = host.querySelector('svg');
+  if (!origSvg) return;
+
+  closeFullscreen();  // tear down any prior overlay
+
+  const overlay = document.createElement('div');
+  overlay.id = 'viz-fullscreen-overlay';
+  overlay.style.cssText =
+    'position:fixed;inset:0;z-index:9999;background:#fff;' +
+    'overflow:auto;padding:48px 16px 16px';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeFullscreen();
+  });
+
+  const cloned = origSvg.cloneNode(true);
+  const vb = (cloned.getAttribute('viewBox') || '0 0 100 100').split(/\s+/).map(Number);
+  const vbW = vb[2] || 1, vbH = vb[3] || 1;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  // Compare aspect ratios. If SVG is wider-than-tall relative to the viewport,
+  // fit by height (so width overflows -> horizontal scroll, cells as big as
+  // possible). Otherwise fit by width (vertical scroll on the tall axis).
+  if (vbW / vbH >= vw / vh) {
+    // Wide SVG -> fit by viewport height; allow horizontal scroll
+    cloned.setAttribute('style',
+      'height:calc(100vh - 64px);width:auto;display:block;max-width:none;max-height:none');
+  } else {
+    cloned.setAttribute('style',
+      'width:calc(100vw - 32px);height:auto;display:block;max-width:none;max-height:none');
+  }
+  overlay.appendChild(cloned);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.textContent = '× Close (Esc)';
+  closeBtn.style.cssText =
+    'position:fixed;top:12px;right:12px;z-index:10000;' +
+    'font-size:13px;padding:6px 12px;background:#111827;color:white;' +
+    'border:none;border-radius:6px;cursor:pointer;' +
+    'box-shadow:0 2px 8px rgba(0,0,0,0.25)';
+  closeBtn.addEventListener('click', closeFullscreen);
+  overlay.appendChild(closeBtn);
+
+  document.body.appendChild(overlay);
+  document.addEventListener('keydown', vizFullscreenEscHandler);
+}
+
+function vizFullscreenEscHandler(e) {
+  if (e.key === 'Escape') closeFullscreen();
+}
+
+function closeFullscreen() {
+  document.removeEventListener('keydown', vizFullscreenEscHandler);
+  const overlay = document.getElementById('viz-fullscreen-overlay');
+  if (overlay) overlay.remove();
 }
 
 function switchOuterTab(id) {

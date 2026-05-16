@@ -887,33 +887,32 @@ function exportCUO(tabId) {
 // We compute T0's first atom invocation's source offsets and check they
 // form 0, 1, 2, ..., atom_num_val-1 relative to the base. All other atom
 // invocations have the same RELATIVE pattern (the linear layout repeats),
-// so checking T0 is sufficient. tensorStr empty -> use the col-major tile
-// as the implicit source layout (= identity on tile_flat).
+// so checking T0 is sufficient.
+//
+// The check is only meaningful with an actual source layout. Without a
+// tensor input, the TiledCopy itself is still well-defined — we just don't
+// know what memory it'll be applied to, so contiguity is unknowable. Skip
+// the check and let the user see the (thr, val) tile viz unfiltered.
 function cuoUpcastCheck(atomNumVal, layout_tv, tiler_mn, tensorStr) {
   if (atomNumVal <= 1) return { ok: true, trivial: true };
-  const M = tiler_mn[0];
-  let tensorL = null;
-  if (tensorStr && tensorStr.length > 0) {
-    try {
-      const tp = parseLayout(tensorStr);
-      const sp = stripTrivialTrailing(tp.shape, tp.stride);
-      tensorL = new Layout(sp.shape, sp.stride);
-    } catch (_) {
-      tensorL = null;
-    }
+  if (!tensorStr || tensorStr.length === 0) return { ok: true, skipped: true };
+  let tensorL;
+  try {
+    const tp = parseLayout(tensorStr);
+    const sp = stripTrivialTrailing(tp.shape, tp.stride);
+    tensorL = new Layout(sp.shape, sp.stride);
+  } catch (_) {
+    return { ok: true, skipped: true };  // unparseable tensor — let the existing parse error own this
   }
+  const M = tiler_mn[0];
   const offsets = [];
   for (let v = 0; v < atomNumVal; v++) {
     const tileFlat = layout_tv.call(0, v);
     const m = tileFlat % M;
     const n = Math.floor(tileFlat / M);
     let off;
-    if (tensorL) {
-      try { off = tensorL.call(m, n); }
-      catch (_) { off = tileFlat; }
-    } else {
-      off = tileFlat;
-    }
+    try { off = tensorL.call(m, n); }
+    catch (_) { off = tileFlat; }
     offsets.push(off);
   }
   const base = offsets[0];
@@ -925,21 +924,26 @@ function cuoUpcastCheck(atomNumVal, layout_tv, tiler_mn, tensorStr) {
         firstBadVid: v,
         expected: base + v,
         actual: offsets[v],
-        usedTensor: !!tensorL,
       };
     }
   }
-  return { ok: true, offsets, usedTensor: !!tensorL };
+  return { ok: true, offsets };
 }
 
 // Format the atom-vectorization check result as a result-line. Red if the
 // check fails (with the exact offsets that broke contiguity), green if it
-// passes, hidden if trivial (atom_num_val=1).
+// passes, gray "skipped" note if the user hasn't provided a tensor (the
+// TiledCopy alone is well-defined; contiguity only becomes a question once
+// a source layout shows up). Empty string for the trivial atom_num_val=1.
 function cuoFormatAtomCheck(check, atomNumVal) {
   if (check.trivial) return '';
-  const srcDesc = check.usedTensor
-    ? 'the tensor layout you provided'
-    : 'the implicit col-major tile (offset = m + n*M)';
+  if (check.skipped) {
+    return `<div class="cuo-result-line" style="color:#9ca3af">` +
+      `Atom-vectorization check skipped &mdash; enter a Tensor layout (section 3) to ` +
+      `verify that T0's ${atomNumVal} consecutive vids land at stride-1 source offsets ` +
+      `(the condition CuTe's <code>upcast&lt;${atomNumVal}&gt;</code> would enforce).` +
+      `</div>`;
+  }
   if (check.ok) {
     return `<div class="cuo-result-line" style="color:#10b981">` +
       `<b>✓ Atom vectorization OK</b> &mdash; T0's first ${atomNumVal} vids hit ` +
@@ -950,8 +954,8 @@ function cuoFormatAtomCheck(check, atomNumVal) {
   return `<div class="cuo-result-line" style="color:#ef4444">` +
     `<b>✗ Atom-value layout incompatible</b> &mdash; ${atomNumVal}-element atom ` +
     `(num_bits / sizeof_bits(dtype)) requires T0's first ${atomNumVal} vids at ` +
-    `stride-1 contiguous source offsets, but against ${srcDesc} they land at ` +
-    `[${check.offsets.join(', ')}] &mdash; vid ${check.firstBadVid} should be at ` +
+    `stride-1 contiguous source offsets, but against the tensor layout you provided ` +
+    `they land at [${check.offsets.join(', ')}] &mdash; vid ${check.firstBadVid} should be at ` +
     `offset ${check.expected}, got ${check.actual}. ` +
     `CuTe's <code>upcast&lt;${atomNumVal}&gt;</code> check would reject this layout at JIT time ` +
     `("<i>cannot vectorize copy to ${atomNumVal} elements</i>"). ` +

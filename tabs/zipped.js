@@ -36,10 +36,10 @@ function generateZippedDivideTabContent(id) {
           <div class="preset-list">
             <button class="preset-btn" onclick="setZD('${id}','12:1','3:4')">1-mode: A=12:1, B=3:4 (every-4th pick)</button>
             <button class="preset-btn" onclick="setZD('${id}','(4,4):(1,4)','(2,2):(1,4)')">1-mode: A(4,4) col-maj, B=(2,2):(1,4)</button>
-            <button class="preset-btn" onclick="setZD('${id}','(8,8):(1,8)','4:2\\n4:2')">2-mode: A(8,8) col-maj, &lt;4:2, 4:2&gt;</button>
             <button class="preset-btn" onclick="setZD('${id}','(12,32):(32,1)','3:4\\n8:4')">2-mode: A(12,32) row-maj, &lt;3:4, 8:4&gt;</button>
-            <button class="preset-btn" onclick="setZD('${id}','(6,12):(12,1)','3:2\\n4:3')">2-mode: A(6,12) row-maj, &lt;3:2, 4:3&gt; mixed</button>
             <button class="preset-btn" onclick="setZD('${id}','(8,16):(1,8)','(2,2):(1,4)\\n(4,2):(1,8)')">2-mode: A(8,16) col-maj, nested &lt;(2,2):(1,4), (4,2):(1,8)&gt;</button>
+            <button class="preset-btn" onclick="setZD('${id}','(8, 8):(1@0, 1@1)','4:1\\n4:1')">Coordinate tensor &mdash; this is <code>cta_v_map</code> from the TMA path</button>
+            <button class="preset-btn" onclick="setZD('${id}','(8, 8):(1@1, 1@0)','4:1\\n4:1')">Transposed coordinate tensor &mdash; <code>(1@1, 1@0)</code> through the divide</button>
           </div>
         </div>
 
@@ -134,7 +134,7 @@ function renderZippedDivide(tabId) {
       warnInputs.push([tilerLines.length > 1 ? `Tiler[${i}]` : 'Tiler', line]));
     updateRankWarning(`${tabId}-zd-warning`, warnInputs);
 
-    const aParsed = parseLayout(aStr);
+    const aParsed = parseLayout(aStr, { basis: true });
     const aStripped = stripTrivialTrailing(aParsed.shape, aParsed.stride);
     const aLayout = new Layout(aStripped.shape, aStripped.stride);
 
@@ -167,7 +167,7 @@ function renderZippedDivide(tabId) {
     // Visualization always uses zipped_divide's (rank-2) form so productEach
     // flattens cleanly into a 2D grid. The three variants re-group the same
     // cells, so the picture would be identical under any of them.
-    const rParsed = parseLayout(resultStrs.zipped);
+    const rParsed = parseLayout(resultStrs.zipped, { basis: true });
 
     // Build tile-index functions + selection (mirrors Logical Divide exactly for A,
     // but uses the zipped arrangement for R's mode-0/mode-1 decomposition).

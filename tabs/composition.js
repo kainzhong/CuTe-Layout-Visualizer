@@ -20,13 +20,13 @@ function generateCompositionTabContent(id) {
           <h3>Presets</h3>
           <div class="preset-list">
             <button class="preset-btn" onclick="setComp('${id}','(4,4):(4,1)','(2,2):(1,2)')">Row-maj A(4x4), Col-maj B(2x2)</button>
-            <button class="preset-btn" onclick="setComp('${id}','(8,8):(1,8)','(4,4):(1,4)')">Col-maj A(8x8), Col-maj B(4x4)</button>
             <button class="preset-btn" onclick="setComp('${id}','(8,8):(1,8)','(2,4):(2,8)')">Col-maj A(8x8), Strided B(2x4)</button>
             <button class="preset-btn" onclick="setComp('${id}','(4,8):(8,1)','(2,4):(1,2)')">Row-maj A(4x8), Col-maj B(2x4)</button>
             <button class="preset-btn" onclick="setComp('${id}','(4,4):(1,4)','(4,4):(1,0)')">Broadcast: B stride-0 col</button>
             <button class="preset-btn" onclick="setComp('${id}','(12,(4,8)):(59,(13,1))','(3):(4)\\n(8):(2)')">Tiler &lt;3:4, 8:2&gt; on A(12x32)</button>
             <button class="preset-btn" onclick="setComp('${id}','(12,(4,8)):(59,(13,1))','3\\n8')">Shape-tiler &lt;3:1, 8:1&gt; on A(12x32)</button>
-            <button class="preset-btn" onclick="setComp('${id}','(4,8):(8,1)','2\\n4')">Shape-tiler &lt;2:1, 4:1&gt; on A(4x8)</button>
+            <button class="preset-btn" onclick="setComp('${id}','(8, 8):(1@0, 1@1)','(4,4):(1,8)')">Coordinate tensor &mdash; identity <code>(1@0, 1@1)</code> composed with a tile</button>
+            <button class="preset-btn" onclick="setComp('${id}','(8, 8):(1@1, 1@0)','(4,4):(1,8)')">Transposed coordinate tensor &mdash; <code>(1@1, 1@0)</code></button>
           </div>
         </div>
 
@@ -129,8 +129,22 @@ function renderComposition(tabId) {
   try {
     const aInput = document.getElementById(`${tabId}-comp-a-input`).value;
     const bRaw = document.getElementById(`${tabId}-comp-b-input`).value;
-    const aL = parseLayout(aInput);
+    // A may be a coordinate (TMA) tensor. composition only ever SCALES the lhs
+    // strides, so CuTe defines it for these; B must stay ordinary, since it
+    // indexes into A's domain.
+    const aL = parseLayout(aInput, { basis: true });
     const [M_A, N_A] = productEach(aL.shape);
+    // Output rank when A is a coordinate layout; 0 selects the integer path.
+    const aNd = aL.basis ? Math.max(basisRank(aL.stride), aL.ndim || 2) : 0;
+    // A's contribution from one mode, and how two contributions combine: an
+    // integer sum, or a componentwise coordinate sum.
+    const modeVal = (shape, stride, v) => {
+      if (!aNd) return evalModeAt(shape, stride, v);
+      const out = new Array(aNd).fill(0);
+      crd2basis(unflatten(v, shape), shape, stride, out);
+      return out;
+    };
+    const addVals = (x, y) => aNd ? x.map((c, k) => c + y[k]) : x + y;
 
     const bLines = bRaw.split('\n').map(s => s.trim()).filter(s => s.length > 0);
     if (bLines.length === 0) throw new Error('B input is empty');
@@ -161,7 +175,7 @@ function renderComposition(tabId) {
         if (v < 0 || v >= sizeA0)
           throw new Error(`B[0](${i}) = ${v} out of range [0, ${sizeA0}) for A mode-0`);
         b0Out.add(v);
-        r0Vals.push(evalModeAt(aL.shape[0], aL.stride[0], v));
+        r0Vals.push(modeVal(aL.shape[0], aL.stride[0], v));
       }
 
       const sizeB1 = product(bLayouts[1].shape[0]) * product(bLayouts[1].shape[1]);
@@ -171,7 +185,7 @@ function renderComposition(tabId) {
         if (v < 0 || v >= sizeA1)
           throw new Error(`B[1](${j}) = ${v} out of range [0, ${sizeA1}) for A mode-1`);
         b1Out.add(v);
-        r1Vals.push(evalModeAt(aL.shape[1], aL.stride[1], v));
+        r1Vals.push(modeVal(aL.shape[1], aL.stride[1], v));
       }
 
       M_R = sizeB0;
@@ -181,7 +195,7 @@ function renderComposition(tabId) {
       for (let i = 0; i < M_R; i++) {
         rGrid[i] = [];
         for (let j = 0; j < N_R; j++)
-          rGrid[i][j] = r0Vals[i] + r1Vals[j];
+          rGrid[i][j] = addVals(r0Vals[i], r1Vals[j]);
       }
 
       highlightSet = new Set();
@@ -211,7 +225,9 @@ function renderComposition(tabId) {
         rGrid[m] = [];
         for (let n = 0; n < N_B; n++) {
           const bVal = layoutAt(bL.shape, bL.stride, m, n);
-          rGrid[m][n] = layoutAt(aL.shape, aL.stride, bVal % M_A, Math.floor(bVal / M_A));
+          rGrid[m][n] = aNd
+            ? basisAt(aL.shape, aL.stride, bVal % M_A, Math.floor(bVal / M_A), aNd, aL.origin)
+            : layoutAt(aL.shape, aL.stride, bVal % M_A, Math.floor(bVal / M_A));
         }
       }
       M_R = M_B;
@@ -232,7 +248,16 @@ function renderComposition(tabId) {
     const compSection = document.getElementById(`${tabId}-comp-complement-section`);
     if (compSection) compSection.style.display = 'none';
     const compBtn = document.getElementById(`${tabId}-comp-complement-btn`);
-    if (compBtn) { compBtn.textContent = 'Render complement'; compBtn.classList.remove('active'); }
+    if (compBtn) {
+      compBtn.classList.remove('active');
+      // complement() needs strides it can order and divide (layout.hpp:1199-1202),
+      // which scaled-basis elements on different axes are not. Disable rather
+      // than let the click fail.
+      compBtn.disabled = !!aNd;
+      compBtn.textContent = aNd
+        ? 'Render complement — not defined for a coordinate layout'
+        : 'Render complement';
+    }
 
     document.getElementById(`${tabId}-comp-a-title`).textContent = `A: ${aInput.trim()}`;
     document.getElementById(`${tabId}-comp-b-title`).textContent =

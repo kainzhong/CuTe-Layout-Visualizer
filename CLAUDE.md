@@ -80,6 +80,55 @@ Port of `python/pycute/int_tuple.py` and `python/pycute/layout.py`, plus a few h
 - **Layout functions**: `make_layout`, `coalesce`, `filter`, `composition`, `complement`, `right_inverse`, `left_inverse`, `logical_divide`, `logical_product`, `zipped_divide`, `tiled_divide`, `zipped_product`, `tiled_product`, `slice_and_offset`
 - **Extra**: `product_each`, `zip_tuple`, `zip_layouts`, `append_layout`, `raked_product`, `make_layout_tv`, `isBijective`
 
+### Coordinate (TMA / basis-strided) layouts in layout operations
+
+A coordinate tensor's strides are scaled basis elements (`1@0`), so its codomain is a *coordinate*,
+not a 1-D offset. CuTe supports exactly the operations that only ever **scale and add** such strides,
+and rejects the ones that need them **ordered**. The split is not a matter of taste — it falls out of
+two lines in `include/cute/layout.hpp`:
+
+| op | basis-strided A? | why |
+|---|---|---|
+| `composition(A, B)` | **yes** | lhs strides are only multiplied (`composition_impl:1049`) |
+| `logical_divide`, `zipped`/`tiled`/`flat_divide` | **yes** | `= composition(A, (tiler, complement(TILER)))` — complement is of the **tiler**, never of A (`:1562`) |
+| `local_tile` | **yes** | `zipped_divide` + a slice |
+| `coalesce`, `filter`, `slice_` | **yes** | compare strides for equality only |
+| `complement(A)` | **no** | does `min(stride)` and `min_stride / result_stride` (`:1199-1202`) |
+| `right_inverse` / `left_inverse` | **no** | sorts by stride |
+| `logical_product` and every product variant | **no** | `= (A, composition(complement(A), B))` (`:1656`) |
+
+`layout.js` implements this with `stride_mul` / `stride_eq` / `stride_is_zero` / `has_basis_stride`,
+and `reject_basis(op, layout)` guards `complement` and `right_inverse` — so the product family fails
+with the *reason* rather than producing NaN. `composition`'s only two contacts with A's strides are
+`stride_mul` calls; everything else in it is integer arithmetic on B's side.
+
+Verified by differential test: for `A = (32,64):(1@0,1@1)` against the integer `(32,64):(1,32)`
+describing the same map, all 2048 points agree after `composition`, `logical_divide`,
+`zipped_divide`, `tiled_divide`, `flat_divide` and `coalesce`.
+
+**Every tab whose operation CuTe defines for basis strides accepts them**: Layout, Composition,
+Logical Divide, Zipped / Tiled / Flat Divide, Local Tile. The rule for adding another is simply
+whether the op appears in the "yes" half of the table above; if it does, pass `{ basis: true }` to
+`parseLayout` and the rest already works.
+
+The grid builders do the heavy lifting, so tabs mostly did not need per-cell changes. `basisNdimOf(stride)`
+returns the output rank (0 for ordinary strides) and `cellValueAt(shape, stride, m, n, nd, origin)`
+returns `{ label, key }` — a tuple label coloured by output axis 0, or an integer offset.
+`buildLayoutSVG`, `buildTiledLayoutSVG` and `buildHighlightedLayoutSVG` all route through it;
+`buildGridSVG` additionally accepts coordinate *cells*, since composing a coordinate layout produces
+coordinates. `formatLayoutStr` prints `k@i` (it used to throw `x.map is not a function` on them —
+every tab that prints a layout string goes through it).
+
+Two things that are NOT free and had to be handled per tab:
+- **Composition's tiler branch** sums per-mode contributions (`r0Vals[i] + r1Vals[j]`). For a
+  coordinate layout that is a componentwise vector sum, so the tab carries `modeVal` / `addVals`
+  helpers that switch on `aNd`.
+- **Composition's complement toggle** computes `complement(R, size(A))`, which is undefined here. The
+  button is `disabled` with the reason in its label rather than left to throw from three frames down.
+
+Tilers stay ordinary in every case — `complement()` is taken *of the tiler*, so a basis-strided tiler
+would be undefined even where a basis-strided A is fine.
+
 ### Coordinate layouts in the Layout tab
 
 The Layout tab is the ONE tab that passes `{ basis: true }` to `parseLayout`. It accepts:

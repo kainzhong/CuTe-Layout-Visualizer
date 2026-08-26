@@ -139,8 +139,12 @@ function parseValue(str, allowBasis) {
   if (at !== -1) {
     if (!allowBasis) {
       throw new Error(
-        `Basis stride "${str}" (k@i) is only supported by the Layout tab. ` +
-        `Elsewhere a stride must be a plain integer.`);
+        `Basis stride "${str}" (k@i) is not accepted by this tab. Coordinate ` +
+        `(TMA / identity) tensors work wherever CuTe defines the operation for ` +
+        `them: Layout, Composition, Logical Divide, Zipped / Tiled / Flat ` +
+        `Divide, and Local Tile. They are NOT defined for complement, the ` +
+        `inverses, or any product — those need strides that can be ordered and ` +
+        `divided, and scaled-basis elements on different axes have neither.`);
     }
     if (str.indexOf('@', at + 1) !== -1) {
       throw new Error(

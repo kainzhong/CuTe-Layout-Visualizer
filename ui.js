@@ -89,6 +89,38 @@ function cellTextSVG(cx, cy, lines, cs, fg) {
   return out;
 }
 
+/** Cell label for a layout that may be basis-strided. Integer layouts give the
+ *  1-D offset as before; a coordinate (TMA-style) layout gives the COORDINATE it
+ *  maps to, since its codomain is a coordinate and there is no offset to show.
+ *  `parsed` is a parseLayout result, so it carries `.basis`, `.ndim`, `.origin`. */
+function layoutValueLabel(parsed, m, n) {
+  if (parsed.basis) {
+    const out = basisAt(parsed.shape, parsed.stride, m, n, parsed.ndim || 2, parsed.origin);
+    return `(${out.join(',')})`;
+  }
+  return String(layoutAt(parsed.shape, parsed.stride, m, n));
+}
+
+/** Output rank of a basis-strided layout, or 0 when the strides are ordinary.
+ *  Computed once per grid rather than per cell. */
+function basisNdimOf(stride) {
+  return hasBasisStride(stride) ? Math.max(basisRank(stride), 2) : 0;
+}
+
+/** What a grid cell at (m, n) shows and is coloured by. A coordinate (TMA)
+ *  layout maps to a COORDINATE, so its label is a tuple and its colour keys off
+ *  output axis 0 — the same rule buildBasisLayoutSVG uses, which keeps an
+ *  identity layout reading as horizontal bands and a transpose as vertical ones.
+ *  `nd` is basisNdimOf(stride); 0 means the ordinary integer path. */
+function cellValueAt(shape, stride, m, n, nd, origin) {
+  if (nd) {
+    const out = basisAt(shape, stride, m, n, nd, origin || null);
+    return { label: `(${out.join(',')})`, key: out[0] };
+  }
+  const idx = layoutAt(shape, stride, m, n);
+  return { label: idx, key: idx };
+}
+
 /** Normalize mode: accept a Set or legacy string, always return a Set. */
 function toModeSet(mode) {
   if (mode instanceof Set) return mode;
@@ -165,6 +197,7 @@ function buildBasisLayoutSVG(shape, stride, ndim, origin, modes) {
 
 function buildLayoutSVG(shape, stride, mode, cellTextColor, allCellsEdgeColor) {
   const modes = toModeSet(mode);
+  const _nd = basisNdimOf(stride);
   const [M, N] = productEach(shape);
   if (M * N > MAX_CELLS)
     return errSVG(`Grid too large: ${M}\u00d7${N} = ${M*N} cells (max ${MAX_CELLS})`);
@@ -192,10 +225,10 @@ function buildLayoutSVG(shape, stride, mode, cellTextColor, allCellsEdgeColor) {
 
   for (let m = 0; m < M; m++) {
     for (let n = 0; n < N; n++) {
-      const idx = layoutAt(shape, stride, m, n);
+      const cv = cellValueAt(shape, stride, m, n, _nd);
       const flatI = m + n * M;
-      const lines = buildCellLines(modes, idx, flatI, `(${m},${n})`);
-      const bg  = colorBW(idx);
+      const lines = buildCellLines(modes, cv.label, flatI, `(${m},${n})`);
+      const bg  = colorBW(cv.key);
       const fg  = cellTextColor || textOnBG(bg);
       const x = margin + n * cs;
       const y = margin + m * cs;
@@ -333,6 +366,7 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underl
 /** Like buildLayoutSVG but cells NOT in highlightSet are greyed out. */
 function buildHighlightedLayoutSVG(shape, stride, highlightSet, mode, edgeSet, shadowMap) {
   const modes = toModeSet(mode);
+  const _nd = basisNdimOf(stride);
   const [M, N] = productEach(shape);
   if (M * N > MAX_CELLS) return errSVG(`Grid too large: ${M}x${N}`);
   if (M === 0 || N === 0) return errSVG(`Empty grid: ${M}x${N}`);
@@ -359,7 +393,8 @@ function buildHighlightedLayoutSVG(shape, stride, highlightSet, mode, edgeSet, s
   for (let m = 0; m < M; m++) {
     for (let n = 0; n < N; n++) {
       const flatPos = m + n * M;
-      const idx = layoutAt(shape, stride, m, n);
+      const cv = cellValueAt(shape, stride, m, n, _nd);
+      const idx = cv.key;
       const x = margin + n * cs;
       const y = margin + m * cs;
       const lit = highlightSet.has(flatPos);
@@ -390,7 +425,7 @@ function buildHighlightedLayoutSVG(shape, stride, highlightSet, mode, edgeSet, s
 
       body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
         fill="${bg}" fill-opacity="${fillOpacity}" stroke="${stroke}" stroke-width="${sw}"/>`;
-      const lines = buildCellLines(modes, idx, flatPos, `(${m},${n})`);
+      const lines = buildCellLines(modes, cv.label, flatPos, `(${m},${n})`);
       body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fg);
       // If this cell's offset is in the edge set (complement anchor), draw an edge marker
       if (edgeSet && edgeSet.has(idx)) {
@@ -433,9 +468,13 @@ function buildGridSVG(grid, M, N, mode) {
 
   for (let m = 0; m < M; m++) {
     for (let n = 0; n < N; n++) {
-      const idx = grid[m][n];
+      const cell = grid[m][n];
+      // Composition of a coordinate (TMA) layout produces coordinates, not
+      // offsets, so a cell may be a tuple. Colour keys off output axis 0.
+      const isCrd = Array.isArray(cell);
+      const idx = isCrd ? cell[0] : cell;
       const flatI = m + n * M;
-      const lines = buildCellLines(modes, idx, flatI, `(${m},${n})`);
+      const lines = buildCellLines(modes, isCrd ? `(${cell.join(',')})` : cell, flatI, `(${m},${n})`);
       const bg = colorHighlight(idx);
       const fg = textOnBG(bg);
       const x = margin + n * cs;
@@ -543,6 +582,7 @@ function errSVG(msg) {
  */
 function buildTiledLayoutSVG(shape, stride, mode, tileIdxFn, selection) {
   const modes = toModeSet(mode);
+  const _nd = basisNdimOf(stride);
   const [M, N] = productEach(shape);
   if (M * N > MAX_CELLS)
     return errSVG(`Grid too large: ${M}\u00d7${N} = ${M*N} cells (max ${MAX_CELLS})`);
@@ -586,7 +626,7 @@ function buildTiledLayoutSVG(shape, stride, mode, tileIdxFn, selection) {
 
   for (let m = 0; m < M; m++) {
     for (let n = 0; n < N; n++) {
-      const idx = layoutAt(shape, stride, m, n);
+      const idx = cellValueAt(shape, stride, m, n, _nd).label;
       const flatI = m + n * M;
       const lines = buildCellLines(modes, idx, flatI, `(${m},${n})`);
       const tileIdx = tileIdxFn(m, n);
@@ -1309,6 +1349,10 @@ function parseSwizzleSpec(raw) {
 function formatLayoutStr(shape, stride) {
   function fmt(x) {
     if (typeof x === 'number') return String(x);
+    // A scaled-basis stride (`k@i`) is neither a number nor a tuple. Coordinate
+    // (TMA / identity) layouts carry these, and every tab that prints a layout
+    // string goes through here.
+    if (isBasis(x)) return `${x.k}@${x.axis}`;
     return '(' + x.map(fmt).join(',') + ')';
   }
   return `${fmt(shape)}:${fmt(stride)}`;

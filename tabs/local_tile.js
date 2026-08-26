@@ -48,11 +48,12 @@ function generateLocalTileTabContent(id) {
           <div class="preset-list">
             <button class="preset-btn" onclick="setLT('${id}','(32, 64):(64, 1)','(8, 32)','(1, 0)')">Pick one tile &mdash; (8,32) tiles, coord (1,0)</button>
             <button class="preset-btn" onclick="setLT('${id}','(32, 64):(64, 1)','(8, 32)','(_, 0)')">Keep a mode &mdash; coord (_, 0) selects a whole column of tiles</button>
-            <button class="preset-btn" onclick="setLT('${id}','(32, 64):(64, 1)','(8, 32)','(_, _)')">Keep both &mdash; what the TMA flow passes to tma_partition</button>
             <button class="preset-btn" onclick="setLT('${id}','(8, 8):(1, 8)','(4, 4)','(0, 1)')">Small: 8x8 col-major, (4,4) tiles, coord (0,1)</button>
-            <button class="preset-btn" onclick="setLT('${id}','(12, 32):(32, 1)','3:4\\n8:4','(1, 2)')">Strided tiler &lt;3:4, 8:4&gt; &mdash; the tile is scattered</button>
-            <button class="preset-btn" onclick="setLT('${id}','(16, 16):(16, 1)','(4, 4)','(2, 2)')">16x16 into 4x4 tiles, coord (2,2)</button>
+            <button class="preset-btn" onclick="setLT('${id}','(12, 32):(32, 1)','3:4\n8:4','(1, 2)')">Strided tiler &lt;3:4, 8:4&gt; &mdash; the tile is scattered</button>
             <button class="preset-btn" onclick="setLT('${id}','(8, 16):(1, 8)','(2,2):(1,4)\n(4,2):(1,8)','(1, 1)')">Nested tile modes &mdash; result is ((2,2),(4,2)), NOT flattened</button>
+            <button class="preset-btn" onclick="setLT('${id}','(16, 16):(1@0, 1@1)','(4, 4)','(1, 2)')">Coordinate tensor &mdash; <code>(1@0, 1@1)</code>, tile lands at origin (4,8)</button>
+            <button class="preset-btn" onclick="setLT('${id}','(16, 16):(1@0, 1@1)','(4, 4)','(_, _)')">Coordinate tensor, coord (_, _) &mdash; what the TMA flow feeds tma_partition</button>
+            <button class="preset-btn" onclick="setLT('${id}','(8, 16):(1@1, 1@0)','(4, 4)','(1, 1)')">Transposed coordinate tensor &mdash; <code>(1@1, 1@0)</code> swaps the axes</button>
           </div>
         </div>
 
@@ -86,6 +87,17 @@ function generateLocalTileTabContent(id) {
           calls <code>group_modes(x, 0, 2)</code> before
           <code>tma_partition</code>: it folds back what
           <code>local_tile</code> just unfolded.<br><br>
+          <b>Coordinate (TMA) tensors work here.</b> A stride like
+          <code>1@0</code> is a scaled basis element, so the layout maps a
+          coordinate to a <em>coordinate</em> rather than to an offset &mdash;
+          that is what <code>make_tiled_tma_atom</code> hands back.
+          <code>local_tile</code> is one of the operations CuTe defines for them,
+          because it is <code>composition</code> plus
+          <code>complement(<em>tiler</em>)</code> and never touches A's strides
+          except to scale them. The tile's constant then comes back as an
+          <em>origin coordinate</em> rather than an offset. Complement, the
+          inverses and every product are <em>not</em> defined for these &mdash;
+          they need strides that can be ordered and divided.<br><br>
           <b>The offset is not in the layout.</b> Slicing produces a layout
           <em>and</em> a base offset (<code>slice_and_offset</code>); a layout
           structurally cannot carry a constant, so the tile's position in A lives
@@ -161,6 +173,15 @@ function ltParseCoord(raw) {
   });
 }
 
+/** Evaluate a basis-strided rank-2 layout at (tile-local t, tile-index r).
+ *  `idx2crd` makes each flat index congruent with its mode's shape first, so
+ *  nested tile modes recurse correctly. */
+function ltBasisAt(L, t, r, ndim) {
+  const out = new Array(ndim).fill(0);
+  crd2basis([idx2crd(t, L.shape[0]), idx2crd(r, L.shape[1])], L.shape, L.stride, out);
+  return out;
+}
+
 function renderLocalTile(tabId) {
   showErr(`${tabId}-lt-error`, '');
   try {
@@ -176,7 +197,10 @@ function renderLocalTile(tabId) {
       warnInputs.push([tilerLines.length > 1 ? `Tiler[${i}]` : 'Tiler', line]));
     updateRankWarning(`${tabId}-lt-warning`, warnInputs);
 
-    const aParsed = parseLayout(aStr);
+    // `{ basis: true }`: local_tile is one of the ops CuTe defines for coordinate
+    // (TMA) tensors, because it is composition + complement of the TILER — never
+    // of A. See the stride arithmetic note in layout.js.
+    const aParsed = parseLayout(aStr, { basis: true });
     const aStripped = stripTrivialTrailing(aParsed.shape, aParsed.stride);
     const aLayout = new Layout(aStripped.shape, aStripped.stride);
 
@@ -236,7 +260,14 @@ function renderLocalTile(tabId) {
     // literally inner_partition's one line.
     const tileCrd = R0 === 1 ? null : new Array(R0).fill(null);
     const restCrdArg = R1 === 1 ? restCrd[0] : restCrd;
-    const [resultLayout, baseOffset] = slice_and_offset([tileCrd, restCrdArg], Z);
+    // `slice_and_offset` in one call would compute the offset with crd2idx, which
+    // is meaningless for basis strides (it would multiply a stride OBJECT). Take
+    // the structural half from slice_ either way, and get the constant the way
+    // each kind of layout can express it: an integer offset, or — for a
+    // coordinate tensor — the coordinate of the tile's first element.
+    const sliceCrd = [tileCrd, restCrdArg];
+    const resultLayout = new Layout(slice_(sliceCrd, Z.shape), slice_(sliceCrd, Z.stride));
+    const baseOffset = aParsed.basis ? null : crd2idx(sliceCrd, Z.shape, Z.stride);
 
     // Which tiles survived the slice?
     const restSize = product(restShape);
@@ -247,21 +278,24 @@ function renderLocalTile(tabId) {
       if (rcArr.every((c, i) => restCrd[i] === null || restCrd[i] === c)) kept.push({ r, rcArr });
     }
 
-    // A's offset -> its grid position, so a tile's offsets can be lit up.
+    // Which GRID POSITION does each (tile-local, tile-index) pair name? Dividing
+    // the identity layout by the same tiler answers that directly, so the
+    // highlight never depends on A's strides — which is what lets a coordinate
+    // (TMA) tensor work here at all, and also removes the collision risk the old
+    // offset round-trip had on non-injective layouts.
     const [M_A, N_A] = productEach(aParsed.shape);
-    const offToPos = new Map();
-    for (let m = 0; m < M_A; m++) {
-      for (let n = 0; n < N_A; n++) offToPos.set(layoutAt(aParsed.shape, aParsed.stride, m, n), m + n * M_A);
-    }
+    const Zpos = zipped_divide(new Layout(aStripped.shape), tilerArg);
 
     const tileSize = product(tileShape);
     const posTile = new Map();       // grid position -> which kept tile owns it
     kept.forEach((k, ki) => {
-      for (let t = 0; t < tileSize; t++) {
-        const pos = offToPos.get(Z.call(t, k.r));
-        if (pos !== undefined) posTile.set(pos, ki);
-      }
+      for (let t = 0; t < tileSize; t++) posTile.set(Zpos.call(t, k.r), ki);
     });
+
+    // Origin of the first selected tile. Evaluated at a real point rather than
+    // through the sliced coord, so nested tile modes can't trip the recursion.
+    const ndim = aParsed.ndim || 2;
+    const originCrd = aParsed.basis ? ltBasisAt(Z, 0, kept[0].r, ndim) : null;
 
     const keptStr = kept.map(k => `(${k.rcArr.join(',')})`).join(' ');
     const resultStr = formatLayoutStr(resultLayout.shape, resultLayout.stride);
@@ -271,7 +305,9 @@ function renderLocalTile(tabId) {
       `<div class="cuo-result-line">slice = (repeat&lt;${R0}&gt;(_), ` +
       `(${restCrd.map(c => c === null ? '_' : c).join(',')}))</div>` +
       `<div class="cuo-result-line">local_tile(...) = <b>${resultStr}</b>` +
-      (baseOffset ? ` &nbsp;+ offset <b>${baseOffset}</b>` : ` &nbsp;+ offset 0`) + `</div>` +
+      (aParsed.basis
+        ? ` &nbsp;at origin <b>(${originCrd.join(',')})</b>`
+        : ` &nbsp;+ offset <b>${baseOffset || 0}</b>`) + `</div>` +
       `<div class="cuo-result-line" style="color:#9ca3af">Result rank ${resultLayout.rank()} = ` +
       `${R0} tile mode${R0 === 1 ? '' : 's'} (mode 0 unpacked one level, sub-modes keep their nesting)` +
       (restCrd.filter(c => c === null).length
@@ -281,7 +317,7 @@ function renderLocalTile(tabId) {
       `. Selected ${kept.length} of ${restSize} tiles: ${keptStr}</div>`;
 
     ltState[tabId] = {
-      aParsed, Z, resultLayout, baseOffset, kept, posTile, M_A, N_A,
+      aParsed, Z, resultLayout, baseOffset, originCrd, kept, posTile, M_A, N_A,
       tileShape, R0, restCrd, tileSize,
       aMode: (ltState[tabId] && ltState[tabId].aMode) || 'value',
       tileMode: (ltState[tabId] && ltState[tabId].tileMode) || 'value',
@@ -305,10 +341,14 @@ function ltRenderA(tabId) {
   const s = ltState[tabId];
   if (!s) return;
   const modes = new Set([s.aMode]);
+  const label = (m, n) =>
+      s.aMode === 'value' ? [layoutValueLabel(s.aParsed, m, n)]
+    : s.aMode === 'index' ? [String(m + n * s.M_A)]
+    :                       [`(${m},${n})`];
   const svg = buildColoredLayoutSVG(s.aParsed.shape, s.aParsed.stride, modes, (m, n) => {
     const ki = s.posTile.get(m + n * s.M_A);
-    if (ki === undefined) return { bg: '#e8e8e8', fg: '#bbb', stroke: '#ddd' };
-    return { bg: colorHighlight(ki), stroke: '#1e3a5f', sw: 2 };
+    if (ki === undefined) return { bg: '#e8e8e8', fg: '#bbb', stroke: '#ddd', text: label(m, n) };
+    return { bg: colorHighlight(ki), stroke: '#1e3a5f', sw: 2, text: label(m, n) };
   });
   document.getElementById(`${tabId}-lt-a-svg`).innerHTML =
     `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
@@ -329,23 +369,30 @@ function ltRenderTile(tabId) {
   const modes = new Set([s.tileMode]);
   const k = s.kept[0];
   const tileL = new Layout(s.tileShape, s.Z.stride[0]);
-  const off = s.Z.call(0, k.r);
   const [Mt, Nt] = productEach(s.tileShape);
-  const svg = buildColoredLayoutSVG(s.tileShape, s.Z.stride[0], modes, (m, n, offset) => ({
+  // A coordinate tensor has no 1-D offset — its "offset" is a coordinate, which
+  // slice_and_offset returns as the origin. Show that instead of adding it.
+  const tileParsed = { shape: s.tileShape, stride: s.Z.stride[0], basis: s.aParsed.basis,
+                       ndim: s.aParsed.ndim || 2, origin: s.originCrd };
+  const off = s.aParsed.basis ? null : s.Z.call(0, k.r);
+  const svg = buildColoredLayoutSVG(s.tileShape, s.Z.stride[0], modes, (m, n) => ({
     bg: colorHighlight(0), stroke: '#1e3a5f', sw: 2,
-    text: modes.has('value') ? [String(off + offset)]
-        : modes.has('index') ? [String(m + n * Mt)]
+    text: s.tileMode === 'value'
+            ? [s.aParsed.basis ? layoutValueLabel(tileParsed, m, n)
+                               : String(off + layoutAt(s.tileShape, s.Z.stride[0], m, n))]
+        : s.tileMode === 'index' ? [String(m + n * Mt)]
         : [`(${m},${n})`],
   }));
   document.getElementById(`${tabId}-lt-tile-svg`).innerHTML =
     `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
-    `tile (${k.rcArr.join(',')}) &mdash; ${formatLayoutStr(tileL.shape, tileL.stride)} at offset ${off}` +
+    `tile (${k.rcArr.join(',')}) &mdash; ${formatLayoutStr(tileL.shape, tileL.stride)}` +
+    (off === null ? ` at origin (${(s.originCrd || []).join(',')})` : ` at offset ${off}`) +
     (s.kept.length > 1 ? ` &mdash; first of ${s.kept.length} selected` : '') +
     `</div>` + svg;
   applyZoomState(`${tabId}-lt-tile-svg`);
   updateModeBtns(`${tabId}-lt-tile-mode-btns`, modes);
   document.getElementById(`${tabId}-lt-tile-title`).textContent =
-    `The tile — ${Mt}×${Nt} at offset ${off}`;
+    `The tile — ${Mt}×${Nt}` + (off === null ? '' : ` at offset ${off}`);
 }
 
 function setLtMode(tabId, which, mode) {

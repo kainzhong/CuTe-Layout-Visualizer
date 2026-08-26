@@ -19,10 +19,10 @@ function generateDivideTabContent(id) {
           <div class="preset-list">
             <button class="preset-btn" onclick="setLD('${id}','12:1','3:4')">1-mode: A=12:1, B=3:4 (every-4th pick)</button>
             <button class="preset-btn" onclick="setLD('${id}','(4,4):(1,4)','(2,2):(1,4)')">1-mode: A(4,4) col-maj, B=(2,2):(1,4)</button>
-            <button class="preset-btn" onclick="setLD('${id}','(8,8):(1,8)','4:2\\n4:2')">2-mode: A(8,8) col-maj, &lt;4:2, 4:2&gt;</button>
             <button class="preset-btn" onclick="setLD('${id}','(12,32):(32,1)','3:4\\n8:4')">2-mode: A(12,32) row-maj, &lt;3:4, 8:4&gt;</button>
-            <button class="preset-btn" onclick="setLD('${id}','(6,12):(12,1)','3:2\\n4:3')">2-mode: A(6,12) row-maj, &lt;3:2, 4:3&gt; mixed</button>
             <button class="preset-btn" onclick="setLD('${id}','(8,16):(1,8)','(2,2):(1,4)\\n(4,2):(1,8)')">2-mode: A(8,16) col-maj, nested &lt;(2,2):(1,4), (4,2):(1,8)&gt;</button>
+            <button class="preset-btn" onclick="setLD('${id}','(8, 8):(1@0, 1@1)','4:1\\n4:1')">Coordinate tensor &mdash; divide an identity layout into 4x4 tiles</button>
+            <button class="preset-btn" onclick="setLD('${id}','(8, 8):(1@1, 1@0)','4:1\\n4:1')">Transposed coordinate tensor &mdash; <code>(1@1, 1@0)</code> through the divide</button>
           </div>
         </div>
 
@@ -111,7 +111,7 @@ function renderLogicalDivide(tabId) {
       warnInputs.push([tilerLines.length > 1 ? `Tiler[${i}]` : 'Tiler', line]));
     updateRankWarning(`${tabId}-ld-warning`, warnInputs);
 
-    const aParsed = parseLayout(aStr);
+    const aParsed = parseLayout(aStr, { basis: true });
     const aStripped = stripTrivialTrailing(aParsed.shape, aParsed.stride);
     const aLayout = new Layout(aStripped.shape, aStripped.stride);
 
@@ -137,7 +137,7 @@ function renderLogicalDivide(tabId) {
 
     // Normalize to rank-2 for rendering
     const rStr = formatLayoutStr(R.shape, R.stride);
-    const rParsed = parseLayout(rStr);
+    const rParsed = parseLayout(rStr, { basis: true });
 
     // Build tile-index functions for coloring A and the result.
     // A tile represents one "slide" of the tiler over A; all cells belonging

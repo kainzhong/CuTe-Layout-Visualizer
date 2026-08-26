@@ -407,6 +407,62 @@ function cosize(layout) {
 
 
 // Layout coalesce -- flatten and combine as many modes as possible while preserving the int-to-int function
+// ═══════════════════════════════════════════════════════
+//  Scaled-basis stride arithmetic
+//
+//  A TMA / identity ("coordinate") tensor has strides like `1@0` instead of
+//  integers: its codomain is a COORDINATE, not a 1-D offset. CuTe supports the
+//  ops that only ever SCALE and ADD such strides, and rejects the ones that need
+//  them ordered:
+//
+//    composition          scales lhs strides by an int      -> works
+//    logical/zipped/... divide  = composition(A, (tiler, complement(TILER)))
+//                         complement is of the tiler, never of A -> works
+//    coalesce, filter, slice    compare strides for equality only -> works
+//    complement(A)        needs min(stride) and division    -> undefined
+//    right_inverse(A)     sorts by stride                   -> undefined
+//    logical_product(A,B) = (A, composition(complement(A), B))  -> undefined
+//
+//  `isBasis` / `makeBasis` come from cute.js, which loads first.
+// ═══════════════════════════════════════════════════════
+
+/** stride * n, for an integer or scaled-basis stride. */
+function stride_mul(stride, n) {
+  if (isBasis(stride)) return makeBasis(stride.k * n, stride.axis);
+  return stride * n;
+}
+
+/** Structural equality of two strides (integer or scaled-basis). */
+function stride_eq(a, b) {
+  if (isBasis(a) || isBasis(b)) {
+    return isBasis(a) && isBasis(b) && a.k === b.k && a.axis === b.axis;
+  }
+  return a === b;
+}
+
+/** True if the stride contributes nothing — an integer 0, or a 0-scaled basis. */
+function stride_is_zero(stride) {
+  return isBasis(stride) ? stride.k === 0 : stride === 0;
+}
+
+/** Does any stride in this (possibly nested) tuple use a scaled basis? */
+function has_basis_stride(x) {
+  if (isBasis(x)) return true;
+  return is_tuple(x) && x.some(has_basis_stride);
+}
+
+/** Guard for the ops whose definition needs an ordered 1-D codomain. */
+function reject_basis(op, layout) {
+  if (has_basis_stride(layout && layout.stride)) {
+    throw new Error(
+      `${op} is not defined for a coordinate (basis-strided) layout. It needs to ` +
+      `order and divide strides, and scaled-basis elements on different axes have ` +
+      `no such order — CuTe's complement() does min(stride) and stride/stride ` +
+      `(include/cute/layout.hpp:1199-1202). Composition and the divide family do ` +
+      `work, because they only ever scale these strides by an integer.`);
+  }
+}
+
 function coalesce(layout, profile) {
   if (is_tuple(profile)) {
     assert(layout.rank() >= profile.length);
@@ -436,8 +492,10 @@ function coalesce(layout, profile) {
       result_shape[result_shape.length - 1]  = shape;
       result_stride[result_stride.length - 1] = stride;
     }
-    // merge modes if the shape*stride match
-    else if (result_shape[result_shape.length - 1] * result_stride[result_stride.length - 1] === stride) {
+    // merge modes if the shape*stride match (structural, so `2@0` merges with
+    // `1@0` but never with `2@1` — different axes are never contiguous)
+    else if (stride_eq(stride_mul(result_stride[result_stride.length - 1],
+                                  result_shape[result_shape.length - 1]), stride)) {
       result_shape[result_shape.length - 1] = result_shape[result_shape.length - 1] * shape;
     }
     // append a new mode
@@ -477,7 +535,7 @@ function filter(layout, profile) {
     const shape  = flat_shapes[k];
     const stride = flat_strides[k];
     // skip their shape-1s and stride-0s
-    if (!(shape === 1 || stride === 0)) {
+    if (!(shape === 1 || stride_is_zero(stride))) {
       result_shape.push(shape);
       result_stride.push(stride);
     }
@@ -512,7 +570,7 @@ function composition(layoutA, layoutB) {
     return make_layout(layoutB.shape.map((_, i) => composition(layoutA, layoutB.mode(i))));
   }
 
-  if (layoutB.stride === 0) {
+  if (stride_is_zero(layoutB.stride)) {
     return new Layout(layoutB.shape, 0);
   } else {
     const result_shape  = [];
@@ -530,7 +588,7 @@ function composition(layoutA, layoutB) {
 
       if (new_shape !== 1) {
         result_shape.push(new_shape);
-        result_stride.push(rest_stride * curr_stride);
+        result_stride.push(stride_mul(curr_stride, rest_stride));
       }
 
       rest_shape  = Math.floor(rest_shape / new_shape);
@@ -540,7 +598,7 @@ function composition(layoutA, layoutB) {
 
     if (rest_shape !== 1 || result_shape.length === 0) {
       result_shape.push(rest_shape);
-      result_stride.push(rest_stride * flatA_strides[flatA_strides.length - 1]);
+      result_stride.push(stride_mul(flatA_strides[flatA_strides.length - 1], rest_stride));
     }
 
     if (result_shape.length === 1) {
@@ -559,6 +617,7 @@ function complement(layout, max_idx) {
   if (is_int(layout)) {
     return complement(new Layout(layout));
   }
+  reject_basis('complement', layout);
 
   const result_shape  = [];
   const result_stride = [];
@@ -598,6 +657,7 @@ function right_inverse(layout) {
   } else if (is_int(layout)) {
     return new Layout(layout);
   }
+  reject_basis('right_inverse', layout);
 
   const result_shape  = [];
   const result_stride = [];

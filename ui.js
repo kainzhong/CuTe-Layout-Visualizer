@@ -630,6 +630,7 @@ const TAB_RENDER_FN = {
   complement:         'renderComplementFeature',
   divide:             'renderLogicalDivide',
   zipped:             'renderZippedDivide',
+  local_tile:         'renderLocalTile',
   product:            'renderLogicalProduct',
   zipped_product:     'renderZippedProduct',
   blocked_product:    'renderBlockedProduct',
@@ -710,7 +711,7 @@ function generateTabContent(id) {
         </div>
         <div class="tab-scope-btn" data-scope="operations" onclick="switchTabGroup('${id}', 'operations')">
           <span class="tab-scope-icon">\u25A3</span>Layout Operations
-          <span class="tab-scope-count">8</span>
+          <span class="tab-scope-count">9</span>
         </div>
         <div class="tab-scope-btn" data-scope="copy" onclick="switchTabGroup('${id}', 'copy')">
           <span class="tab-scope-icon">⇄</span>Copy
@@ -725,6 +726,7 @@ function generateTabContent(id) {
       <div data-tab="complement" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'complement')">Complement</div>
       <div data-tab="divide" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'divide')">Logical Divide</div>
       <div data-tab="zipped" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'zipped')">Zipped / Tiled / Flat Divide</div>
+      <div data-tab="local_tile" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'local_tile')">Local Tile</div>
       <div data-tab="product" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'product')">Logical Product</div>
       <div data-tab="zipped_product" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'zipped_product')">Zipped / Tiled / Flat Product</div>
       <div data-tab="blocked_product" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'blocked_product')">Blocked Product</div>
@@ -742,6 +744,7 @@ function generateTabContent(id) {
     ${generateComplementTabContent(id)}
     ${generateDivideTabContent(id)}
     ${generateZippedDivideTabContent(id)}
+    ${generateLocalTileTabContent(id)}
     ${generateLogicalProductTabContent(id)}
     ${generateZippedProductTabContent(id)}
     ${generateBlockedProductTabContent(id)}
@@ -959,7 +962,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, product: 7, zipped_product: 8, blocked_product: 9, raked_product: 10, make_copy_atom: 11, make_tiled_copy: 12, make_tiled_copy_tv: 13, make_tiled_tma_atom: 14 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_tma_atom: 15 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1367,6 +1370,7 @@ const FEATURE_SPEC = {
   complement:     { inputs: 2 },
   logical_divide: { inputs: 2 },
   zipped_divide:  { inputs: 2 },
+  local_tile:     { inputs: 3 },  // A, tiler, coord
   logical_product: { inputs: 2 },
   zipped_product:  { inputs: 2 },
   blocked_product: { inputs: 2 },
@@ -1464,6 +1468,13 @@ function applyKeyParam(tabId) {
       document.getElementById(`${tabId}-zd-tiler-input`).value = inputs[1];
       switchInnerTab(tabId, 'zipped');
       renderZippedDivide(tabId);
+      break;
+    case 'local_tile':
+      document.getElementById(`${tabId}-lt-a-input`).value     = inputs[0];
+      document.getElementById(`${tabId}-lt-tiler-input`).value = inputs[1];
+      document.getElementById(`${tabId}-lt-coord-input`).value = inputs[2];
+      switchInnerTab(tabId, 'local_tile');
+      renderLocalTile(tabId);
       break;
     case 'logical_product':
       document.getElementById(`${tabId}-lp-a-input`).value = inputs[0];

@@ -19,6 +19,8 @@ tabs/
   complement.js    Standalone "Complement" tab
   divide.js        "Logical Divide" tab
   zipped.js        "Zipped / Tiled / Flat Divide" tab (dropdown picks result form)
+  local_tile.js    "local_tile" tab — `zipped_divide` + a slice. Greys out everything the coord
+                   did NOT select, one colour per surviving tile. Prefix `lt`.
   product.js       "Logical Product" tab
   zipped_product.js "Zipped / Tiled / Flat Product" tab (single-layout tiler, dropdown picks result form)
   blocked_product.js "Blocked Product" tab (rank-preserving matrix tiling)
@@ -142,6 +144,7 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=tv-2-(2,3):(3,1)-(2,2):(2,1)
 ?key=complement-(2,2):(1,2)-(4,4):(1,4)
 ?key=logical_divide-(12,32):(32,1)-3:1\n8:1
+?key=local_tile-(16, 16):(16, 1)-(4, 4)-(1, 2)
 ?key=zipped_product-(2,2):(1,2)-(2,2):(1,2)
 ?key=blocked_product-(2,2):(1,2)-(3,3):(1,3)
 ?key=raked_product-(2,2):(1,2)-(3,3):(1,3)
@@ -183,7 +186,15 @@ Then wire it into the shell:
 The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. Each scope is a named bucket; only one scope's tabs are visible at a time. Current scopes:
 
 - `basics` — Layout, TV Layout, Swizzle. Accent color: blue (`#3b82f6`).
-- `operations` — the CuTe layout-algebra tabs (composition, complement, divide/product variants). Accent color: purple (`#a855f7`).
+- `operations` — the CuTe layout-algebra tabs (composition, complement, divide/product variants, `local_tile`). Accent color: purple (`#a855f7`).
+
+  **`local_tile` uses CuTe's tiler convention, not the Divide tabs'.** A single line without a top-level
+  colon is a *Shape* tiler — `(8, 32)` means one tiler mode per tensor mode, exactly as
+  `local_tile(data, Shape<_32,_64>{}, coord)` does. Reading it as a single layout tiler (what the
+  Zipped / Divide tabs do) collapses the "rest" mode to rank 1 and makes a 2-D coord impossible; that
+  bug ate every preset on the first pass. A line *with* a colon is still a single layout tiler, and
+  several lines are still one per mode. It also uses `parseValue`, not `parseLayout`, because the
+  latter pads a bare `8` out to `(8,1)` and would silently invent a second tiler mode.
 - `copy` — the copy-construction pipeline: `make_copy_atom` (one instruction), then `make_tiled_copy` / `make_tiled_copy_tv` (replicate it over a tile), plus `make_tiled_tma_atom` (the TMA path, which bypasses threads entirely). Accent color: emerald (`#10b981`).
 
 ### How scopes are wired

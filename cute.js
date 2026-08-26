@@ -88,7 +88,28 @@ function autoStride(shape) {
 //           and nested ((2,2),(2,2)):((1,4),(2,8))
 // ═══════════════════════════════════════════════════════
 
-function parseValue(str) {
+/** A CuTe scaled-basis stride: `k@i` means k units along basis direction i,
+ *  i.e. the tuple (0,..,k,..,0). See media/docs/cpp/cute/0z_tma_tensors.md.
+ *  Strides built from these make a layout map a coordinate to a COORDINATE
+ *  rather than to a 1-D offset — which is what TMA and identity/predication
+ *  tensors need. */
+function makeBasis(k, axis) { return { basis: true, k, axis }; }
+function isBasis(x) { return !!(x && x.basis === true); }
+
+/** Does any stride in this (possibly nested) tuple use a basis element? */
+function hasBasisStride(x) {
+  if (isBasis(x)) return true;
+  return Array.isArray(x) && x.some(hasBasisStride);
+}
+
+/** Highest basis axis referenced, so callers know the output rank. */
+function basisRank(x) {
+  if (isBasis(x)) return x.axis + 1;
+  if (Array.isArray(x)) return x.reduce((a, y) => Math.max(a, basisRank(y)), 0);
+  return 0;
+}
+
+function parseValue(str, allowBasis) {
   str = str.trim();
   if (!str) throw new Error('Empty value');
   if (str[0] === '(') {
@@ -100,20 +121,83 @@ function parseValue(str) {
         depth--;
         if (depth === 0) {
           const sub = str.slice(start, i).trim();
-          if (sub) els.push(parseValue(sub));
+          if (sub) els.push(parseValue(sub, allowBasis));
           break;
         }
       } else if (str[i] === ',' && depth === 1) {
-        els.push(parseValue(str.slice(start, i)));
+        els.push(parseValue(str.slice(start, i), allowBasis));
         start = i + 1;
       }
     }
     // Unwrap single-element parens: (10) -> 10
     return els.length === 1 ? els[0] : els;
   }
+  // `k@i` — a scaled basis element. Only legal in a stride, and only where the
+  // caller opted in, so every other tab keeps its "strides are integers"
+  // assumption and fails loudly rather than silently producing NaN.
+  const at = str.indexOf('@');
+  if (at !== -1) {
+    if (!allowBasis) {
+      throw new Error(
+        `Basis stride "${str}" (k@i) is only supported by the Layout tab. ` +
+        `Elsewhere a stride must be a plain integer.`);
+    }
+    if (str.indexOf('@', at + 1) !== -1) {
+      throw new Error(
+        `Nested basis stride "${str}" (k@i@j) produces a hierarchical coordinate, ` +
+        `which this visualization cannot draw. Only flat k@i is supported.`);
+    }
+    const k = parseInt(str.slice(0, at), 10);
+    const axis = parseInt(str.slice(at + 1), 10);
+    if (isNaN(k) || isNaN(axis) || axis < 0) {
+      throw new Error(`Malformed basis stride "${str}" — expected k@i with integer k and axis i >= 0.`);
+    }
+    return makeBasis(k, axis);
+  }
   const n = parseInt(str, 10);
   if (isNaN(n)) throw new Error(`Not a number: "${str}"`);
   return n;
+}
+
+/** Split a `<origin> o <layout>` printout at the top-level `o`, so a CuTe
+ *  coordinate-tensor printout can be pasted verbatim. Returns -1 when absent. */
+function topLevelCompose(str) {
+  let depth = 0;
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    if (c === '(') depth++;
+    else if (c === ')') depth--;
+    else if (c === 'o' && depth === 0) {
+      const before = i === 0 ? ' ' : str[i - 1];
+      const after = i + 1 >= str.length ? ' ' : str[i + 1];
+      if (/\s/.test(before) && /\s/.test(after)) return i;
+    }
+  }
+  return -1;
+}
+
+/** Evaluate a basis-strided layout: the ordinary inner product, but the
+ *  accumulator is a vector. `out` is mutated.
+ *
+ *  NOTE the name. `crd2crd` was the obvious choice and is already taken by
+ *  layout.js's pycute port — and since layout.js loads AFTER cute.js it wins,
+ *  silently. Keep new globals here distinct from every name in layout.js. */
+function crd2basis(crd, shape, stride, out) {
+  if (typeof shape === 'number') {
+    if (isBasis(stride)) out[stride.axis] += crd * stride.k;
+    else out[0] += crd * stride;      // a plain integer stride lands on axis 0
+    return out;
+  }
+  for (let i = 0; i < shape.length; i++) crd2basis(crd[i], shape[i], stride[i], out);
+  return out;
+}
+
+/** (m, n) -> output coordinate, for a rank-2 basis layout. */
+function basisAt(shape, stride, m, n, ndim, origin) {
+  const out = (origin && origin.length === ndim) ? origin.slice() : new Array(ndim).fill(0);
+  crd2basis(unflatten(m, shape[0]), shape[0], stride[0], out);
+  crd2basis(unflatten(n, shape[1]), shape[1], stride[1], out);
+  return out;
 }
 
 /** Find the colon that separates shape from stride at depth 0. */
@@ -136,9 +220,29 @@ function topLevelColon(str) {
  *   shape:stride:  3:4  |  (M,N):(s0,s1)  |  ((a,b),c):((sa,sb),sc)
  * The ":" must be at the top level, not inside parens.
  */
-function parseLayout(str) {
+function parseLayout(str, opts) {
+  opts = opts || {};
+  const allowBasis = !!opts.basis;
   str = str.trim();
   if (!str) throw new Error('Empty layout string');
+
+  // Optional `<origin> o <layout>` prefix, so a CuTe coordinate-tensor printout
+  // pastes in verbatim: `(0,0) o (4,5):(1@0,1@1)`. The origin is the iterator's
+  // value — the constant that slicing accumulates and a layout cannot hold.
+  let origin = null;
+  const oi = topLevelCompose(str);
+  if (oi !== -1) {
+    if (!allowBasis) {
+      throw new Error(
+        `"<origin> o <layout>" form is only supported by the Layout tab. ` +
+        `Enter just the layout here.`);
+    }
+    const originStr = str.slice(0, oi).trim().replace(/^ArithTuple/i, '').trim();
+    const parsedOrigin = parseValue(originStr, false);
+    origin = Array.isArray(parsedOrigin) ? parsedOrigin.slice() : [parsedOrigin];
+    str = str.slice(oi + 1).trim();
+    if (!str) throw new Error('Nothing after the "o" — expected a layout.');
+  }
 
   const ci = topLevelColon(str);
 
@@ -155,30 +259,28 @@ function parseLayout(str) {
 
   let shape, stride;
   if (ci === -1) {
-    shape = parseValue(str);
+    shape = parseValue(str, false);
     stride = null; // auto
   } else {
-    shape = parseValue(str.slice(0, ci).trim());
-    stride = parseValue(str.slice(ci + 1).trim());
+    shape  = parseValue(str.slice(0, ci).trim(), false);
+    stride = parseValue(str.slice(ci + 1).trim(), allowBasis);
   }
 
-  // Normalise to rank-2 [mode0, mode1]
-  if (typeof shape === 'number') {
-    // 1-D scalar -> column vector
-    shape = [shape, 1];
-    stride = stride === null ? [1, 0] : [stride, 0];
-  } else if (!Array.isArray(shape[0]) && typeof shape[0] !== 'number') {
-    throw new Error('Unexpected shape format');
+  if (!Array.isArray(shape)) shape = [shape, 1];
+  if (shape.length === 1) shape = [shape[0], 1];
+  if (stride === null) {
+    stride = autoStride(shape);
   } else {
-    if (stride === null) stride = autoStride(shape);
-    // If shape has > 2 modes, treat as 1-D for now (wrap as [shape, 1])
-    if (shape.length > 2) {
-      shape = [shape, 1];
-      stride = [stride, 0];
-    }
+    if (!Array.isArray(stride)) stride = [stride, 0];
+    if (stride.length === 1) stride = [stride[0], 0];
+  }
+  if (shape.length !== stride.length) {
+    throw new Error(
+      `Shape rank (${shape.length}) does not match stride rank (${stride.length}).`);
   }
 
-  return { shape, stride };
+  const basis = hasBasisStride(stride);
+  return { shape, stride, basis, origin, ndim: basis ? Math.max(basisRank(stride), origin ? origin.length : 0) : 0 };
 }
 
 // ═══════════════════════════════════════════════════════

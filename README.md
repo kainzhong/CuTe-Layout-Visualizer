@@ -31,7 +31,12 @@ This tool runs in your browser and lets you:
 ### Layouts
 
 - **Layout** — Render any CuTe layout specified as `shape:stride`, including nested/hierarchical modes (e.g. `((2,4),(2,4)):((1,8),(2,16))`). Auto-stride: omit the stride to default to column-major.
-- **TV Layout** — Map a thread-value layout onto a tile to see how threads and values are distributed across a 2D grid. Supports two input methods: direct `(TV_Layout, Tile)` or derived-from `(Thread_Layout, Value_Layout)` via `make_layout_tv`. Click a thread to isolate its cells.
+- **TV Layout** — Map a thread-value layout onto a tile to see how threads and values are distributed across a 2D grid. Supports two input methods: direct `(TV_Layout, Tile)` or derived-from `(Thread_Layout, Value_Layout)` via `make_layout_tv`. The tab opens pre-filled with a thr/val pair (`(4,8):(8,1)` × `(2,2):(2,1)`) and the TV layout / tile it produces, so the derivation is visible from the first screen rather than starting from a bare TV layout. Click a thread to isolate its cells. This is also where the **memory-access checks** live, as two fully independent collapsible sections, each with its own data layout and `tensor_dtype` (a GMEM tile and its SMEM staging buffer are the same tile with different strides, so they get separate inputs):
+  - **Check Coalesced Read (GMEM)** — colors the grid by warp-wide memory issue (one color = all threads of a warp accessing the same block of *vector-width* consecutive vids) and labels every cell with its physical offset from the GMEM layout. The vector width is derived from the value layout and the data layout — the widest run of adjacent addresses each thread owns — so there is nothing to configure. A summary line counts the distinct 32-byte sectors each issue touches against the theoretical minimum, so "is this coalesced" gets a number, not a squint.
+  - **Check Bank Conflict (SMEM)** — appends the 32-bank SMEM bank id to each cell, with an optional bank filter and a `Swizzle<B, M, S>` applied to the offset before the bank is computed.
+
+  Both checks are properties of the *(TV layout, data layout)* pair rather than of any copy atom, which is why they live here rather than in the Copy tabs.
+- **Coordinate (TMA) layouts** — The Layout tab also accepts CuTe's scaled-basis strides, `k@i`, which make a layout map a coordinate to a *coordinate* instead of a 1-D offset. That's what TMA and identity/predication tensors are built from, and it's why `(3,4):(1@1,1@0)` is a transpose while `(4,5):(1@0,1@1)` is the identity. You can paste a coordinate-tensor printout verbatim, origin and all — `(2,2) o (4,4):(1@0,1@1)` — and the origin offsets every cell. Cells show the output coordinate, coloured by output axis 0, so which logical mode feeds which output dimension is obvious at a glance.
 - **Swizzle** — Visualize a CuTe `Swizzle<B, M, S>` as a before/after pair over a base layout. Top grid shows the raw base layout (cell = logical offset `a`); bottom grid shows the same coords with each cell labelled `a → b` where `b = a ⊕ (((a >> (M+S)) & ((1<<B)-1)) << M)`. Bottom-cell colour is keyed to the swizzled offset `b`, so same colour = same post-swizzle address bucket — makes conflict-avoidance patterns visible at a glance.
 
 ### Operations
@@ -52,12 +57,24 @@ Every operation tab shows the inputs and the result as linked visualizations, no
 - **Scoped navigation** — Tabs are grouped into scopes so the tab bar doesn't turn into a wall of buttons as more features are added. The current scopes are:
   - **Basics** (blue) — Layout, TV Layout, Swizzle.
   - **Layout Operations** (purple) — Composition, Complement, Logical Divide, Zipped / Tiled / Flat Divide, Logical Product, Zipped / Tiled / Flat Product, Blocked Product, Raked Product.
-  - **Copy** (emerald) — CopyUniversalOp / cpasync.CopyG2SOp (one tab covers both since their `Copy_Traits` are byte-identical; 4-section menu: atom / tile / partition / highlight-thread, with a layout viz per section).
+  - **Copy** (emerald) — the copy-construction pipeline, four tabs mirroring CuTe's own layering.
+    - **make_copy_atom** — build one Copy_Atom. Pick the Op (`CopyUniversalOp` or `cpasync.CopyG2SOp`; neither takes constructor parameters), then give `make_copy_atom` its `tensor_dtype` and `num_bits_per_copy`. Shows the one-thread / N-contiguous-value shape a single instruction moves.
+    - **make_tiled_copy** — the primitive. You supply `layout_tv` and `Tiler_MN` yourself. (They need *not* have matching shapes — `layout_tv` is `(num_threads, num_values)`, `Tiler_MN` is the `(M, N)` tile.)
+    - **make_tiled_copy_tv** — the derived form. Give it a `thr_layout` × `val_layout` and it runs `raked_product` → `right_inverse`, prints `layout_mn` / `Tiler_MN` / `layout_tv`, and hands them to the above.
+    - **make_tiled_tma_atom** — the TMA path, which skips threads entirely. Give it a GMEM tensor, an SMEM layout, a swizzle (a picker, since `CUtensorMapSwizzle` is a closed enum — each option labelled with both the `Sw<B,M,S>` CuTe prints and the byte width you think in) and a CTA tiler; it derives the TMA **box** — you never specify it — and shows three things: the box laid over the CTA tile against its SMEM destination, the literal `cuTensorMapEncodeTiled` argument list, and the coordinate tensor the function returns.
+
+    All four tabs render as a **SRC → DST** pair: a `SRC / DST / BOTH` toggle above the diagram, each pane titled with its memory space (GMEM / SMEM / RMEM / TMEM) and a small `→` between them. In BOTH mode the two grids sit side by side at half width, same aspect ratio. The memory movement is a constrained picker in section 0, not a free choice: it lists only the pairings the selected Op supports, and the pane titles follow it. `cpasync.CopyG2SOp` offers exactly one (GMEM→SMEM, so the picker is disabled); `CopyUniversalOp` offers the six cross-space pairs over GMEM/SMEM/RMEM — TMEM is excluded because it isn't thread-addressable and needs a tcgen05 Op. For both current Ops `ValLayoutSrc == ValLayoutDst`, so the panes match; they diverge for shuffling atoms like `ldmatrix`.
+
+    TMA is the odd one out and deliberately so: one thread issues the instruction with a logical *coordinate* and the TMA unit does address generation, bounds handling and the swizzled SMEM write, so there is no TV layout and no per-thread view. What replaces it is the box. Presets run from a 64-cell tile up to a full 64x64 GEMM stage; the small ones use wide element types on purpose, because a swizzle does nothing until the tile spans 8 rows of 128 B — 8x64 in `half_t`, but only 8x8 in `uint128_t`. The DST pane reports how many cells the swizzle actually moved, so "0 moved" tells you the tile is too small rather than leaving you to wonder. Two more things the tab makes visible that are otherwise hard to see: the swizzle triple CuTe prints (`Sw<3,4,3>`) is in **bytes**, so it is shown alongside its element-grid equivalent (`Sw<3,3,3>` for `half_t`) — the form the Swizzle tab takes; and the TMA constraints are host-side `assert()`s that a release build removes, so violations (majorness mismatch, box extent > 256, unaligned strides, a box row wider than the swizzle) are reported inline next to the picture that caused them rather than replacing it with an error.
+
+    The two tiled tabs draw how the TiledCopy covers one tile — color per thread, brightness per atom invocation — and run the checks CuTe *documents but never enforces*: that `layout_tv` fills its tiler, that thr/val layouts are compact, and that the atom's values land on a stride-1 run of one tile axis. A stride-0 mode in `layout_tv` is recognised as deliberate broadcast (several threads reading one element, as `make_tiled_copy_A` produces) rather than flagged as overlap.
 
   Click a scope at the top of the nav card to swap in its tabs. The active scope has a color accent (left stripe + active-tab highlight) so you always know which section you're in. Deep-link URLs auto-flip to the right scope. Scopes are designed to be extended — future groups like **MMA** can be added without cluttering the existing ones.
+- **Cmd+Enter to render** — `⌘↵` on macOS, `Ctrl+↵` elsewhere, renders whichever tab is visible without scrolling down to the button. Works from inside any input, including the multi-line tiler boxes. The hint under each Render button shows the right key for your platform.
 - **Multiple tabs** — Open several independent workspaces side by side. Each tab is fully self-contained.
 - **Shareable URLs** — Every operation has an "Export URL" button that copies a deep link to the current visualization. Paste it into chat or a doc and the recipient lands on the same view.
 - **Zoom** — Click "Zoom in" on any panel to fit by the shortest side (useful for very wide or very tall layouts).
+- **Everything is drawn on load** — every tab renders its default inputs when the page opens, so switching tabs shows a working example immediately rather than an empty box. Every shipped default is a valid configuration.
 - **Presets** — Built-in examples per tab covering the common patterns.
 - **Rank warning** — Layouts with outer rank > 2 still render (flattened to 2D), but the tool surfaces a warning so you know the structure is being collapsed.
 
@@ -115,12 +132,11 @@ See `CLAUDE.md` for architecture notes (file layout, adding a new tab, input con
 
    All SM75 LDSM, SM90 STSM, and SM100 LDSM/STSM variants fold into this one tab. Same pipeline as the existing Copy tabs — direct extension, easiest to build first.
 
-2. **TMA bulk tensor** (`cpasync.CopyBulk*`) — single tab with:
-   - Variant picker: `LOAD` / `LOAD_MULTICAST` / `STORE` / `REDUCE_ADD`. Optionally include the non-tensor `BULK_COPY_G2S` / `BULK_COPY_S2G` as extra items.
+2. **TMA bulk tensor** (`cpasync.CopyBulk*`) — *partly built*: the **make_tiled_tma_atom** tab covers `CopyBulkTensorTileG2SOp` (plain `.tile` load, `num_multicast = 1`) over a flat rank-2 tensor. Still to come, each a clean extension of the same pipeline:
+   - Variant picker: `LOAD_MULTICAST` (`num_multicast > 1` truncates the box), `STORE`, `REDUCE_ADD`. Optionally the non-tensor `BULK_COPY_G2S` / `BULK_COPY_S2G`.
    - CTA picker: 1-CTA (SM90) vs 2-CTA (SM100 `SM100_TMA_2SM_LOAD*`; `ThrID = 2`).
-   - Existing `thr_layout` / `val_layout` / tensor inputs drive the tile shape.
-
-   Quirk: TMA traits carry a runtime `TmaDescriptor`, but the TV layouts are static so the atom → TiledCopy → partition pipeline still applies.
+   - im2col mode, `gather4` / `scatter4`, `internal_type` recasts, rank > 2 tensors.
+   - `tma_partition`, which splits a tile into `(TMA, REST)` when the box doesn't cover it in one instruction (the tab already reports the instruction count).
 
 3. **tcgen05 TMEM load / store** — single tab collapses all ~160 `SM100_TMEM_LOAD_*` / `SM100_TMEM_STORE_*` variants:
    - Direction toggle: load (TMEM → regs) vs store (regs → TMEM).

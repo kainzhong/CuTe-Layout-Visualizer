@@ -102,6 +102,67 @@ function toModeSet(mode) {
  *                 (used to draw tiler cells with an accent color).
  *  allCellsEdgeColor: if set, draws a colored border around every cell
  *                    (used to mark all cells as "anchors" in complement viz). */
+/** Draw a basis-strided ("coordinate") layout: every cell shows the COORDINATE
+ *  the layout maps it to, rather than a 1-D offset. Colour keys off output axis
+ *  0, so which logical mode feeds which output dimension is visible at a glance
+ *  — identity gives horizontal bands, a transpose gives vertical ones.
+ *
+ *  `origin` is the iterator's value (the `(0,0) o ...` prefix): the constant
+ *  that slicing accumulates, added to every cell. */
+function buildBasisLayoutSVG(shape, stride, ndim, origin, modes) {
+  modes = toModeSet(modes);
+  const [M, N] = productEach(shape);
+  if (M * N > MAX_CELLS)
+    return errSVG(`Grid too large: ${M}\u00d7${N} = ${M*N} cells (max ${MAX_CELLS})`);
+  if (M === 0 || N === 0) return errSVG(`Empty grid: ${M}\u00d7${N}`);
+
+  const cs = cellSize(M, N);
+  const margin = cs;
+  const W = margin + N * cs;
+  const H = margin + M * cs;
+  const axisFs = Math.max(8, Math.min(14, Math.floor(cs * 0.38)));
+  let body = '';
+  for (let n = 0; n < N; n++) {
+    body += `<text x="${margin + (n + 0.5) * cs}" y="${margin * 0.55}" text-anchor="middle"
+      dominant-baseline="middle" fill="#555" font-size="${axisFs}" font-family="monospace">${n}</text>`;
+  }
+  for (let m = 0; m < M; m++) {
+    body += `<text x="${margin * 0.5}" y="${margin + (m + 0.5) * cs}" text-anchor="middle"
+      dominant-baseline="middle" fill="#555" font-size="${axisFs}" font-family="monospace">${m}</text>`;
+  }
+  for (let m = 0; m < M; m++) {
+    for (let n = 0; n < N; n++) {
+      const out = basisAt(shape, stride, m, n, ndim, origin);
+      const flatI = m + n * M;
+      // Same prefixing rule as buildCellLines: bare when one mode is on, tagged
+      // when several are, because here `value` and `coord` are BOTH tuples and
+      // would otherwise be indistinguishable.
+      const val = `(${out.join(',')})`;
+      const wanted = modes.size === 0 ? new Set(['value']) : modes;
+      const lines = [];
+      if (wanted.size === 1) {
+        if (wanted.has('value')) lines.push(val);
+        else if (wanted.has('index')) lines.push(String(flatI));
+        else if (wanted.has('coord')) lines.push(`(${m},${n})`);
+      } else {
+        if (wanted.has('value')) lines.push(`val=${val}`);
+        if (wanted.has('index')) lines.push(`idx=${flatI}`);
+        if (wanted.has('coord')) lines.push(`crd=(${m},${n})`);
+      }
+      const bg = colorBW(out[0]);
+      const fg = textOnBG(bg);
+      const x = margin + n * cs, y = margin + m * cs;
+      body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
+        fill="${bg}" stroke="#ccc" stroke-width="0.5"/>`;
+      body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fg);
+    }
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="${svgFitStyle(W, H)}">
+    <rect width="${W}" height="${H}" fill="white"/>
+    ${body}
+  </svg>`;
+}
+
 function buildLayoutSVG(shape, stride, mode, cellTextColor, allCellsEdgeColor) {
   const modes = toModeSet(mode);
   const [M, N] = productEach(shape);
@@ -554,6 +615,87 @@ function buildTiledLayoutSVG(shape, stride, mode, tileIdxFn, selection) {
 //  Multi-tab management
 // ═══════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════
+//  Render shortcut (Cmd/Ctrl + Enter)
+// ═══════════════════════════════════════════════════════
+
+/** Inner-tab name -> its render function's global name. The `data-tab`
+ *  attribute on each `.tab` div is the key, so adding a tab means adding one
+ *  entry here as well as to `modeIndex` in switchInnerTab. */
+const TAB_RENDER_FN = {
+  layout:             'renderLayout',
+  tv:                 'renderTV',
+  swizzle:            'renderSwizzle',
+  composition:        'renderComposition',
+  complement:         'renderComplementFeature',
+  divide:             'renderLogicalDivide',
+  zipped:             'renderZippedDivide',
+  product:            'renderLogicalProduct',
+  zipped_product:     'renderZippedProduct',
+  blocked_product:    'renderBlockedProduct',
+  raked_product:      'renderRakedProduct',
+  make_copy_atom:     'renderMakeCopyAtom',
+  make_tiled_copy:    'renderMakeTiledCopy',
+  make_tiled_copy_tv: 'renderMakeTiledCopyTv',
+  make_tiled_tma_atom: 'renderMakeTiledTmaAtom',
+};
+
+/** True on Apple platforms, where the modifier is ⌘ rather than Ctrl. */
+function isMacPlatform() {
+  const p = (navigator.userAgentData && navigator.userAgentData.platform) ||
+            navigator.platform || navigator.userAgent || '';
+  return /mac|iphone|ipad|ipod/i.test(p);
+}
+
+/** Plain-text label for the render shortcut, matching the user's platform. */
+function renderShortcutLabel() {
+  return isMacPlatform() ? '\u2318\u21A9' : 'Ctrl+\u21A9';
+}
+
+/** The same shortcut as <kbd> chips, for embedding in a button's label. */
+function renderShortcutKeys() {
+  const mod = isMacPlatform() ? '\u2318' : 'Ctrl';
+  return `<kbd>${mod}</kbd><kbd>\u21A9</kbd>`;
+}
+
+/** Run the render function of whichever inner tab is currently visible in the
+ *  active outer tab. Returns false when there is nothing to render. */
+function renderActiveInnerTab() {
+  if (!activeOuterTabId) return false;
+  const panel = document.getElementById(`${activeOuterTabId}-panel`);
+  if (!panel) return false;
+  const tab = panel.querySelector('.tab.active');
+  const name = tab && tab.getAttribute('data-tab');
+  const fn = name && window[TAB_RENDER_FN[name]];
+  if (typeof fn !== 'function') return false;
+  fn(activeOuterTabId);
+  return true;
+}
+
+// Cmd+Enter (mac) / Ctrl+Enter renders without scrolling down to the button.
+// preventDefault matters inside the multi-line tiler <textarea>s, where Enter
+// would otherwise insert a newline before we ever see it.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+  e.preventDefault();
+  renderActiveInnerTab();
+});
+
+/** Fold the keyboard hint into every "Render" button's own label in `root`, so
+ *  it reads `Render (or press ⌘↵)`. Done here, once per new panel, so tabs
+ *  don't each have to remember it — and so the modifier follows the user's
+ *  platform. Buttons whose label is a variant ("Render Inverse", "Render
+ *  complement") are toggles, not the tab's main render, and are skipped.
+ *  `data-kbd-hint` makes this idempotent if a panel is ever re-decorated. */
+function attachRenderHints(root) {
+  root.querySelectorAll('button').forEach(btn => {
+    if (btn.hasAttribute('data-kbd-hint') || btn.textContent.trim() !== 'Render') return;
+    btn.setAttribute('data-kbd-hint', '');
+    btn.innerHTML =
+      `Render <span class="btn-kbd-hint">(or press ${renderShortcutKeys()})</span>`;
+  });
+}
+
 let tabCounter = 0;
 let activeOuterTabId = null;
 
@@ -572,22 +714,25 @@ function generateTabContent(id) {
         </div>
         <div class="tab-scope-btn" data-scope="copy" onclick="switchTabGroup('${id}', 'copy')">
           <span class="tab-scope-icon">⇄</span>Copy
-          <span class="tab-scope-count">1</span>
+          <span class="tab-scope-count">4</span>
         </div>
       </div>
     <div class="tab-bar" data-scope="basics">
-      <div class="tab active" data-scope="basics" onclick="switchInnerTab('${id}', 'layout')">Layout</div>
-      <div class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'tv')">TV Layout</div>
-      <div class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'swizzle')">Swizzle</div>
-      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'composition')">Composition</div>
-      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'complement')">Complement</div>
-      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'divide')">Logical Divide</div>
-      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'zipped')">Zipped / Tiled / Flat Divide</div>
-      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'product')">Logical Product</div>
-      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'zipped_product')">Zipped / Tiled / Flat Product</div>
-      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'blocked_product')">Blocked Product</div>
-      <div class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'raked_product')">Raked Product</div>
-      <div class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'copy_universal_op')">CopyUniversalOp / cpasync.CopyG2SOp</div>
+      <div data-tab="layout" class="tab active" data-scope="basics" onclick="switchInnerTab('${id}', 'layout')">Layout</div>
+      <div data-tab="tv" class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'tv')">TV Layout</div>
+      <div data-tab="swizzle" class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'swizzle')">Swizzle</div>
+      <div data-tab="composition" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'composition')">Composition</div>
+      <div data-tab="complement" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'complement')">Complement</div>
+      <div data-tab="divide" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'divide')">Logical Divide</div>
+      <div data-tab="zipped" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'zipped')">Zipped / Tiled / Flat Divide</div>
+      <div data-tab="product" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'product')">Logical Product</div>
+      <div data-tab="zipped_product" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'zipped_product')">Zipped / Tiled / Flat Product</div>
+      <div data-tab="blocked_product" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'blocked_product')">Blocked Product</div>
+      <div data-tab="raked_product" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'raked_product')">Raked Product</div>
+      <div data-tab="make_copy_atom" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_copy_atom')">make_copy_atom</div>
+      <div data-tab="make_tiled_copy" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy')">make_tiled_copy</div>
+      <div data-tab="make_tiled_copy_tv" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy_tv')">make_tiled_copy_tv</div>
+      <div data-tab="make_tiled_tma_atom" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_tma_atom')">make_tiled_tma_atom</div>
     </div>
     </div>
     ${generateLayoutTabContent(id)}
@@ -601,7 +746,10 @@ function generateTabContent(id) {
     ${generateZippedProductTabContent(id)}
     ${generateBlockedProductTabContent(id)}
     ${generateRakedProductTabContent(id)}
-    ${generateCopyUniversalOpTabContent(id)}
+    ${generateMakeCopyAtomTabContent(id)}
+    ${generateMakeTiledCopyTabContent(id)}
+    ${generateMakeTiledCopyTvTabContent(id)}
+    ${generateMakeTiledTmaAtomTabContent(id)}
   </div>`;
 }
 
@@ -625,9 +773,11 @@ function addOuterTab() {
 
   attachVizCollapsibles(panel);
   attachVizFullscreenButtons(panel);
+  attachRenderHints(panel);
+  initCopyPanes(id);
 
   switchOuterTab(id);
-  renderLayout(id);
+  renderAllTabs(id, 'layout');
   return id;
 }
 
@@ -650,7 +800,10 @@ function attachVizCollapsibles(root) {
     btn.type = 'button';
     btn.className = 'viz-collapse-btn';
     btn.title = 'Collapse / expand';
-    btn.textContent = '▾';
+    // Respect a `.collapsed` class already on the item, so a tab can ship a viz
+    // folded (reference material you don't want on every render) without the
+    // chevron pointing the wrong way.
+    btn.textContent = item.classList.contains('collapsed') ? '▸' : '▾';
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const nowCollapsed = item.classList.toggle('collapsed');
@@ -670,36 +823,40 @@ function attachVizFullscreenButtons(root) {
     ...root.querySelectorAll('.visualization'),
   ];
   items.forEach(item => {
-    const vizBox = item.querySelector('.viz-box');
-    if (!vizBox || vizBox.querySelector(':scope > .viz-fullscreen-btn')) return;  // idempotent
-    // Every viz puts its SVG inside a div with an id (the same id toggleZoom /
-    // downloadSVG already key off). Find it so we can pass it to viewFullscreen.
-    const host = vizBox.querySelector('div[id]');
-    if (!host || !host.id) return;
+    // EVERY viz-box in the item, not just the first: the Copy tabs put SRC and
+    // DST side by side inside ONE `.comp-viz-item`, so taking only the first
+    // left the DST pane without a button.
+    item.querySelectorAll('.viz-box').forEach(vizBox => {
+      if (vizBox.querySelector(':scope > .viz-fullscreen-btn')) return;  // idempotent
+      // Every viz puts its SVG inside a div with an id (the same id toggleZoom /
+      // downloadSVG already key off). Find it so we can pass it to viewFullscreen.
+      const host = vizBox.querySelector('div[id]');
+      if (!host || !host.id) return;
 
-    // Make the viz-box a positioning ancestor so the absolutely-positioned
-    // button anchors to its top-right corner. Done inline so we don't have to
-    // touch style.css and so it's idempotent.
-    if (!vizBox.style.position) vizBox.style.position = 'relative';
+      // Make the viz-box a positioning ancestor so the absolutely-positioned
+      // button anchors to its top-right corner. Done inline so we don't have to
+      // touch style.css and so it's idempotent.
+      if (!vizBox.style.position) vizBox.style.position = 'relative';
 
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'viz-fullscreen-btn';
-    btn.title = 'Open in fullscreen overlay (Esc to close)';
-    btn.textContent = '⛶';
-    btn.style.cssText =
-      'position:absolute;top:8px;right:8px;z-index:2;' +
-      'font-size:14px;line-height:1;padding:5px 8px;' +
-      'background:rgba(17,24,39,0.78);color:white;' +
-      'border:none;border-radius:4px;cursor:pointer;' +
-      'opacity:0.55;transition:opacity 0.15s';
-    btn.addEventListener('mouseenter', () => { btn.style.opacity = '1'; });
-    btn.addEventListener('mouseleave', () => { btn.style.opacity = '0.55'; });
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      viewFullscreen(host.id);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'viz-fullscreen-btn';
+      btn.title = 'Open in fullscreen overlay (Esc to close)';
+      btn.textContent = '⛶';
+      btn.style.cssText =
+        'position:absolute;top:8px;right:8px;z-index:2;' +
+        'font-size:14px;line-height:1;padding:5px 8px;' +
+        'background:rgba(17,24,39,0.78);color:white;' +
+        'border:none;border-radius:4px;cursor:pointer;' +
+        'opacity:0.55;transition:opacity 0.15s';
+      btn.addEventListener('mouseenter', () => { btn.style.opacity = '1'; });
+      btn.addEventListener('mouseleave', () => { btn.style.opacity = '0.55'; });
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        viewFullscreen(host.id);
+      });
+      vizBox.appendChild(btn);
     });
-    vizBox.appendChild(btn);
   });
 }
 
@@ -802,7 +959,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, product: 7, zipped_product: 8, blocked_product: 9, raked_product: 10, copy_universal_op: 11 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, product: 7, zipped_product: 8, blocked_product: 9, raked_product: 10, make_copy_atom: 11, make_tiled_copy: 12, make_tiled_copy_tv: 13, make_tiled_tma_atom: 14 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -940,6 +1097,208 @@ function updateModeBtns(groupId, modes) {
 }
 
 // ═══════════════════════════════════════════════════════
+//  Copy SRC / DST panes (shared by the three Copy-scope tabs)
+// ═══════════════════════════════════════════════════════
+
+/** Which memory movements each Copy Op can legally perform. Keyed by the same
+ *  Op key the Copy tabs use, so the two op tables can't drift apart.
+ *
+ *  `cpasync.CopyG2SOp` is `cp.async` — GMEM to SMEM, and nothing else; the name
+ *  says so and the hardware has no other form. `CopyUniversalOp` is CuTe's
+ *  generic `a = b`, so it works between any two spaces a *thread can address*:
+ *  global, shared and its own registers. TMEM is deliberately absent — it isn't
+ *  thread-addressable at all (tcgen05's Ld/St src layout is stride-0 across all
+ *  32 lanes), so reaching it needs a tcgen05 Op rather than a universal copy.
+ *  Same-space moves (GMEM->GMEM) are omitted as degenerate. */
+const COPY_OP_MOVES = {
+  universal: [
+    ['GMEM', 'RMEM'], ['RMEM', 'GMEM'],
+    ['SMEM', 'RMEM'], ['RMEM', 'SMEM'],
+    ['GMEM', 'SMEM'], ['SMEM', 'GMEM'],
+  ],
+  cpasync: [
+    ['GMEM', 'SMEM'],
+  ],
+  // Bulk tensor (TMA) load. One direction by construction: the "G2S" is in the
+  // Op's name, and the store is a different Op entirely.
+  tma_g2s: [
+    ['GMEM', 'SMEM'],
+  ],
+};
+
+/** Section-0 control: pick one of the Op's legal memory movements. Options are
+ *  rebuilt by `syncCopyMoves` whenever the Op changes, so an illegal pairing
+ *  simply cannot be selected. */
+function copyMoveField(id, p) {
+  return `
+            <div class="form-group">
+              <label>Memory movement<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; only the pairings this Op supports are listed</span></label>
+              <select id="${id}-${p}-move" onchange="setCopyMove('${id}','${p}')"></select>
+            </div>`;
+}
+
+/** Repopulate the movement picker for `opKey`, keeping the current selection if
+ *  the new Op still allows it, and refresh the pane titles. */
+function syncCopyMoves(tabId, p, opKey) {
+  const sel = document.getElementById(`${tabId}-${p}-move`);
+  if (!sel) return;
+  const moves = COPY_OP_MOVES[opKey] || COPY_OP_MOVES.universal;
+  const want = sel.value;
+  sel.innerHTML = moves.map(([a, b]) => {
+    const v = `${a}>${b}`;
+    return `<option value="${v}">${a} \u2192 ${b}</option>`;
+  }).join('');
+  sel.value = moves.some(([a, b]) => `${a}>${b}` === want) ? want : `${moves[0][0]}>${moves[0][1]}`;
+  sel.disabled = moves.length === 1;
+  updateCopyPaneTitles(tabId, p);
+}
+
+/** The selected movement as [src, dst]. */
+function copyMove(tabId, p) {
+  const sel = document.getElementById(`${tabId}-${p}-move`);
+  const v = (sel && sel.value) || 'GMEM>SMEM';
+  return v.split('>');
+}
+
+function setCopyMove(tabId, p) { updateCopyPaneTitles(tabId, p); }
+
+/** Push the selected movement onto the two pane headers. */
+function updateCopyPaneTitles(tabId, p) {
+  const [src, dst] = copyMove(tabId, p);
+  const a = document.getElementById(`${tabId}-${p}-src-space`);
+  const b = document.getElementById(`${tabId}-${p}-dst-space`);
+  if (a) a.textContent = src;
+  if (b) b.textContent = dst;
+}
+
+/** The SRC / DST / BOTH button group. Switching is pure CSS — both SVGs are
+ *  always rendered, `data-dir` on the pane container decides what's shown — so
+ *  no re-render is needed and the toggle is instant. */
+function copyDirButtons(id, p) {
+  return `<span class="mode-btn-group" id="${id}-${p}-dir-btns">
+      <button class="mode-btn" onclick="setCopyDir('${id}','${p}','src')">SRC</button>
+      <button class="mode-btn" onclick="setCopyDir('${id}','${p}','dst')">DST</button>
+      <button class="mode-btn active" onclick="setCopyDir('${id}','${p}','both')">BOTH</button>
+    </span>`;
+}
+
+/** The side-by-side pane pair. Each pane's title is a plain label driven by the
+ *  section-0 movement picker — not an independent control, because which spaces
+ *  a copy can connect is a property of the Op, not a free choice.
+ *
+ *  In BOTH mode the two panes are flex siblings at 1fr each, so every SVG's
+ *  `width:100%` resolves against half the container — same aspect ratio, half
+ *  the box. */
+function copyPanes(id, p) {
+  const pane = (side) => `
+        <div class="copy-pane" data-side="${side}">
+          <div class="copy-pane-head">
+            <span class="copy-pane-side">${side.toUpperCase()}</span>
+            <span class="copy-pane-space" id="${id}-${p}-${side}-space">&mdash;</span>
+          </div>
+          <div class="viz-box"><div id="${id}-${p}-${side}-svg"></div></div>
+        </div>`;
+  return `
+      <div class="copy-panes" id="${id}-${p}-panes" data-dir="both">
+${pane('src')}
+        <div class="copy-arrow" aria-hidden="true">&rarr;</div>
+${pane('dst')}
+      </div>`;
+}
+
+/** Render every tab once with its shipped defaults, so switching to a tab shows
+ *  a picture instead of an empty box. Safe because every tab's defaults are a
+ *  working configuration — the same rule that governs presets (see CLAUDE.md).
+ *  The active tab is rendered LAST so its `updateOuterTabLabel` call is the one
+ *  that sticks, and each render is isolated so one failure can't block the rest. */
+function renderAllTabs(tabId, activeTab) {
+  for (const [name, fn] of Object.entries(TAB_RENDER_FN)) {
+    if (name === activeTab) continue;
+    try { window[fn](tabId); } catch (e) { console.warn(`initial render of "${name}" failed:`, e); }
+  }
+  const fn = TAB_RENDER_FN[activeTab];
+  if (fn) { try { window[fn](tabId); } catch (e) { console.warn(`initial render of "${activeTab}" failed:`, e); } }
+}
+
+/** Populate every Copy tab's movement picker and pane titles when a panel is
+ *  first built, so the section-0 select and the SRC/DST headers are correct
+ *  before the user has pressed Render. Prefixes that don't exist are skipped. */
+function initCopyPanes(tabId) {
+  for (const p of ['mca', 'mtc', 'mtv', 'tma']) {
+    const op = document.getElementById(`${tabId}-${p}-op-input`);
+    if (op) syncCopyMoves(tabId, p, op.value);
+  }
+}
+
+/** Flip which pane(s) are visible. */
+function setCopyDir(tabId, p, dir) {
+  const panes = document.getElementById(`${tabId}-${p}-panes`);
+  if (panes) panes.setAttribute('data-dir', dir);
+  const group = document.getElementById(`${tabId}-${p}-dir-btns`);
+  if (group) group.querySelectorAll('.mode-btn').forEach(b =>
+    b.classList.toggle('active', b.textContent.trim().toLowerCase() === dir));
+}
+
+/** Current direction, defaulting to 'both'. */
+function copyDir(tabId, p) {
+  const panes = document.getElementById(`${tabId}-${p}-panes`);
+  return (panes && panes.getAttribute('data-dir')) || 'both';
+}
+
+/** Zoom both panes together, so a side-by-side comparison stays comparable. */
+function toggleCopyZoom(tabId, p) {
+  toggleZoom(`${tabId}-${p}-src-svg`);
+  toggleZoom(`${tabId}-${p}-dst-svg`);
+}
+
+// ═══════════════════════════════════════════════════════
+//  Shared element-type + swizzle helpers (used by the TV,
+//  Copy_Atom and make_tiled_copy tabs)
+// ═══════════════════════════════════════════════════════
+
+/** Element types exposed in every tensor_dtype dropdown, keyed to bit width. */
+const DTYPE_BITS = {
+  'int8_t': 8, 'uint8_t': 8,
+  'half_t': 16, 'bfloat16_t': 16, 'int16_t': 16, 'uint16_t': 16,
+  'float': 32, 'int32_t': 32, 'uint32_t': 32, 'tfloat32_t': 32,
+  'double': 64, 'int64_t': 64, 'uint64_t': 64,
+  'uint128_t': 128,
+};
+
+/** <option> list for a tensor_dtype <select>. Single source of truth so the
+ *  tabs can never drift apart on which dtypes they accept. */
+function dtypeOptions(selected) {
+  return Object.entries(DTYPE_BITS).map(([name, bits]) =>
+    `<option value="${name}"${name === selected ? ' selected' : ''}>${name} (${bits})</option>`
+  ).join('');
+}
+
+/** Apply a CuTe `Swizzle<B, M, S>` to an element offset: the B bits starting at
+ *  position M+S of `x` get XOR'd into the B bits at position M — same semantics
+ *  as `cute::Swizzle<B, M, S>::apply(x)`. Returns `x` unchanged when `sw` is
+ *  null. Matches CuTe's convention of swizzling the layout's *element* index
+ *  (not a byte address), so callers convert to bytes afterwards. */
+function applySwizzleOffset(x, sw) {
+  if (!sw) return x;
+  const { B, M, S } = sw;
+  const mask = (1 << B) - 1;
+  const srcBits = (x >>> (M + S)) & mask;
+  return x ^ (srcBits << M);
+}
+
+/** Parse a `B, M, S` swizzle spec (commas or whitespace, angle brackets ok).
+ *  Returns `{B, M, S}` or null for empty / unparseable input. */
+function parseSwizzleSpec(raw) {
+  const t = (raw || '').trim();
+  if (t === '') return null;
+  const m = t.match(/^\s*(?:Sw(?:izzle)?\s*<\s*)?(\d+)\s*[,\s]\s*(\d+)\s*[,\s]\s*(\d+)\s*>?\s*$/i);
+  if (!m) return null;
+  const B = parseInt(m[1], 10), M = parseInt(m[2], 10), S = parseInt(m[3], 10);
+  if (B < 0 || M < 0 || S < 0 || (M + S + B) >= 31) return null;
+  return { B, M, S };
+}
+
+// ═══════════════════════════════════════════════════════
 //  Shared layout-string helpers (used by multiple tabs)
 // ═══════════════════════════════════════════════════════
 
@@ -992,7 +1351,9 @@ function downloadSVG(hostId, filename) {
 //    zipped_product-<A>-<tiler>
 //    blocked_product-<A>-<tiler>
 //    raked_product-<A>-<tiler>
-//    copy_universal_op-<num_bits>-<dtype>-<thr>-<val>-<dir>-<tensor>
+//    make_copy_atom-<op>-<num_bits>-<dtype>
+//    make_tiled_copy-<op>-<bits>-<dtype>-<layout_tv>-<tiler_mn>
+//    make_tiled_copy_tv-<op>-<bits>-<dtype>-<thr>-<val>
 //    swizzle-<layout>-<swizzle>
 //  Legacy accepted: tv-<tv_layout>-<tile>  (treated as method 1)
 // ═══════════════════════════════════════════════════════
@@ -1010,7 +1371,10 @@ const FEATURE_SPEC = {
   zipped_product:  { inputs: 2 },
   blocked_product: { inputs: 2 },
   raked_product:   { inputs: 2 },
-  copy_universal_op: { inputs: 6 },  // bits, dtype, thr, val, dir, tensor
+  make_copy_atom:     { inputs: 3 },  // op, bits, dtype
+  make_tiled_copy:    { inputs: 5 },  // op, bits, dtype, layout_tv, tiler_mn
+  make_tiled_copy_tv: { inputs: 5 },  // op, bits, dtype, thr, val
+  make_tiled_tma_atom: { inputs: 5 },  // dtype, gmem, swizzle, smem, tiler
   swizzle:         { inputs: 2 },
 };
 
@@ -1125,16 +1489,39 @@ function applyKeyParam(tabId) {
       switchInnerTab(tabId, 'raked_product');
       renderRakedProduct(tabId);
       break;
-    case 'copy_universal_op':
-      document.getElementById(`${tabId}-cuo-bits-input`).value   = inputs[0];
-      document.getElementById(`${tabId}-cuo-dtype-input`).value  = inputs[1];
-      document.getElementById(`${tabId}-cuo-thr-input`).value    = inputs[2];
-      document.getElementById(`${tabId}-cuo-val-input`).value    = inputs[3];
-      document.getElementById(`${tabId}-cuo-tensor-input`).value = inputs[5];
-      if (!cuoState[tabId]) cuoState[tabId] = {};
-      cuoState[tabId].direction = inputs[4] || 'src';
-      switchInnerTab(tabId, 'copy_universal_op');
-      renderCopyUniversalOp(tabId);
+    case 'make_copy_atom':
+      document.getElementById(`${tabId}-mca-op-input`).value    = inputs[0];
+      document.getElementById(`${tabId}-mca-bits-input`).value  = inputs[1];
+      document.getElementById(`${tabId}-mca-dtype-input`).value = inputs[2];
+      switchInnerTab(tabId, 'make_copy_atom');
+      renderMakeCopyAtom(tabId);
+      break;
+    case 'make_tiled_copy':
+      document.getElementById(`${tabId}-mtc-op-input`).value    = inputs[0];
+      document.getElementById(`${tabId}-mtc-bits-input`).value  = inputs[1];
+      document.getElementById(`${tabId}-mtc-dtype-input`).value = inputs[2];
+      document.getElementById(`${tabId}-mtc-tv-input`).value    = inputs[3];
+      document.getElementById(`${tabId}-mtc-tiler-input`).value = inputs[4];
+      switchInnerTab(tabId, 'make_tiled_copy');
+      renderMakeTiledCopy(tabId);
+      break;
+    case 'make_tiled_copy_tv':
+      document.getElementById(`${tabId}-mtv-op-input`).value    = inputs[0];
+      document.getElementById(`${tabId}-mtv-bits-input`).value  = inputs[1];
+      document.getElementById(`${tabId}-mtv-dtype-input`).value = inputs[2];
+      document.getElementById(`${tabId}-mtv-thr-input`).value   = inputs[3];
+      document.getElementById(`${tabId}-mtv-val-input`).value   = inputs[4];
+      switchInnerTab(tabId, 'make_tiled_copy_tv');
+      renderMakeTiledCopyTv(tabId);
+      break;
+    case 'make_tiled_tma_atom':
+      document.getElementById(`${tabId}-tma-dtype-input`).value   = inputs[0];
+      document.getElementById(`${tabId}-tma-gmem-input`).value    = inputs[1];
+      document.getElementById(`${tabId}-tma-swizzle-input`).value = inputs[2];
+      document.getElementById(`${tabId}-tma-smem-input`).value    = inputs[3];
+      document.getElementById(`${tabId}-tma-tiler-input`).value   = inputs[4];
+      switchInnerTab(tabId, 'make_tiled_tma_atom');
+      renderMakeTiledTmaAtom(tabId);
       break;
     case 'swizzle':
       document.getElementById(`${tabId}-sw-layout-input`).value  = inputs[0];

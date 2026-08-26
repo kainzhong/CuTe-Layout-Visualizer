@@ -23,8 +23,14 @@ function generateLayoutTabContent(id) {
             <button class="preset-btn" onclick="setL('${id}','(8, 8):(8, 1)')">Row-major (8x8)</button>
             <button class="preset-btn" onclick="setL('${id}','(8, 8):(2, 16)')">Strided (8x8, s=2)</button>
             <button class="preset-btn" onclick="setL('${id}','((2,2),(2,2)):((1,4),(2,8))')">Nested ((2,2),(2,2))</button>
-            <button class="preset-btn" onclick="setL('${id}','((4,2),(4,2)):((1,8),(2,32))')">Nested ((4,2),(4,2))</button>
-            <button class="preset-btn" onclick="setL('${id}','(4, 32):(32, 1)')">Warp row-major (4x32)</button>
+          </div>
+          <h3>Presets &mdash; coordinate (TMA) layouts</h3>
+          <div class="preset-list">
+            <button class="preset-btn" onclick="setL('${id}','(4, 5):(1@0, 1@1)')">Identity &mdash; make_identity_layout((4,5))</button>
+            <button class="preset-btn" onclick="setL('${id}','(3, 4):(1@1, 1@0)')">Transpose &mdash; reversed coordinates</button>
+            <button class="preset-btn" onclick="setL('${id}','(8, 8):(4@0, 1@1)')">Scaled &mdash; mode 0 steps 4 on axis 0</button>
+            <button class="preset-btn" onclick="setL('${id}','(2, 2) o (4, 4):(1@0, 1@1)')">Sliced tile &mdash; origin (2,2)</button>
+            <button class="preset-btn" onclick="setL('${id}','(3, 4):(1@0, 3@0)')">Both modes &rarr; axis 0 (= an ordinary layout)</button>
           </div>
         </div>
 
@@ -64,13 +70,17 @@ function renderLayout(tabId) {
   try {
     const inputVal = document.getElementById(`${tabId}-layout-input`).value;
     updateRankWarning(`${tabId}-layout-warning`, [['Layout', inputVal]]);
-    let { shape, stride } = parseLayout(inputVal);
+    // This is the one tab that accepts CuTe's basis strides (`k@i`) and the
+    // `<origin> o <layout>` coordinate-tensor printout — see the "Coordinate
+    // layouts" note in CLAUDE.md. Everywhere else parseLayout rejects them.
+    let { shape, stride, basis, origin, ndim } = parseLayout(inputVal, { basis: true });
     const [M, N] = productEach(shape);
 
-    // Check bijectivity on the "semantic" layout (strip trivial trailing modes)
-    const stripped = stripTrivialTrailing(shape, stride);
-    const layoutObj = new Layout(stripped.shape, stripped.stride);
-    const bijective = isBijective(layoutObj);
+    // A basis-strided layout maps to a coordinate, not to a 1-D offset, so the
+    // scalar machinery below (bijectivity, right_inverse) does not apply.
+    const stripped = basis ? null : stripTrivialTrailing(shape, stride);
+    const layoutObj = basis ? null : new Layout(stripped.shape, stripped.stride);
+    const bijective = basis ? false : isBijective(layoutObj);
 
     // Compute inverse layout (only valid when bijective).
     let invShape = null, invStride = null, invStr = null;
@@ -83,7 +93,7 @@ function renderLayout(tabId) {
     }
 
     layoutState[tabId] = {
-      shape, stride,
+      shape, stride, basis, origin, ndim,
       bijective, invShape, invStride,
       showInverse: false,
       modes: new Set(['value'])
@@ -105,6 +115,14 @@ function renderLayout(tabId) {
     if (infoEl) {
       if (bijective) {
         infoEl.textContent = `Left & Right Inverse = ${invStr}`;
+      } else if (basis && ndim === 1) {
+        infoEl.textContent =
+          `Every stride targets axis 0, so this coordinate layout collapses to a single axis — ` +
+          `it is an ordinary layout written in basis form. Integer strides are the @0 special case.`;
+      } else if (basis) {
+        infoEl.textContent =
+          `Coordinate layout — each cell maps to a ${ndim}-D coordinate, not a 1-D offset, ` +
+          `so there is nothing to invert. Colour keys off output axis 0.`;
       } else {
         infoEl.textContent = '';
       }
@@ -129,13 +147,21 @@ function renderLayoutSVG(tabId) {
   const stride = useInverse ? s.invStride : s.stride;
   const [M, N] = productEach(shape);
   const shapeStr  = JSON.stringify(shape).replace(/"/g, '');
-  const strideStr = JSON.stringify(stride).replace(/"/g, '');
+  const fmtStride = x => isBasis(x) ? `${x.k}@${x.axis}`
+    : Array.isArray(x) ? `[${x.map(fmtStride).join(',')}]` : String(x);
+  const strideStr = fmtStride(stride);
   const title = useInverse
     ? `inverse: shape=${shapeStr}  stride=${strideStr}  \u2014  ${M}\u00d7${N} grid`
     : `shape=${shapeStr}  stride=${strideStr}  \u2014  ${M}\u00d7${N} grid`;
-  document.getElementById(`${tabId}-layout-title`).textContent = title;
+  document.getElementById(`${tabId}-layout-title`).textContent =
+    s.basis && !useInverse
+      ? `shape=${shapeStr}  basis strides  \u2014  ${M}\u00d7${N} grid, cells are ${s.ndim}-D coordinates` +
+        (s.origin ? `, origin (${s.origin.join(',')})` : '')
+      : title;
   document.getElementById(`${tabId}-layout-svg-host`).innerHTML =
-    buildLayoutSVG(shape, stride, s.modes);
+    (s.basis && !useInverse)
+      ? buildBasisLayoutSVG(shape, stride, s.ndim, s.origin, s.modes)
+      : buildLayoutSVG(shape, stride, s.modes);
   applyZoomState(`${tabId}-layout-svg-host`);
 }
 

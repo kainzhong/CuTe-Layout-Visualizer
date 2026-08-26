@@ -240,6 +240,28 @@ input[type="text"] {
 }
 input[type="text"]:focus { outline: none; border-color: #3b82f6; }
 
+/* Selects and number fields had no styling at all: they rendered as light
+   browser defaults in a dark panel, and a select sized itself to its widest
+   <option>, so a long label pushed past the controls column instead of fitting
+   it. Same box as input[type="text"], plus width:100% so the column decides the
+   width rather than the content. */
+input[type="number"], select {
+  width: 100%;
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 5px;
+  padding: 7px 10px;
+  color: #f3f4f6;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.85rem;
+  transition: border-color 0.15s;
+}
+input[type="number"]:focus, select:focus { outline: none; border-color: #3b82f6; }
+input[type="number"]:disabled, select:disabled { opacity: 0.55; cursor: not-allowed; }
+/* Linux/Windows draw the popup list from the OS palette unless the options
+   themselves are coloured. */
+select option { background: #111827; color: #f3f4f6; }
+
 textarea {
   width: 100%;
   background: #111827;
@@ -292,6 +314,7 @@ textarea:focus { outline: none; border-color: #3b82f6; }
   border: 1px solid #7f1d1d;
   border-radius: 4px;
   padding: 6px 8px;
+  overflow-wrap: anywhere;
 }
 .warning-msg {
   color: #fbbf24;
@@ -303,6 +326,7 @@ textarea:focus { outline: none; border-color: #3b82f6; }
   border-radius: 4px;
   padding: 6px 8px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 /* ── Presets ── */
@@ -354,6 +378,56 @@ textarea:focus { outline: none; border-color: #3b82f6; }
   overflow: auto;
 }
 
+/* ── Copy SRC/DST panes ──
+   Both SVGs are always in the DOM; `data-dir` on the container decides which
+   panes are visible, so the SRC/DST/BOTH toggle is instant and needs no
+   re-render. In BOTH mode the panes are equal flex children, which is what
+   halves each SVG's width while `width:100%;height:auto` keeps its ratio. */
+.copy-panes {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+.copy-pane { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.copy-pane .viz-box { flex: 1; }
+.copy-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 5px;
+  padding-left: 2px;
+}
+.copy-pane-side {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #6b7280;
+}
+.copy-pane-space {
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 4px;
+  padding: 2px 7px;
+  color: #6ee7b7;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+.copy-arrow {
+  align-self: center;
+  flex: 0 0 auto;
+  color: #6b7280;
+  font-size: 1.35rem;
+  line-height: 1;
+  user-select: none;
+}
+/* Single-pane modes: hide the other side and the arrow, let the survivor
+   take the full width. */
+.copy-panes[data-dir="src"] .copy-pane[data-side="dst"],
+.copy-panes[data-dir="dst"] .copy-pane[data-side="src"],
+.copy-panes[data-dir="src"] .copy-arrow,
+.copy-panes[data-dir="dst"] .copy-arrow { display: none; }
+
 /* ── Legend ── */
 .legend {
   margin-top: 12px;
@@ -393,7 +467,7 @@ textarea:focus { outline: none; border-color: #3b82f6; }
 /* Keep per-viz SVGs compact in the Composition tab so the complement row
    below the 2×2 grid is actually visible without scrolling. `!important`
    overrides the inline max-height:70vh emitted by `svgFitStyle`. Scoped to
-   the composition tab only — other tabs (copy_universal_op especially) need
+   the composition tab only — other tabs (make_copy_atom especially) need
    to honour explicit per-viz heights. */
 [id$="-tab-composition"] .comp-results .viz-box svg { max-height: 38vh !important; }
 /* …but when the user clicks "Zoom in", lift the cap so the diagram can grow
@@ -468,6 +542,29 @@ textarea:focus { outline: none; border-color: #3b82f6; }
   border-top: 1px solid #1f2937;
 }
 .cuo-section-body .form-group { margin-bottom: 8px; }
+/* Keyboard hint folded into each tab's Render button label by
+   attachRenderHints in ui.js, so tabs don't have to carry it themselves.
+   Inherits the button's color so it stays legible on hover/active. */
+.btn-kbd-hint {
+  margin-left: 7px;
+  font-size: 0.72rem;
+  font-weight: 400;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+.btn-kbd-hint kbd {
+  display: inline-block;
+  min-width: 13px;
+  padding: 0 3px;
+  margin-left: 2px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 0.7rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
 .cuo-result {
   margin-top: 8px;
   padding: 8px 10px;
@@ -476,10 +573,16 @@ textarea:focus { outline: none; border-color: #3b82f6; }
   border-radius: 6px;
   font-family: monospace;
   font-size: 0.75rem;
+  line-height: 1.5;
   color: #d1d5db;
+  /* Layout strings and Copy_Atom<...> signatures are long unbreakable tokens;
+     the controls column is a fixed 300px, so let them wrap mid-token rather
+     than spilling out of the box. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .cuo-result:empty { display: none; }
-.cuo-result-line { padding: 2px 0; }
+.cuo-result-line { padding: 2px 0; overflow-wrap: anywhere; word-break: break-word; }
 .cuo-result-line b { color: #6ee7b7; }
 
 /* Highlighted per-viz description sit under the Copy tab's viz headers and

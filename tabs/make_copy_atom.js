@@ -190,12 +190,15 @@ function renderMakeCopyAtom(tabId) {
 
     // Per-thread value layout of ONE atom. Copy_Traits<UniversalCopy<S,D>>
     // declares `SrcLayout = Layout<Shape<_1, sizeof_bits<S>>>` with no explicit
-    // stride, which compacts to col-major stride `(_1, _1)`. After
-    // `recast_layout<uint1_t, ValType>` (upcast by sizeof_bits(ValType)), mode 0
-    // stays `(1):(1)` and mode 1 becomes `(elements):(1)`. Net effect: the
-    // canonical per-value atom layout is `(1, elements):(1, 1)` — which is what
-    // we produce by letting Layout's constructor auto-fill col-major strides.
-    const atomSrc   = new Layout([1, elements]);
+    // stride, which compacts to col-major `(_1, _1)`; after
+    // `recast_layout<uint1_t, ValType>` mode 1 becomes `(elements):(1)`.
+    //
+    // Mode 0's stride is DEGENERATE and the toolchains disagree on how to print
+    // it: it is a size-1 mode, so its stride is only ever multiplied by the
+    // coordinate 0 — `(1,N):(0,1)` and `(1,N):(1,1)` are the same function.
+    // C++ `upcast` yields 1; CuTeDSL prints 0. Print the DSL's form, since that
+    // is what users are matching against on screen.
+    const atomSrc   = new Layout([1, elements], [0, 1]);
     const atomThrID = new Layout(1, 0);        // Layout<_1>; CuTeDSL prints this as 1:0
     const atomStr   = formatLayoutStr(atomSrc.shape, atomSrc.stride);
 

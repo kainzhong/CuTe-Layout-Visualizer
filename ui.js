@@ -496,6 +496,10 @@ function buildGridSVG(grid, M, N, mode) {
  *    text === null     → no cell text
  *    text === [strs]   → use these strings
  *    text === undefined → default label from `modes` (value / index / coord)
+ *  `opts.overlay(geom)` returns raw SVG appended after the cells, with
+ *  `geom = { cs, margin, W, H, M, N }`. Use it for anything drawn ACROSS cells —
+ *  a tile boundary is a line, not a property of the cells it separates, and
+ *  per-cell strokes can only approximate one.
  *  `opts.pixelScale` (default 1) forces the SVG to render at `pixelScale ×`
  *  its natural pixel size (square cells preserved). Values > 1 bypass the
  *  default `width:100%` fit, which means the containing `.viz-box` may need
@@ -553,6 +557,9 @@ function buildColoredLayoutSVG(shape, stride, modes, cellFn, opts) {
     }
   }
 
+  const overlay = (typeof opts.overlay === 'function')
+    ? opts.overlay({ cs, margin, W, H, M, N }) : '';
+
   const scale = opts.pixelScale || 1;
   const styleStr = scale > 1
     ? `width:${Math.round(W * scale)}px;height:${Math.round(H * scale)}px;max-width:none;max-height:none;display:block;margin:0 auto`
@@ -561,6 +568,7 @@ function buildColoredLayoutSVG(shape, stride, modes, cellFn, opts) {
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="${styleStr}">
     <rect width="${W}" height="${H}" fill="white"/>
     ${body}
+    ${overlay}
   </svg>`;
 }
 
@@ -679,6 +687,7 @@ const TAB_RENDER_FN = {
   make_tiled_copy:    'renderMakeTiledCopy',
   make_tiled_copy_tv: 'renderMakeTiledCopyTv',
   make_tiled_tma_atom: 'renderMakeTiledTmaAtom',
+  tma_partition:      'renderTmaPartition',
 };
 
 /** True on Apple platforms, where the modifier is ⌘ rather than Ctrl. */
@@ -755,7 +764,7 @@ function generateTabContent(id) {
         </div>
         <div class="tab-scope-btn" data-scope="copy" onclick="switchTabGroup('${id}', 'copy')">
           <span class="tab-scope-icon">⇄</span>Copy
-          <span class="tab-scope-count">4</span>
+          <span class="tab-scope-count">5</span>
         </div>
       </div>
     <div class="tab-bar" data-scope="basics">
@@ -775,6 +784,7 @@ function generateTabContent(id) {
       <div data-tab="make_tiled_copy" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy')">make_tiled_copy</div>
       <div data-tab="make_tiled_copy_tv" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy_tv')">make_tiled_copy_tv</div>
       <div data-tab="make_tiled_tma_atom" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_tma_atom')">make_tiled_tma_atom</div>
+      <div data-tab="tma_partition" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'tma_partition')">tma_partition</div>
     </div>
     </div>
     ${generateLayoutTabContent(id)}
@@ -793,6 +803,7 @@ function generateTabContent(id) {
     ${generateMakeTiledCopyTabContent(id)}
     ${generateMakeTiledCopyTvTabContent(id)}
     ${generateMakeTiledTmaAtomTabContent(id)}
+    ${generateTmaPartitionTabContent(id)}
   </div>`;
 }
 
@@ -1002,7 +1013,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_tma_atom: 15 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_tma_atom: 15, tma_partition: 16 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1423,6 +1434,7 @@ const FEATURE_SPEC = {
   make_tiled_copy:    { inputs: 5 },  // op, bits, dtype, layout_tv, tiler_mn
   make_tiled_copy_tv: { inputs: 5 },  // op, bits, dtype, thr, val
   make_tiled_tma_atom: { inputs: 5 },  // dtype, gmem, swizzle, smem, tiler
+  tma_partition:       { inputs: 5 },  // values, dtype, swizzle, smem, rest
   swizzle:         { inputs: 2 },
 };
 
@@ -1577,6 +1589,15 @@ function applyKeyParam(tabId) {
       document.getElementById(`${tabId}-tma-tiler-input`).value   = inputs[4];
       switchInnerTab(tabId, 'make_tiled_tma_atom');
       renderMakeTiledTmaAtom(tabId);
+      break;
+    case 'tma_partition':
+      document.getElementById(`${tabId}-tp-vals-input`).value    = inputs[0];
+      document.getElementById(`${tabId}-tp-dtype-input`).value   = inputs[1];
+      document.getElementById(`${tabId}-tp-swizzle-input`).value = inputs[2];
+      document.getElementById(`${tabId}-tp-smem-input`).value    = inputs[3];
+      document.getElementById(`${tabId}-tp-gmem-input`).value    = inputs[4];
+      switchInnerTab(tabId, 'tma_partition');
+      renderTmaPartition(tabId);
       break;
     case 'swizzle':
       document.getElementById(`${tabId}-sw-layout-input`).value  = inputs[0];

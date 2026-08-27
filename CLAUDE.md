@@ -42,6 +42,13 @@ tabs/
                         CTA tile (SRC) against SMEM (DST), the cuTensorMapEncodeTiled argument list,
                         and the returned coordinate tensor. Self-contained — shares nothing with the
                         mtc/mtv tabs but ui.js's copy panes. Prefix `tma`.
+  tma_partition.js      "tma_partition" tab (COPY scope) — CuTe's "VectorCopy Partitioner"
+                        (copy_traits_sm90_tma.hpp:1409). Splits mode 0 of every tensor into
+                        (TMA, TMA_Iter) using the atom's NumValSrc for the chunk size and the SMEM
+                        layout for the ORDER. Inputs mirror the real signature — atom, cta_coord,
+                        cta_layout, smem_tensor, gmem_tensor — with the tensors given pre-grouping
+                        and `group_modes(x, 0, 2)` applied here, as the caller does. Draws tAsA and
+                        tAgA as two stacked layouts — NOT copy panes; it moves nothing. Prefix `tp`.
 ```
 
 ## Dependency graph
@@ -149,7 +156,8 @@ since there is no 1-D offset to invert. Nested bases (`k@i@j`) are rejected with
 produce hierarchical coordinates this 2-D grid cannot draw.
 
 ### ui.js — shared UI infrastructure only
-- **SVG builders**: `buildLayoutSVG`, `buildTVSVG`, `buildHighlightedLayoutSVG`, `buildGridSVG`, `errSVG`
+- **SVG builders**: `buildLayoutSVG`, `buildTVSVG`, `buildHighlightedLayoutSVG`, `buildGridSVG`, `buildColoredLayoutSVG`, `errSVG`
+- **Drawing ACROSS cells**: `buildColoredLayoutSVG`'s `opts.overlay(geom)` returns raw SVG appended after the cells, with `geom = { cs, margin, W, H, M, N }`. A tile boundary is a *line*, not a property of the cells beside it — faking one with per-cell strokes gives a doubled, fuzzy edge. `tma_partition` uses it for its red tile outlines.
 - **SVG helpers**: `cellSize`, `svgFitStyle`, `cellTextSVG`, `buildCellLines`, `toModeSet`
 - **Zoom**: `applyZoomState`, `toggleZoom`
 - **Copy SRC/DST panes**: `COPY_OP_MOVES`, `copyMoveField`, `syncCopyMoves`, `copyMove`, `setCopyMove`, `updateCopyPaneTitles`, `initCopyPanes`, `copyDirButtons`, `copyPanes`, `setCopyDir`, `copyDir`, `toggleCopyZoom` — the side-by-side view shared by all four Copy tabs. Both SVGs are always in the DOM; `data-dir` on `.copy-panes` decides visibility, so SRC/DST/BOTH is pure CSS and needs no re-render. In BOTH mode the panes are equal flex children, which halves each SVG's width while `width:100%;height:auto` preserves its ratio. Note `attachVizFullscreenButtons` iterates **every** `.viz-box` inside a `.comp-viz-item`, not just the first — the Copy tabs put two panes in one item, and taking the first left DST without a button.
@@ -202,6 +210,7 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=make_tiled_copy_tv-cpasync-128-half_t-(16,8):(8,1)-(1,8):(1,1)
 ?key=swizzle-(8, 8):(8, 1)-3, 0, 3
 ?key=make_tiled_tma_atom-half_t-(256, 128):(128, 1)-3,4,3-(64, 64):(64, 1)-(64, 64)
+?key=tma_partition-1024-float-3,4,3-(8, 32):(32, 1)-(4, 2)
 ```
 - Parsing is in `parseKeyParam()` (driven by `FEATURE_SPEC` in ui.js).
 - Rendering is in `applyKeyParam()` (dispatches to the tab's render function).
@@ -244,7 +253,7 @@ The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. E
   bug ate every preset on the first pass. A line *with* a colon is still a single layout tiler, and
   several lines are still one per mode. It also uses `parseValue`, not `parseLayout`, because the
   latter pads a bare `8` out to `(8,1)` and would silently invent a second tiler mode.
-- `copy` — the copy-construction pipeline: `make_copy_atom` (one instruction), then `make_tiled_copy` / `make_tiled_copy_tv` (replicate it over a tile), plus `make_tiled_tma_atom` (the TMA path, which bypasses threads entirely). Accent color: emerald (`#10b981`).
+- `copy` — the copy-construction pipeline: `make_copy_atom` (one instruction), then `make_tiled_copy` / `make_tiled_copy_tv` (replicate it over a tile), plus `make_tiled_tma_atom` and `tma_partition` (the TMA path, which bypasses threads entirely). Accent color: emerald (`#10b981`).
 
 ### How scopes are wired
 
@@ -286,6 +295,7 @@ adding new copy atoms.
 | How the atom is replicated over a tile, given (layout_tv, Tiler_MN) | `make_tiled_copy` | `copy` | The primitive `_make_tiled_copy` takes exactly these two |
 | Deriving (layout_tv, Tiler_MN) from a thr/val pair | `make_tiled_copy_tv` | `copy` | One of several ways to compute the primitive's arguments |
 | What one TMA instruction moves, and the descriptor behind it | `make_tiled_tma_atom` | `copy` | A property of (tensor, smem layout, tiler) — no threads involved |
+| How a tile is split into instruction-sized chunks | `tma_partition` | `copy` | Needs only the atom's element count and the SMEM order |
 | Whether the access pattern is coalesced / bank-conflict-free | `tv` | `basics` | A property of (TV layout, **data layout**) — no atom involved |
 
 `make_copy_atom` keeps the DSL's two-step split visible: an Op is constructed with its own fields
@@ -476,8 +486,92 @@ because the single Op supported so far is a load: `Copy_Traits<SM90_TMA_STORE>` 
 direction would silently become wrong the moment the store Op is added, which is on this tab's own
 roadmap. SMEM never has one; it is an ordinary layout over a flat buffer.
 
-Out of scope for now, each a clean follow-on: multicast, TMA store, im2col, `gather4`/`scatter4`,
-`internal_type` recasts, rank > 2 tensors, and `tma_partition`.
+### tma_partition
+
+Its own tab rather than a panel on `make_tiled_tma_atom`, because it is a separate call people reach
+for on its own; a **flow collection** composing `make_tiled_tma_atom` + `local_tile` +
+`tma_partition` is the eventual home for the end-to-end story.
+
+**Its inputs mirror the real signature**, `tma_partition(atom, cta_coord, cta_layout, smem_tensor,
+gmem_tensor)` — two *tensors*, not a tensor plus a list of Rest extents. They are entered **already
+grouped**, i.e. in the `(TMATile, Rest...)` form the function actually receives: **mode 0 IS the
+tile**, everything after it is Rest. Do not re-group inside the tab. An earlier version applied
+`group_modes(x, 0, 2)` itself, which folded a stage mode into the tile — `((32,128),2)` came out as an
+8192-element tile and tripped a spurious size assert on perfectly valid input.
+
+One parser ambiguity to know: `parseValue` unwraps single-element parens, so a no-Rest tensor written
+`((4,16))` is indistinguishable from `(4,16)`. The rule is therefore **a tuple mode 0 means "tile,
+then Rest"; a scalar mode 0 means the whole layout is the tile** — which keeps the simple
+`(4,16):(16,1)` form working while `((32,128),2):((128,1),4096)` reads correctly.
+
+Real inputs are big: a 4096-element tile with 24 tiles of Rest is ~100k cells, past `MAX_CELLS`. The
+tAgA panel draws as many whole tiles as fit `TP_MAX_CELLS` and says how many it left out; the title
+must report the FULL tile count, not the clipped one.
+
+The atom section presents the atom the way CuTe prints it — `ThrID: 1:0`,
+`TV Layout Src = Dst = (1,N):(0,1)`, `Value type` — and asks for N, not a bit count. **You do not hand
+a TMA atom `num_bits_per_tma`**; `make_tiled_tma_atom` derives it from the box it inferred, so the tab
+reports the bit equivalent as output. Src == Dst holds for TMA load, multicast *and* store
+(`copy_traits_sm90_tma.hpp:103, 261, 363`); mode 0's stride is degenerate (size-1 mode, so C++ prints
+`1` and CuTeDSL prints `0` for the same map) and both copy tabs print the DSL's form.
+
+`tAsA` and `tAgA` differ only in Rest — normally `((TMA,TMA_Iter))` against
+`((TMA,TMA_Iter), 4, 2)` — because SMEM is one tile buffer while GMEM still carries its tile indices.
+The grouping drawn in both panels is identical, since `layout_V` is built from `layout<0>(stensor)`
+alone: GMEM contributes nothing to the ordering, it is only made to follow it.
+
+**It does NOT use the SRC/DST copy panes**, and must not: `tma_partition` moves no data, so a
+`SRC → DST` pair would assert a memory movement that is not happening. It draws the two *results*
+stacked instead — `tAsA` above `tAgA` — and both in **tile coordinates**, sharing one colour map:
+which instruction owns each element. `tAsA` is one tile, so it is a single colour when the tile is
+exactly one atom and banded when it holds several. `tAgA` draws **every** tile of Rest, each
+partitioned identically, with red boundaries between them — nothing is sliced, and that repetition is
+the point, since `tma_partition` touches mode 0 only. This is the only Copy-scope tab without
+`copyPanes`, which is why `tp` is absent from `initCopyPanes`'s prefix list.
+
+**The results are computed, not described.** The tab runs the actual pipeline —
+`layout_V = logical_divide(right_inverse(smem tile), Layout<NumValSrc>)`, then
+`coalesce(tensor.compose(layout_V), Shape<Shape<_1,_1>>)` per tensor — and prints the resulting
+layouts with their strides. Verified character-for-character against CuTeDSL:
+
+```
+tAsA = ((4096,1),2):((1,0),4096)
+tAgA = (((128,32),1),(12,2)):(((1@0,1@1),0),(32@1,128@0))
+```
+
+An earlier version synthesized the mode-0 string as `(NumValSrc, iters)`, which is wrong whenever
+mode 0 does **not** coalesce to a flat pair — a transposed GMEM tile gives `((128,32),1)`, because its
+sub-modes sit on different basis axes and `coalesce` cannot merge them. Only the SMEM side is
+reliably flat. The `Shape<Shape<_1,_1>>` profile maps onto this port's `coalesce(layout, [1, 1])`.
+
+Section 4 prints **only `tAsA` and `tAgA`** — the derivation (`inv_smem_layout`, `layout_v`,
+`layout_V`) lives in the hint. A result box nobody reads is worse than a short one; the same applies
+to the other tabs' result boxes when they grow.
+
+**A stale id in `applyKeyParam` is invisible until someone opens a link** and then throws during
+init, since it is not inside a try/catch. Renaming an input means updating three places — the tab
+template, the tab's `exportX`, and `applyKeyParam`. This audit catches the miss:
+
+```python
+# every id applyKeyParam writes must exist in some tab template
+ids  = re.findall(r'getElementById\(`\$\{tabId\}-([a-z0-9_-]+)`\)', applyKeyParam_body)
+# NB: also resolve ids built as `${id}-${p}-suffix` (mtcAtomSection), or you get false positives
+```
+
+`tAgA`'s tiles are drawn in **canonical blocks** (tile `(r0,r1)` at rows `r0*T0`, cols `r1*T1`) rather
+than at their true stride positions, so the picture stays a grid whatever the Rest strides are; the
+cell labels evaluate the actual GMEM layout, so the truth is always in the numbers. Keep both panels
+wide and short — they are stacked, so height is the scarce axis, which is why Rest defaults to 2x2
+rather than 4x2.
+
+The swizzle picker is present but changes nothing, on purpose: `get_nonswizzle_portion` strips it
+first, exactly as when the box was derived. Two checks CuTe skips: the SMEM layout must be a
+permutation (`right_inverse` of a non-permutation is a *partial* inverse, so `layout_v` would not
+cover the tile), and `NumValSrc` must divide the tile size (`logical_divide` has to be exact).
+
+Out of scope for now, each a clean follow-on: multicast (`domain_offset` is always zero while
+`cta_layout = (1)`), TMA store, im2col, `gather4`/`scatter4`, `internal_type` recasts, and
+rank > 2 tensors.
 
 ## Layout input convention (rank warnings)
 

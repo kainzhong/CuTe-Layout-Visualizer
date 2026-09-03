@@ -11,6 +11,7 @@ cute.js        CuTe layout math, parser, and color utilities (pure logic, no DOM
 layout.js      Port of python/pycute/layout.py + int_tuple.py, plus raked_product / make_layout_tv
 ui.js          Shared UI infrastructure: SVG builders, tab framework, URL import/export,
                and shared helpers (showErr, layoutInputField, statusDivs, ...)
+tests/         Differential tests against CuTeDSL — see "Testing" below. `npm test`.
 tabs/
   layout.js    "Layout" tab — generateLayoutTabContent + renderLayout + state + helpers
   tv.js        "TV Layout" tab
@@ -26,9 +27,10 @@ tabs/
   blocked_product.js "Blocked Product" tab (rank-preserving matrix tiling)
   raked_product.js  "Raked Product" tab (block-interleaved, scattered)
   make_copy_atom.js     "make_copy_atom" tab (COPY scope) — mirrors cute.make_copy_atom(op, dtype,
-                        num_bits_per_copy). Section 1 picks the Op and shows its CONSTRUCTOR params
-                        (both current Ops have none); section 2 takes make_copy_atom's own arguments.
-                        Visualizes the Copy_Atom ONLY — one 1xN value grid out. Prefix `mca`.
+                        num_bits_per_copy). Section 1 picks the Op and shows its CONSTRUCTOR params;
+                        section 2 takes make_copy_atom's own arguments. Two visualizations, chosen by
+                        `MCA_OPS[key].kind`: the SIMT Ops draw one 1xN value grid, `warp.LdMatrix8x8x16bOp`
+                        draws the src/dst TV layouts over the atom's tile. Prefix `mca`.
   make_tiled_copy.js    "make_tiled_copy" tab (COPY scope) — the PRIMITIVE constructor: you supply
                         layout_tv and Tiler_MN directly. Also holds everything shared with the
                         make_tiled_copy_tv tab (mtcAtomSection/mtcReadAtom, mtcVizSection,
@@ -78,7 +80,7 @@ No module system — all functions are plain globals on `window`. The `onclick` 
 - **Layout arithmetic**: `product`, `productEach`, `unflatten`, `crd2idx`, `layoutAt`, `evalLayoutFlat`, `evalModeAt`, `autoStride`
 - **Parser**: `parseValue`, `topLevelColon`, `topLevelCompose`, `parseLayout(str, opts)` — accepts `shape:stride` with `:` at top level only; rejects colons inside parens
 - **Coordinate (basis) layouts**: `makeBasis`, `isBasis`, `hasBasisStride`, `basisRank`, `crd2basis`, `basisAt` — CuTe's scaled-basis strides (`k@i`), the thing TMA and identity/predication tensors need. Opt-in: `parseLayout(str, { basis: true })`; without the flag a `k@i` stride or an `<origin> o <layout>` prefix throws, so every other tab keeps its "strides are integers" assumption instead of silently producing NaN
-- **Colors**: `BW_COLORS`, `TV_COLORS`, `HIGHLIGHT_COLORS`, `colorBW`, `colorTV`, `colorHighlight`, `textOnBG`
+- **Colors**: `BW_COLORS`, `TV_COLORS`, `HIGHLIGHT_COLORS`, `TV_DISABLED_FG`, `colorBW`, `colorTV`, `colorHighlight`, `textOnBG`
 
 ### layout.js — pycute port + CuTe helpers
 Port of `python/pycute/int_tuple.py` and `python/pycute/layout.py`, plus a few helpers ported from `include/cute/layout.hpp` and `python/CuTeDSL/cutlass/cute/core.py`.
@@ -157,11 +159,20 @@ produce hierarchical coordinates this 2-D grid cannot draw.
 
 ### ui.js — shared UI infrastructure only
 - **SVG builders**: `buildLayoutSVG`, `buildTVSVG`, `buildHighlightedLayoutSVG`, `buildGridSVG`, `buildColoredLayoutSVG`, `errSVG`
+- **`buildTVSVG`'s `opts` (9th arg)** — `{ dimTids, cellIndex }`. `dimTids` is a Set of thread ids
+  drawn in `TV_DISABLED_FG` (translucent, so it stays legible over the live thread's hue): threads the
+  layout maps but whose contribution the instruction **discards**. Several disabled threads aliasing
+  onto a live one is *broadcast*, not a collision, so the red multi-claim stroke fires only when two
+  **enabled** threads claim a cell — get this wrong and every `ldmatrix.x1` cell looks like an error.
+  `cellIndex(m, n)` overrides the `value` overlay, which defaults to the col-major flat position;
+  a tile that is row-major in its own codomain (the ldmatrix atom) must pass its own or the overlay
+  prints a number that is not the layout's output. `cellTextSVG`'s `fg` accordingly accepts an array
+  parallel to `lines`, which is what lets one cell mix live and disabled entries.
 - **Drawing ACROSS cells**: `buildColoredLayoutSVG`'s `opts.overlay(geom)` returns raw SVG appended after the cells, with `geom = { cs, margin, W, H, M, N }`. A tile boundary is a *line*, not a property of the cells beside it — faking one with per-cell strokes gives a doubled, fuzzy edge. `tma_partition` uses it for its red tile outlines.
 - **SVG helpers**: `cellSize`, `svgFitStyle`, `cellTextSVG`, `buildCellLines`, `toModeSet`
 - **Zoom**: `applyZoomState`, `toggleZoom`
 - **Copy SRC/DST panes**: `COPY_OP_MOVES`, `copyMoveField`, `syncCopyMoves`, `copyMove`, `setCopyMove`, `updateCopyPaneTitles`, `initCopyPanes`, `copyDirButtons`, `copyPanes`, `setCopyDir`, `copyDir`, `toggleCopyZoom` — the side-by-side view shared by all four Copy tabs. Both SVGs are always in the DOM; `data-dir` on `.copy-panes` decides visibility, so SRC/DST/BOTH is pure CSS and needs no re-render. In BOTH mode the panes are equal flex children, which halves each SVG's width while `width:100%;height:auto` preserves its ratio. Note `attachVizFullscreenButtons` iterates **every** `.viz-box` inside a `.comp-viz-item`, not just the first — the Copy tabs put two panes in one item, and taking the first left DST without a button.
-- **Memory movement is constrained, not free.** `COPY_OP_MOVES` lists the legal `(src, dst)` pairs per Op key; section 0 of each Copy tab is a `<select>` built from it, and the pane titles are read-only labels driven by that select. `cpasync.CopyG2SOp` has exactly one entry (GMEM→SMEM) so its picker is `disabled`. `CopyUniversalOp` gets the six cross-space pairs over GMEM/SMEM/RMEM — **TMEM is deliberately excluded**, because it isn't thread-addressable (tcgen05's Ld/St src layout is stride-0 across all 32 lanes), so reaching it requires a tcgen05 Op. `tma_g2s` (the bulk-tensor load) has one entry too, for the same reason as `cpasync`. `syncCopyMoves(tabId, p, opKey)` rebuilds the options on every Op change and keeps the current selection when the new Op still permits it; `initCopyPanes(tabId)` runs from `addOuterTab` so the picker and titles are right before the first Render.
+- **Memory movement is constrained, not free.** `COPY_OP_MOVES` lists the legal `(src, dst)` pairs per Op key; section 0 of each Copy tab is a `<select>` built from it, and the pane titles are read-only labels driven by that select. `cpasync.CopyG2SOp` has exactly one entry (GMEM→SMEM) so its picker is `disabled`. `CopyUniversalOp` gets the six cross-space pairs over GMEM/SMEM/RMEM — **TMEM is deliberately excluded**, because it isn't thread-addressable (tcgen05's Ld/St src layout is stride-0 across all 32 lanes), so reaching it requires a tcgen05 Op. `tma_g2s` (the bulk-tensor load) has one entry too, for the same reason as `cpasync`. `ldmatrix` likewise has exactly one, SMEM→RMEM: the source operand is a `.shared::cta` address and the destination is the register file, both fixed by the instruction encoding — there is no GMEM form (that is cp.async / TMA) and no RMEM→SMEM form (that is `stmatrix`, a different Op). `syncCopyMoves(tabId, p, opKey)` rebuilds the options on every Op change and keeps the current selection when the new Op still permits it; `initCopyPanes(tabId)` runs from `addOuterTab` so the picker and titles are right before the first Render.
 - **Collapsible viz**: `attachVizCollapsibles(root)` — injects a ▾/▸ chevron into each `.comp-viz-item` / `.visualization` header in `root`; clicking it folds just that viz's body (viz-box / legend / description). Called once from `addOuterTab` per new panel; the collapsed state lives on the item's class and survives in-place re-renders.
 - **Render shortcut**: `TAB_RENDER_FN` (inner-tab name -> render function name), `renderActiveInnerTab`, `attachRenderHints`, `renderShortcutLabel`, `isMacPlatform` — a single document-level keydown listener maps Cmd/Ctrl+Enter to the visible tab's Render
 - **Initial render**: `renderAllTabs(tabId, activeTab)` — called from `addOuterTab`, renders every tab once with its shipped defaults so switching to a tab shows a picture instead of an empty box. Relies on the "defaults and presets must render cleanly" rule. The active tab renders LAST so its `updateOuterTabLabel` wins, and each render is try/caught so one bad tab can't blank the rest.
@@ -206,6 +217,7 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=blocked_product-(2,2):(1,2)-(3,3):(1,3)
 ?key=raked_product-(2,2):(1,2)-(3,3):(1,3)
 ?key=make_copy_atom-universal-128-half_t
+?key=make_copy_atom-ldmatrix-128-half_t-4-1   # ldmatrix adds num_matrices, transpose
 ?key=make_tiled_copy-cpasync-128-half_t-((8,16),8):((128,1),16)-(16, 64)
 ?key=make_tiled_copy_tv-cpasync-128-half_t-(16,8):(8,1)-(1,8):(1,1)
 ?key=swizzle-(8, 8):(8, 1)-3, 0, 3
@@ -213,8 +225,113 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=tma_partition-1024-float-3,4,3-(8, 32):(32, 1)-(4, 2)
 ```
 - Parsing is in `parseKeyParam()` (driven by `FEATURE_SPEC` in ui.js).
+- A feature may declare `optional: N` alongside `inputs`, accepting `inputs .. inputs+N` values. That
+  is how `make_copy_atom` grew `num_matrices` / `transpose` for ldmatrix **without invalidating the
+  3-input links already shared**; `exportMCA` emits the tail only for the Op that has one.
 - Rendering is in `applyKeyParam()` (dispatches to the tab's render function).
 - Export buttons live next to each Render button and call `exportURL(btnId, feature, ...inputs)`.
+
+## Testing
+
+**This repo is a PORT, so the tests are differential and CuTeDSL is the oracle.**
+`layout.js` ports pycute / `include/cute/layout.hpp`; the Copy tabs port
+`cutlass.cute`'s copy constructors. A port is correct exactly when it agrees with the
+thing it was ported from — so nothing here is checked against a hand-written expectation
+when a `cutlass.cute` call can produce it instead.
+
+```
+npm test                      # node only; reference.json is committed
+node tests/run.js tma         # only sections matching a filter
+npm run reference             # regenerate reference.json (needs nvidia-cutlass-dsl)
+npm run reference:check       # fail if it drifted
+```
+
+Layout:
+
+```
+tests/cases.json        the shared corpus — inputs as CuTe layout STRINGS, so the
+                        parser is exercised on the way in
+                        Sections: layout_ops, basis_ops, make_layout_tv, make_tiled_copy,
+                        copy_atom, ldmatrix_atom, tma_atom, tma_partition, swizzle
+tests/gen_reference.py  runs cases.json through CuTeDSL -> tests/reference.json
+tests/reference.json    committed golden output (never hand-edit)
+tests/harness.js        loads the browser globals into node
+tests/run.js            runs cases.json through the JS port and diffs
+tests/unit.js           only the parts with no CuTeDSL analogue
+```
+
+For every layout-valued result the suite compares the printed layout, its `size`/
+`cosize`, **and its value at every point of the domain**. The pointwise check is the one
+that matters: two different strings can describe the same map, but a divergent value is
+always a real bug.
+
+No GPU is needed to regenerate. Every layout in the corpus is static, so the generator
+runs entirely at **trace time** inside one `@cute.jit` function. It tolerates the MLIR
+compilation of that combined trace failing (tracing a hundred unrelated TMA descriptors
+in one function does that) but only after verifying every case was evaluated first.
+
+### When you add a tab, you add tests — this is not optional
+
+A tab that ports a CuTe operation and has no case in `tests/cases.json` is
+undifferentiated from a tab that gets it wrong. The checklist:
+
+1. **Find the `cutlass.cute` entry point** your tab models. Almost everything is
+   reachable at trace time with no GPU — `cute.composition`, `cute.make_layout_tv`,
+   `cute.make_tiled_copy`, `cpasync.make_tiled_tma_atom`, `cpasync.tma_partition` all
+   work from plain `@cute.jit`.
+2. **Extract the DOM-free computation** out of `renderX` if it is not already separable.
+   The render function reads the DOM and writes HTML; the math in the middle should be a
+   pure function taking parsed inputs and returning the results. `tmaComputeAtom` and
+   `tpComputePartition` are the pattern — `tpComputePartition` was carved out of
+   `renderTmaPartition` for exactly this reason.
+3. **Add cases to `tests/cases.json`** — its own section if the tab needs one, with a
+   `_comment_<section>` saying what the oracle is and why.
+4. **Add the section to `SECTIONS` in `tests/gen_reference.py`** and a matching block in
+   `tests/run.js`.
+5. **Run `npm run reference` and commit `reference.json` alongside the code.**
+6. **Only what CuTeDSL cannot express goes in `tests/unit.js`** — the string parsers, and
+   the validation CuTe skips (see below). Everything else belongs in `cases.json`, because
+   a case with an oracle stays true when CUTLASS changes and a hand-written expectation
+   does not.
+
+Also add the tab's presets as cases where they are cheap: a preset that renders is not
+the same as a preset that renders the *right* thing.
+
+### What CuTeDSL cannot be the oracle for
+
+Two categories, both in `tests/unit.js`:
+
+- **Input handling.** CuTe's inputs are C++ types; this tool's are text. `parseLayout`,
+  `mtcParseTiler`, `parseSwizzleSpec`, `tmaParseSmemField`, and `tmaSwizzleInfo`'s
+  byte→element conversion have nothing to diff against.
+- **Validation CuTe skips.** `mtcCoverageCheck`, `mtcVectorizationCheck`,
+  `mtcRequireCompact`, the TMA host-`assert()` issues, and `tpComputePartition`'s
+  permutation / divisibility guards all exist *because* CuTe compiles and runs those
+  configurations while being silently wrong (see "Validation that CuTe itself skips").
+  By construction the DSL cannot be the oracle; the expectations encode the C++
+  preconditions instead. `mcaLdmatrixAtom`'s two refusals belong here for the same
+  reason: `num_matrices ∉ {1,2,4}` the DSL *does* reject, but a `.trans` on a
+  non-16-bit element and an element wider than 64 bits it accepts and silently
+  recasts.
+
+One thing `run.js` does check against the DSL here: for every `tma_atom` case CuTeDSL
+accepted, the tab must report **no** error-level issue. A validation that fires on valid
+input is as broken as one that misses invalid input.
+
+`ldmatrix_atom` does the same trick for the two facts the tab draws but the DSL does not
+name: the tile the panes are placed into must equal `cosize` on **both** sides (a tile
+bigger or smaller would draw empty cells or silently wrap), and `size/cosize` on the src
+side must equal `32/liveLanes` — i.e. the greyed-out lanes are exactly the broadcast
+factor, checked against CuTeDSL's own `size` and `cosize` rather than against a guess.
+
+### The harness, and the load-order hazard
+
+`tests/harness.js` concatenates every source file into one script and copies the
+top-level `const`/`let`/`class` names onto `globalThis` — those never reach the global
+object the way function declarations do, so they cannot be read out of a per-file vm
+context. It also **fails loudly on a duplicate top-level lexical name across files**,
+which in the browser would silently shadow. That is the same hazard the dependency-graph
+warning above describes, now enforced rather than remembered.
 
 ## Conventions for adding a NEW tab
 
@@ -238,6 +355,8 @@ Then wire it into the shell:
 9. **Call your generator** from `generateTabContent`: append `${generateYourTabContent(id)}`.
 10. **Load the script** in `index.html`: `<script src="tabs/yourtab.js"></script>` (must appear after ui.js, before the inline init).
 11. **Document it in this CLAUDE.md** under "What lives where → tabs/*.js".
+12. **Add differential tests** — see "Testing" above. A new tab without cases in
+    `tests/cases.json` is not finished.
 
 ## Scopes (tab groups)
 
@@ -299,16 +418,70 @@ adding new copy atoms.
 | Whether the access pattern is coalesced / bank-conflict-free | `tv` | `basics` | A property of (TV layout, **data layout**) — no atom involved |
 
 `make_copy_atom` keeps the DSL's two-step split visible: an Op is constructed with its own fields
-first, then `make_copy_atom(op, dtype, num_bits_per_copy)` turns it into an Atom. `MCA_OPS[key].params`
-is the list of constructor params — empty for both current Ops, which is why section 1 says so rather
-than rendering controls. Adding `warp.LdMatrix*` (num_matrices, transpose) or `tcgen05.Ld*` (repeat,
-pack) means filling that list, not restructuring the form.
+first, then `make_copy_atom(op, dtype, num_bits_per_copy)` turns it into an Atom. `MCA_OPS[key]`
+carries `params` (the constructor params) and `kind` (which derivation and which viz). The two SIMT
+Ops have no params, which is why section 1 states that instead of rendering controls;
+`warp.LdMatrix8x8x16bOp` has two and they appear there. `tcgen05.Ld*` (repeat, pack) slots into the
+same area.
 
 All four Copy tabs render into `-<prefix>-src-svg` / `-<prefix>-dst-svg` rather than a single host.
 For `CopyUniversalOp` and `cpasync.CopyG2SOp` the two panes are identical, because
-`ValLayoutSrc == ValLayoutDst`; they only diverge for shuffling atoms such as `ldmatrix`, where the
+`ValLayoutSrc == ValLayoutDst`; they diverge for shuffling atoms such as `ldmatrix`, where the
 src layout is an *addressing* pattern (which lane points where) and the dst layout is the register
 outcome. Keep the two render paths separate even while they agree.
+
+### make_copy_atom's ldmatrix Op
+
+`warp.LdMatrix8x8x16bOp(transpose, num_matrices)` — PTX
+`ldmatrix.sync.aligned.m8n8.x{1,2,4}[.trans].shared.b16`. This is the tab's first Op with constructor
+params, its first `ThrID` above 1, and its first genuinely divergent src/dst pair.
+
+**`num_matrices` decides how many lanes' addresses the hardware CONSUMES, not how much a lane
+addresses.** A lane always covers one 128-bit row; `.x1` consumes lanes 0–7, `.x2` 0–15, `.x4` all 32.
+The lanes it does not consume still execute the instruction and still hand over an address operand —
+`.sync.aligned` requires the whole warp converged, and there is no membermask on this instruction —
+so `ValLayoutSrc` has to be a total function over the warp. CuTe writes that as a **stride-0** second
+thread mode, aliasing the ignored lanes onto live ones: in-bounds, branchless, and it makes
+`size` exceed `cosize` by exactly the broadcast factor. Those lanes are the ones drawn in
+`TV_DISABLED_FG`.
+
+**Src and dst are not paired by `(t, v)`.** At `.x1` a lane has 8 source slots against 2 destination
+slots, so there is no slot-to-slot correspondence to draw; the two layouts relate only through the
+codomain, covering the same cells and nothing more. Do not add a connector between the panes. Src is
+*which lane points at which 16 B row*; dst is *which lane ends up holding which element*; the data
+crosses lanes inside the instruction, so a lane never receives the row it addressed.
+
+**`mcaLdmatrixAtom(elemBits, numMatrices, transpose)` is the DOM-free derivation**, and everything it
+returns is the instruction's fixed 16-bit geometry divided through by the element width — which is
+what `copy_internal_type` does in the DSL, and why `Float32` gives an 8x4 tile where `Float16` gives
+8x8 for the same instruction. Three structural branches, all diffed against CuTeDSL:
+
+- element **is** the 16-bit transpose unit (`half_t`) — the base case
+- element **smaller** (`int8_t`) — a leading value mode of `16/e` appears, because `.trans` moves
+  16-bit units so adjacent bytes stay together
+- element **larger** (`float`, `double`) — an element spans several units, which the transpose
+  separates, so the transposed thread mode drops **below 32 lanes**
+
+The tab reports that last case rather than hiding it: CuTeDSL recasts happily and returns a layout,
+but `.trans` on `.m8n8` is a `.b16` transpose whatever `copy_internal_type` says. Elements wider than
+64 bits are refused outright — a 128-bit row would hold fewer than 2 of them and the 8x8 matrix
+degenerates.
+
+**`num_bits_per_copy` is ignored by this Op** (`_make_trait` never reads it). The field is *disabled*
+rather than hidden, so the absence is legible rather than mysterious.
+
+**`unpack_bits` does not belong here.** It is on the shared `BaseOp`, but `LdMatrix8x8x16bOp`'s
+`__post_init__` raises `"Op doesn't support unpacking"` for anything but `None`. It selects the
+`.b4x16_p64` / `.b6x16_p32` qualifiers on the sub-byte Ops (`LdMatrix8x16x8bOp`,
+`LdMatrix16x8x8bOp`, `LdMatrix16x16x8bOp`) — a packed 4- or 6-bit source container widened into 8-bit
+registers. Those are separate Ops and become separate `MCA_OPS` entries, each with its own
+`num_matrices` domain (`{1,2,4}` here, `{2,4}` for `16x8x8b`, `{1,2}` for `16x16x8b`) and its own
+transpose rule (mandatory on the two 16-row Ops, rejected on `8x16x8b`). `StMatrix*` is the same
+shape of work in the RMEM→SMEM direction.
+
+**The atom's tile is ROW-major in its own codomain** — flat = `m*N + n`, `8*num_matrices` rows of
+`128/elemBits` elements, one lane-addressed row per grid row. That is why the viz passes `cellIndex`
+to `buildTVSVG`; the TV tab's tile is col-major and the default would print the wrong number.
 
 Concretely: a copy-atom tab must NOT take a tensor layout, must NOT compute a partition, and must NOT
 offer coalescing or bank-conflict checks. Those belong to the TV Layout tab, which already accepts a
@@ -479,6 +652,13 @@ now reads that class when choosing the chevron glyph, so any tab can ship a viz 
 Note the constraint violations are reported *inside* that folded panel, which is why the amber
 warning under the Render button names the count — otherwise a fold would hide them.
 
+**Draw the whole result; never a silent sample of it.** The TMA-tensor panel briefly carried a cell
+budget that showed a corner, so a `(32,64)` tensor drew as `16x16` — a quarter of it, in the wrong
+aspect, reading as a square tensor. `ui.js`'s `MAX_CELLS` already refuses anything genuinely
+undrawable *with a message*, which beats a partial picture in both directions. The same reasoning
+removed `tma_partition`'s `TP_MAX_CELLS`: atom resolution keeps realistic inputs small, and where it
+cannot, an honest refusal is better than a fraction of the answer.
+
 **The returned coordinate tensor is the GMEM-side one, never "the SRC one".** It is the source only
 because the single Op supported so far is a load: `Copy_Traits<SM90_TMA_STORE>` has the same
 `get_tma_tensor` (`copy_traits_sm90_tma.hpp:389`) built over the GMEM tensor, where GMEM is the
@@ -504,9 +684,31 @@ One parser ambiguity to know: `parseValue` unwraps single-element parens, so a n
 then Rest"; a scalar mode 0 means the whole layout is the tile** — which keeps the simple
 `(4,16):(16,1)` form working while `((32,128),2):((128,1),4096)` reads correctly.
 
-Real inputs are big: a 4096-element tile with 24 tiles of Rest is ~100k cells, past `MAX_CELLS`. The
-tAgA panel draws as many whole tiles as fit `TP_MAX_CELLS` and says how many it left out; the title
-must report the FULL tile count, not the clipped one.
+**Hue = which Rest element, brightness = which pass — on BOTH panels.** In tAgA a Rest element is a
+tile; in tAsA it is a *stage*, since an SMEM tensor's Rest is the stage mode. Pinning tAsA at
+`colorTV(0)` made two stages — two separate atom coverages — look identical. The hue index carries no
+meaning beyond identity (it cycles every 8); it only separates.
+
+**A cell is labelled with the coordinate that SELECTS it** (`tpSliceLabel`) — `[None, (0,0)]`, which
+is what you would type at the copy. Mode 0 is the atom, so it prints `None` when the tile is a single
+pass and `(None, i)` when it takes several; each Rest mode then contributes its own coordinate,
+nested exactly as the mode is, so a Rest of `(8,15)` gives `(7,14)` rather than a flat 119. Invented
+labels like `#0` / `st0` were unreadable without the source. `value` adds the GMEM coordinate (tAgA)
+or the SMEM offset (tAsA) the region starts at.
+
+**Cells are placed by GMEM COORDINATE, not by Rest-mode index** (`tpPlaceByCoord`). The panel has to
+look like the tensor, with an atom's region merged into one cell — so a Rest mode that walks axis 1
+must produce *columns*, whatever position it holds in the mode list. With tile strides `(1@1,1@0)` and
+Rest `(8,15):(32@1,128@0)`, the 8 steps go along axis 1 and the 15 along axis 0, so the picture is
+15x8 in atoms; index-ordered placement drew it 8x15, i.e. transposed. Cells landing off the atom
+lattice, or an ordinary integer GMEM tensor with no axes at all, fall back to index placement.
+
+**The drawing unit is one ATOM's footprint, not one element** (`tpAtomBlock`). Instruction `i` owns
+SMEM offsets `[i*N, (i+1)*N)`, which for any sane SMEM layout is a rectangular band; the bands tile
+the tile regularly, so one cell can stand for a whole pass. That is what makes real inputs drawable
+*without* sampling: 120 tiles of a 4096-element tile is **120 cells**, against ~500k at element
+resolution. When the footprint is not a clean rectangle `tpAtomBlock` returns null and the panel falls
+back to elements, where `MAX_CELLS` applies as it does everywhere else.
 
 The atom section presents the atom the way CuTe prints it — `ThrID: 1:0`,
 `TV Layout Src = Dst = (1,N):(0,1)`, `Value type` — and asks for N, not a bit count. **You do not hand
@@ -529,7 +731,10 @@ partitioned identically, with red boundaries between them — nothing is sliced,
 the point, since `tma_partition` touches mode 0 only. This is the only Copy-scope tab without
 `copyPanes`, which is why `tp` is absent from `initCopyPanes`'s prefix list.
 
-**The results are computed, not described.** The tab runs the actual pipeline —
+**The results are computed, not described.** `tpComputePartition(sp, gp, numValSrc)`
+holds the whole derivation, DOM-free, so it can be diffed against CuTeDSL;
+`renderTmaPartition` only parses the inputs and draws what comes back. The tab runs the
+actual pipeline —
 `layout_V = logical_divide(right_inverse(smem tile), Layout<NumValSrc>)`, then
 `coalesce(tensor.compose(layout_V), Shape<Shape<_1,_1>>)` per tensor — and prints the resulting
 layouts with their strides. Verified character-for-character against CuTeDSL:

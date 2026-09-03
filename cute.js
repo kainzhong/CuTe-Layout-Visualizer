@@ -308,6 +308,12 @@ const TV_COLORS_HEX = [
   '#d2d2ff','#d2ffd2','#ffffd2','#ffd2d2',
 ];
 
+// Text colour for a DISABLED thread-value entry: a thread the layout maps but
+// whose contribution the instruction discards (ldmatrix's stride-0 lanes).
+// Deliberately translucent rather than a flat grey — it has to stay legible on
+// top of whichever TV_COLORS hue the live thread painted the cell.
+const TV_DISABLED_FG = 'rgba(17,24,39,0.34)';
+
 const HIGHLIGHT_COLORS = [
   '#60a5fa', '#34d399', '#fbbf24', '#f87171',
   '#a78bfa', '#2dd4bf', '#fb923c', '#e879f9',

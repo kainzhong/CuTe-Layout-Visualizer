@@ -114,7 +114,7 @@ function generateTmaPartitionTabContent(id) {
             <button class="preset-btn" onclick="setTP('${id}',32,'bfloat16_t','3,4,3','((4, 32), 2):((32, 1), 128)','((4, 32), (2, 2)):((1@0, 1@1), (4@0, 32@1))')">bf16, 4 passes of 32</button>
             <button class="preset-btn" onclick="setTP('${id}',16,'float','none','(4, 16):(1, 4)','((4, 16), (2, 2)):((1@0, 1@1), (4@0, 16@1))')">M-major SMEM &mdash; same shape, the order runs down the columns</button>
             <button class="preset-btn" onclick="setTP('${id}',16,'float','3,4,3','(4, 16):(16, 1)','(4, 16):(1@0, 1@1)')">No Rest &mdash; a single tile, so tAgA is rank 1 like tAsA</button>
-            <button class="preset-btn" onclick="setTP('${id}',4096,'bfloat16_t','3,4,3','((32,128),2):((128,1),4096)','((32,128),(12,2)):((1@1,1@0),(32@1,128@0))')">Production scale &mdash; 4096-element tile, 2 stages, 24 tiles (clipped to fit)</button>
+            <button class="preset-btn" onclick="setTP('${id}',4096,'bfloat16_t','3,4,3','((32,128),2):((128,1),4096)','((32,128),(12,2)):((1@1,1@0),(32@1,128@0))')">Production scale &mdash; 4096-element tile is one pass, so each of the 24 tiles is one cell</button>
           </div>
         </div>
 
@@ -170,11 +170,23 @@ function generateTmaPartitionTabContent(id) {
             </span>
           </div>
           <div class="cuo-viz-desc">
-            One SMEM tile, in tile coordinates &mdash; so <b>one hue</b>.
-            Brightness says which atom pass covers each part of it: flat when the
-            tile is exactly one atom, ramped light-to-dark when it takes several.
-            Each band is consecutive in SMEM, which is the whole reason the split
-            was taken in SMEM order.
+            One SMEM tile &mdash; so <b>one hue</b>. Each cell is the region one
+            TMA instruction copies, labelled <code>pass <i>i</i></code>: which of
+            the <code>TMA_Iter</code> passes covers it. Brightness ramps with the
+            same index, so the tile is flat when it is exactly one atom and banded
+            when it takes several; each band is consecutive in SMEM, which is the
+            whole reason the split was taken in SMEM order. When the SMEM tensor
+            carries a stage mode, the stages sit side by side separated in red and
+            are labelled <code>stage <i>k</i></code> &mdash; they are separate
+            buffers, so they take one atom pass each and get their own hue &mdash;
+            the same rule as tAgA below, where hue is the tile. The hue index
+            itself means nothing beyond identity; it only separates things.
+            Each cell is labelled with the
+            <b>coordinate that selects it</b> &mdash;
+            <code>[None, 0]</code> is "the whole atom, stage 0", and
+            <code>(None, <i>i</i>)</code> replaces the <code>None</code> when the
+            tile takes more than one pass. <code>value</code> adds the SMEM offset
+            the region starts at.
           </div>
           <div class="viz-box"><div id="${id}-tp-s-svg"></div></div>
         </div>
@@ -187,7 +199,14 @@ function generateTmaPartitionTabContent(id) {
             </span>
           </div>
           <div class="cuo-viz-desc">
-            <b>Every</b> tile of <code>Rest</code>. <b>Hue is the tile</b>;
+            <b>Every</b> tile of <code>Rest</code>, at <b>atom resolution</b>: one
+            cell is the region one TMA instruction copies, not one element. That
+            is what keeps a realistic case drawable &mdash; 120 tiles of a
+            4096-element tile is 120 cells here, and would be half a million at
+            element resolution. Each cell is labelled with the <b>coordinate that
+            selects it</b>, <code>[None, (0,0)]</code> &mdash; exactly what you
+            would write at the copy. <code>value</code> adds the GMEM coordinate
+            the region starts at. <b>Hue is the tile</b>;
             brightness is the same pass-ramp as above, repeated verbatim inside
             each one &mdash; which is exactly the claim
             <code>tma_partition</code> makes, since it touches mode 0 only and
@@ -204,8 +223,6 @@ function generateTmaPartitionTabContent(id) {
 
 // Same red the Divide tabs use for mode-0 accents.
 const TP_TILE_EDGE = '#dc2626';
-// Cell budget for the tAgA panel; real Rest counts blow straight past MAX_CELLS.
-const TP_MAX_CELLS = 8192;
 
 /** Two independent things, two independent channels: HUE says which tile,
  *  BRIGHTNESS says which instruction covers that part of it. A tile that takes
@@ -220,6 +237,110 @@ function tpShade(base, inst, iters) {
 }
 
 const tpState = {};
+
+/** Everything `tma_partition(atom, 0, Layout<1>, stensor, gtensor)` computes,
+ *  given the two tensors ALREADY grouped as `(TMATile, Rest...)` and the atom's
+ *  NumValSrc. DOM-free so it can be diffed against CuTeDSL — see
+ *  tests/run.js -> tma_partition.
+ *
+ *  This is literally CuTe's
+ *      layout_V = logical_divide(right_inverse(smem tile), Layout<NumValSrc>)
+ *      coalesce(tensor.compose(layout_V), Shape<Shape<_1,_1>>)   per tensor
+ *  and it reproduces CuTeDSL's printout exactly — including the cases where
+ *  mode 0 does NOT coalesce to a flat (N, Iter), because its sub-modes sit on
+ *  different basis axes. Synthesizing `(NumValSrc, iters)` got that wrong for
+ *  every transposed GMEM tile. */
+function tpComputePartition(sp, gp, numValSrc) {
+  // tma_partition receives tensors ALREADY grouped: mode 0 IS the tile and
+  // everything after it is Rest. Do NOT re-group here — folding a stage mode
+  // or the tile indices into the tile is exactly what made `((32,128),2)` look
+  // like an 8192-element tile and invent a mismatch.
+  //
+  // One ambiguity: parseValue unwraps single-element parens, so a no-Rest
+  // tensor written `((4,16))` is indistinguishable from `(4,16)`. Rule: a
+  // TUPLE mode 0 means "tile, then Rest"; a scalar mode 0 means the whole
+  // layout is the tile.
+  const tileOf = (L) => is_tuple(L.shape[0])
+    ? { tile: L.shape[0], stride: L.stride[0],
+        rest: L.shape.slice(1), restStride: L.stride.slice(1) }
+    // Scalar mode 0: the whole layout is the tile, so there is no Rest — the
+    // stride list has to be emptied alongside the shape list, or the printed
+    // result comes out rank-mismatched, e.g. `((64,1)):((1,0),1)`.
+    : { tile: L.shape, stride: L.stride, rest: [], restStride: [] };
+  const sPart = tileOf(sp), gPart = tileOf(gp);
+  const sTile = sPart.tile, sTileStride = sPart.stride;
+  const gTile = gPart.tile;
+  const restShape = gPart.rest;
+  const [S0, S1] = productEach(sTile);
+  const sFlatShape = flatten(sTile), sFlatStride = flatten(sTileStride);
+  let tileSize = 1;
+  for (const x of sFlatShape) tileSize *= x;
+  let gTileSize = 1;
+  for (const x of flatten(gTile)) gTileSize *= x;
+
+  // The one thing tma_partition asserts, per tensor:
+  //   CUTE_STATIC_ASSERT_V(size<0>(stensor) == size<0>(tensor))
+  if (tileSize !== gTileSize) {
+    throw new Error(
+      `size<0>(stensor) = ${tileSize} but size<0>(gmem tensor) = ${gTileSize}. ` +
+      `This is tma_partition's only static assert — mode 0 must already BE the ` +
+      `tile on both sides, which is what group_modes(x, 0, 2) is for.`);
+  }
+
+  // right_inverse(get_nonswizzle_portion(...)) — a partial inverse if the
+  // layout is not a permutation, which silently shortens layout_v.
+  const inv = new Array(tileSize).fill(-1);
+  for (let d = 0; d < tileSize; d++) {
+    const off = tmaFlatOffset(d, sFlatShape, sFlatStride);
+    if (off < 0 || off >= tileSize || inv[off] !== -1) {
+      throw new Error(
+        `smem layout is not a permutation of [0, ${tileSize}) — ` +
+        `right_inverse() would return a PARTIAL inverse, so layout_v would not ` +
+        `cover the tile and the split would silently be wrong. CuTe does not ` +
+        `check this.`);
+    }
+    inv[off] = d;
+  }
+
+  // logical_divide(layout_v, Layout<NumValSrc>) needs the split to be exact.
+  if (tileSize % numValSrc !== 0) {
+    const ok = [];
+    for (let n = 1; n <= tileSize; n++) if (tileSize % n === 0) ok.push(n);
+    throw new Error(
+      `logical_divide(layout_v, Layout<${numValSrc}>) is not exact: the tile holds ` +
+      `${tileSize} elements, which ${numValSrc} does not divide. One instruction ` +
+      `has to tile the mode evenly. Value counts of ` +
+      `{${ok.slice(0, 12).join(', ')}${ok.length > 12 ? ', …' : ''}} would divide it.`);
+  }
+  const iters = tileSize / numValSrc;
+
+  // NB: not productEach — that always returns exactly two entries
+  // (`[product(shape[0]), product(shape[1])]`), so an empty Rest would come
+  // back as [undefined, undefined] and print as "((32,8), , )".
+  const extentsOf = (modes) => modes.map(x => product(x));
+  const restExtents = extentsOf(restShape);
+  let restSize = 1;
+  for (const e of restExtents) restSize *= e;
+  const sRestExtents = extentsOf(sPart.rest);
+
+  const sTileL = new Layout(sTile, sTileStride);
+  const gTileL = new Layout(gTile, gPart.stride);
+  const layoutV = logical_divide(right_inverse(sTileL), new Layout(numValSrc));
+  const COALESCE_PROFILE = [1, 1];                 // Shape<Shape<_1,_1>>
+  const sMode0 = coalesce(composition(sTileL, layoutV), COALESCE_PROFILE);
+  const gMode0 = coalesce(composition(gTileL, layoutV), COALESCE_PROFILE);
+
+  const joinLayout = (mode0, restSh, restSt) => formatLayoutStr(
+    [mode0.shape].concat(restSh), [mode0.stride].concat(restSt));
+
+  return {
+    sPart, gPart, sTile, sTileStride, gTile, restShape,
+    S0, S1, tileSize, iters, inv, restExtents, restSize, sRestExtents,
+    layoutV, sMode0, gMode0,
+    sPartStr: joinLayout(sMode0, sPart.rest, sPart.restStride),
+    gPartStr: joinLayout(gMode0, gPart.rest, gPart.restStride),
+  };
+}
 
 function renderTmaPartition(tabId) {
   showErr(`${tabId}-tp-error`, '');
@@ -241,6 +362,18 @@ function renderTmaPartition(tabId) {
       throw new Error(`The value count N must be a positive integer, got "${valsStr}"`);
     }
     const numBits = numValSrc * elemBits;
+    // An atom this tab is handed is one make_tiled_tma_atom would have DERIVED,
+    // and TMA's innermost box row must be a multiple of 16B — so the whole
+    // instruction is too. N is free-form here, so check it rather than let a
+    // nonsense atom through: 2 floats (8B) is not something TMA can produce.
+    const atomBytes = numBits / 8;
+    const atomWarn = (atomBytes % 16 !== 0)
+      ? `An atom of ${numValSrc} x ${elemBits}b = ${atomBytes} B is not something TMA can ` +
+        `produce: the innermost box row must be a multiple of 16 B, so the instruction is ` +
+        `too. The smallest legal atom moves 16 B — ${16 / (elemBits / 8)} ${dtype} ` +
+        `element${16 / (elemBits / 8) === 1 ? '' : 's'}. The partition below is still ` +
+        `computed, but no make_tiled_tma_atom would hand you this atom.`
+      : '';
 
     const sm = tmaParseSmemField(smemStr);
     const swInfo = tmaSwizzleInfo(sm.sw || (swRaw === 'none' ? null : parseSwizzleSpec(swRaw)), elemBits);
@@ -249,108 +382,22 @@ function renderTmaPartition(tabId) {
     // are expected here.
     const gp = parseLayout(gmemStr, { basis: true });
 
-    // tma_partition receives tensors ALREADY grouped: mode 0 IS the tile and
-    // everything after it is Rest. Do NOT re-group here — folding a stage mode
-    // or the tile indices into the tile is exactly what made `((32,128),2)` look
-    // like an 8192-element tile and invent a mismatch.
-    //
-    // One ambiguity: parseValue unwraps single-element parens, so a no-Rest
-    // tensor written `((4,16))` is indistinguishable from `(4,16)`. Rule: a
-    // TUPLE mode 0 means "tile, then Rest"; a scalar mode 0 means the whole
-    // layout is the tile.
-    const tileOf = (L) => is_tuple(L.shape[0])
-      ? { tile: L.shape[0], stride: L.stride[0],
-          rest: L.shape.slice(1), restStride: L.stride.slice(1) }
-      // Scalar mode 0: the whole layout is the tile, so there is no Rest — the
-      // stride list has to be emptied alongside the shape list, or the printed
-      // result comes out rank-mismatched, e.g. `((64,1)):((1,0),1)`.
-      : { tile: L.shape, stride: L.stride, rest: [], restStride: [] };
-    const sPart = tileOf(sp), gPart = tileOf(gp);
-    const sTile = sPart.tile, sTileStride = sPart.stride;
-    const gTile = gPart.tile;
-    const restShape = gPart.rest;
-    const [S0, S1] = productEach(sTile);
-    const sFlatShape = flatten(sTile), sFlatStride = flatten(sTileStride);
-    let tileSize = 1;
-    for (const x of sFlatShape) tileSize *= x;
-    let gTileSize = 1;
-    for (const x of flatten(gTile)) gTileSize *= x;
-
-    // The one thing tma_partition asserts, per tensor:
-    //   CUTE_STATIC_ASSERT_V(size<0>(stensor) == size<0>(tensor))
-    if (tileSize !== gTileSize) {
-      throw new Error(
-        `size<0>(stensor) = ${tileSize} but size<0>(gmem tensor) = ${gTileSize}. ` +
-        `This is tma_partition's only static assert — mode 0 must already BE the ` +
-        `tile on both sides, which is what group_modes(x, 0, 2) is for.`);
-    }
-
-
-    // right_inverse(get_nonswizzle_portion(...)) — a partial inverse if the
-    // layout is not a permutation, which silently shortens layout_v.
-    const inv = new Array(tileSize).fill(-1);
-    for (let d = 0; d < tileSize; d++) {
-      const off = tmaFlatOffset(d, sFlatShape, sFlatStride);
-      if (off < 0 || off >= tileSize || inv[off] !== -1) {
-        throw new Error(
-          `smem layout is not a permutation of [0, ${tileSize}) — ` +
-          `right_inverse() would return a PARTIAL inverse, so layout_v would not ` +
-          `cover the tile and the split would silently be wrong. CuTe does not ` +
-          `check this.`);
-      }
-      inv[off] = d;
-    }
-
-    // logical_divide(layout_v, Layout<NumValSrc>) needs the split to be exact.
-    if (tileSize % numValSrc !== 0) {
-      const ok = [];
-      for (let n = 1; n <= tileSize; n++) if (tileSize % n === 0) ok.push(n);
-      throw new Error(
-        `logical_divide(layout_v, Layout<${numValSrc}>) is not exact: the tile holds ` +
-        `${tileSize} elements, which ${numValSrc} does not divide. One instruction ` +
-        `has to tile the mode evenly. Value counts of ` +
-        `{${ok.slice(0, 12).join(', ')}${ok.length > 12 ? ', …' : ''}} would divide it.`);
-    }
-    const iters = tileSize / numValSrc;
-
-    // NB: not productEach — that always returns exactly two entries
-    // (`[product(shape[0]), product(shape[1])]`), so an empty Rest would come
-    // back as [undefined, undefined] and print as "((32,8), , )".
-    const extentsOf = (modes) => modes.map(x => product(x));
-    const restExtents = extentsOf(restShape);
-    let restSize = 1;
-    for (const e of restExtents) restSize *= e;
-    const sRestExtents = extentsOf(sPart.rest);
+    const P = tpComputePartition(sp, gp, numValSrc);
+    const { sPart, gPart, sTile, sTileStride, gTile, restShape, S0, S1,
+            tileSize, iters, inv, restExtents, restSize, sRestExtents,
+            sPartStr, gPartStr } = P;
+    const partStr = gPartStr;
 
     // Highlight picker
+    const warnings = atomWarn ? [atomWarn] : [];
     const hlRaw = (document.getElementById(`${tabId}-tp-highlight`).value || '').trim();
     let highlight = null;
     if (hlRaw !== '') {
       const v = parseInt(hlRaw, 10);
       if (Number.isFinite(v) && v >= 0 && v < iters) highlight = v;
-      else showWarn(`${tabId}-tp-warning`,
-        `Instruction "${hlRaw}" is out of range [0, ${iters}) — showing all.`);
+      else warnings.push(`Instruction "${hlRaw}" is out of range [0, ${iters}) — showing all.`);
     }
-
-    // Compute the results rather than describing them: this is literally CuTe's
-    //   layout_V = logical_divide(right_inverse(smem tile), Layout<NumValSrc>)
-    //   coalesce(tensor.compose(layout_V), Shape<Shape<_1,_1>>)
-    // and it reproduces CuTeDSL's printout exactly — including the cases where
-    // mode 0 does NOT coalesce to a flat (N, Iter), because its sub-modes sit on
-    // different basis axes. Synthesizing `(${numValSrc}, ${iters})` got that
-    // wrong for every transposed GMEM tile.
-    const sTileL = new Layout(sTile, sTileStride);
-    const gTileL = new Layout(gTile, gPart.stride);
-    const layoutV = logical_divide(right_inverse(sTileL), new Layout(numValSrc));
-    const COALESCE_PROFILE = [1, 1];                 // Shape<Shape<_1,_1>>
-    const sMode0 = coalesce(composition(sTileL, layoutV), COALESCE_PROFILE);
-    const gMode0 = coalesce(composition(gTileL, layoutV), COALESCE_PROFILE);
-
-    const joinLayout = (mode0, restSh, restSt) => formatLayoutStr(
-      [mode0.shape].concat(restSh), [mode0.stride].concat(restSt));
-    const sPartStr = joinLayout(sMode0, sPart.rest, sPart.restStride);
-    const gPartStr = joinLayout(gMode0, gPart.rest, gPart.restStride);
-    const partStr = gPartStr;
+    if (warnings.length) showWarn(`${tabId}-tp-warning`, warnings.join(' '));
 
     // Print it the way CuTe prints a Copy_Atom, so it can be matched by eye.
     document.getElementById(`${tabId}-tp-atom-result`).innerHTML =
@@ -375,6 +422,7 @@ function renderTmaPartition(tabId) {
       sp: { shape: sTile, stride: sTileStride }, S0, S1, tileSize, numValSrc, iters,
       highlight, restExtents, partStr, gPartStr, sPartStr, dtype,
       inv, gTile, gTileStride: gPart.stride, gFull: gp, gRestBase: gPart.rest.length,
+      sRestExtents, gRestShapes: gPart.rest, sRestShapes: sPart.rest,
       T0: product(sTile[0]), T1: product(sTile[1]),
       gBasis: gp.basis, gNd: gp.basis ? Math.max(basisRank(gp.stride), gp.ndim || 2) : 0,
       numBits, mode: (prev.mode instanceof Set) ? prev.mode : new Set(),
@@ -390,46 +438,117 @@ function renderTmaPartition(tabId) {
   }
 }
 
+/** Footprint of ONE atom pass inside the tile, in tile coordinates.
+ *  Instruction i owns SMEM offsets [i*N, (i+1)*N); for any sane SMEM layout that
+ *  is a rectangular band, and the bands tile the whole tile regularly. Returns
+ *  { aM, aN, gM, gN } — the band's extent and how many fit per tile — or null
+ *  when the footprint is not a clean rectangle, in which case the caller falls
+ *  back to drawing elements. */
+function tpAtomBlock(shape, stride, T0, T1, N, iters) {
+  const inst = (m, n) => Math.floor(layoutAt(shape, stride, m, n) / N);
+  let mMax = 0, nMax = 0;
+  for (let m = 0; m < T0; m++) for (let n = 0; n < T1; n++) {
+    if (inst(m, n) === 0) { if (m > mMax) mMax = m; if (n > nMax) nMax = n; }
+  }
+  const aM = mMax + 1, aN = nMax + 1;
+  if (aM * aN !== N || T0 % aM || T1 % aN) return null;
+  const gM = T0 / aM, gN = T1 / aN;
+  if (gM * gN !== iters) return null;
+  // Every cell must agree with the block it sits in, or the bands are not a
+  // regular grid and an atom-resolution picture would be a lie.
+  for (let m = 0; m < T0; m++) for (let n = 0; n < T1; n++) {
+    const blk = Math.floor(m / aM) + Math.floor(n / aN) * gM;
+    if (inst(m, n) !== blk) return null;
+  }
+  return { aM, aN, gM, gN };
+}
+
+/** Where each atom-cell sits in the GMEM coordinate plane.
+ *
+ *  The picture has to look like the tensor: an atom is a rectangular REGION of
+ *  it, merged into one cell. Placing cells by Rest-mode index instead gets the
+ *  orientation wrong the moment a Rest mode walks the other axis — with tile
+ *  strides `(1@1,1@0)` and Rest `(8,15):(32@1,128@0)`, the 8 steps go along axis
+ *  1 (columns) and the 15 along axis 0 (rows), so an index-ordered grid comes
+ *  out 8x15 when the tensor is 15x8 in atoms.
+ *
+ *  Returns `{ e, cells, M, N }` — the atom's extent per axis, a position-indexed
+ *  lookup, and the grid size — or null when the tensor has no coordinate axes
+ *  (an ordinary integer GMEM tensor) or the modes are not axis-aligned. */
+function tpPlaceByCoord(s, aM, aN, gM, gN, R0, R1, coordOf) {
+  const gs = s.gTileStride;
+  if (!s.gNd || !Array.isArray(gs) || gs.length !== 2) return null;
+  if (!isBasis(gs[0]) || !isBasis(gs[1]) || gs[0].axis === gs[1].axis) return null;
+  const e = [0, 0];
+  e[gs[0].axis] = aM * gs[0].k;
+  e[gs[1].axis] = aN * gs[1].k;
+  if (!e[0] || !e[1]) return null;
+
+  const cells = new Map();
+  let M = 0, N = 0;
+  for (let r0 = 0; r0 < R0; r0++) for (let r1 = 0; r1 < R1; r1++) {
+    for (let am = 0; am < gM; am++) for (let an = 0; an < gN; an++) {
+      const c = coordOf(am * aM, an * aN, r0, r1);
+      if (c[0] % e[0] || c[1] % e[1]) return null;   // not on the atom lattice
+      const row = c[0] / e[0], col = c[1] / e[1];
+      cells.set(row + ',' + col, { am, an, r0, r1 });
+      if (row + 1 > M) M = row + 1;
+      if (col + 1 > N) N = col + 1;
+    }
+  }
+  return { e, cells, M, N };
+}
+
+/** The coordinate that selects one cell out of the partitioned tensor — what you
+ *  would actually type: `tAgA[None, (0,0)]`. Mode 0 is the atom, so it is `None`
+ *  when the tile is a single pass and `(None, i)` when it takes several; each
+ *  Rest mode then contributes its own coordinate, nested exactly as the mode is.
+ *  Far more use than an invented `#0` / `st0`. */
+function tpSliceLabel(iters, inst, restShapes, idxs) {
+  const fmt = (c) => Array.isArray(c) ? `(${c.map(fmt).join(',')})` : String(c);
+  const head = iters === 1 ? 'None' : `(None,${inst})`;
+  const tail = restShapes.map((sh, k) => fmt(idx2crd(idxs[k] === undefined ? 0 : idxs[k], sh)));
+  return `[${[head].concat(tail).join(', ')}]`;
+}
+
 function tpRenderViz(tabId) {
   const s = tpState[tabId];
   if (!s) return;
   const modes = s.mode instanceof Set ? s.mode : new Set();
   const { T0, T1 } = s;
-
-  // Both panels are drawn in TILE coordinates and share one colour map: which
-  // INSTRUCTION owns each element. A tile that is exactly one atom comes out a
-  // single colour; a tile holding several instructions comes out banded.
   const instAt = (m, n) => Math.floor(layoutAt(s.sp.shape, s.sp.stride, m, n) / s.numValSrc);
   const lit = (i) => s.highlight === null || i === s.highlight;
 
-  // ---- tAsA: the SMEM tile ----
-  // One tile, so one hue; the ramp across it is the instruction count.
-  const sSVG = buildColoredLayoutSVG(s.sp.shape, s.sp.stride, modes, (m, n, offset) => {
-    const i = instAt(m, n);
-    if (!lit(i)) return { bg: '#e8e8e8', stroke: '#ddd', text: null };
-    return { bg: tpShade(colorTV(0), i, s.iters), text: [String(offset)] };
-  });
-
-  // ---- tAgA: every tile of Rest, each partitioned identically ----
-  // Tiles are laid out in canonical blocks — tile (r0, r1) at rows r0*T0, cols
-  // r1*T1 — rather than at their true stride positions, so the picture stays a
-  // grid whatever the Rest strides are. The truth is in the cell labels, which
-  // evaluate the actual GMEM layout at (m, n, r...).
   const rest = s.restExtents;
-  let R0 = rest.length > 0 ? rest[0] : 1;
-  let R1 = rest.length > 1 ? rest[1] : 1;
+  const R0 = rest.length > 0 ? rest[0] : 1;
+  const R1 = rest.length > 1 ? rest[1] : 1;
   const restBeyond = rest.slice(2).reduce((a, b) => a * b, 1);
-  // Real tile counts get large fast — 24 tiles of a 4096-element tile is ~100k
-  // cells. Draw as many whole tiles as fit a budget and say how many were left
-  // out, rather than emitting an unreadable and slow grid.
-  const fullR0 = R0, fullR1 = R1;
-  while (R0 * R1 > 1 && T0 * R0 * T1 * R1 > TP_MAX_CELLS) {
-    if (R0 >= R1 && R0 > 1) R0--; else if (R1 > 1) R1--; else break;
-  }
-  const clipped = R0 !== fullR0 || R1 !== fullR1;
-  const gShape = [T0 * R0, T1 * R1];
-  // The GMEM tensor is (tile, Rest...) with a possibly nested tile, so build a
-  // congruent coordinate: idx2crd over the tile, then one index per Rest mode.
+  const sRest = s.sRestExtents;
+  const SR = sRest.reduce((a, b) => a * b, 1);
+
+  // THE UNIT IS ONE ATOM, not one element. A 4096-element tile repeated 120
+  // times is half a million cells; the same picture at atom resolution is 120.
+  const blk = tpAtomBlock(s.sp.shape, s.sp.stride, T0, T1, s.numValSrc, s.iters);
+  const atomRes = blk !== null;
+  const gM = atomRes ? blk.gM : T0, gN = atomRes ? blk.gN : T1;   // cells per tile
+  const aM = atomRes ? blk.aM : 1,  aN = atomRes ? blk.aN : 1;    // elements per cell
+  // Draw every tile. Atom resolution keeps this small for realistic inputs —
+  // 120 tiles of a 4096-element tile is 120 cells — and where it cannot (an
+  // irregular atom footprint falls back to elements) MAX_CELLS refuses with a
+  // message rather than quietly showing a fraction of the answer.
+  const dR0 = R0, dR1 = R1;
+
+  const gCoord = (m, n, r0, r1) => {
+    const flatTile = m + n * product(s.gTile[0]);
+    const crd = s.gRestBase
+      ? [idx2crd(flatTile, s.gTile)].concat(
+          s.gFull.shape.slice(1).map((sh, k) => idx2crd(k === 0 ? r0 : (k === 1 ? r1 : 0), sh)))
+      : idx2crd(flatTile, s.gTile);
+    const out = new Array(s.gNd || 2).fill(0);
+    crd2basis(crd, s.gRestBase ? s.gFull.shape : s.gTile,
+                   s.gRestBase ? s.gFull.stride : s.gTileStride, out);
+    return out;
+  };
   const gLabel = (m, n, r0, r1) => {
     const flatTile = m + n * product(s.gTile[0]);
     const shape  = s.gRestBase ? s.gFull.shape  : s.gTile;
@@ -445,59 +564,91 @@ function tpRenderViz(tabId) {
     }
     return String(crd2idx(crd, shape, stride));
   };
-  const gSVG = buildColoredLayoutSVG(gShape, [1, gShape[0]], modes, (M, N) => {
-    const m = M % T0, r0 = Math.floor(M / T0);
-    const n = N % T1, r1 = Math.floor(N / T1);
-    const i = instAt(m, n);
+
+  // ---- tAsA: one tile, one hue; a cell per atom pass, stages side by side ----
+  const sShape = [gM, gN * SR];
+  const sSVG = buildColoredLayoutSVG(sShape, [1, sShape[0]], modes, (M, Ncol) => {
+    const an = Ncol % gN, st = Math.floor(Ncol / gN);
+    const i = instAt(M * aM, an * aN);
     if (!lit(i)) return { bg: '#e8e8e8', stroke: '#ddd', text: null };
-    // Hue per tile, the same brightness ramp inside each.
-    return { bg: tpShade(colorTV(r0 + r1 * R0), i, s.iters), text: [gLabel(m, n, r0, r1)] };
+    const lines = [tpSliceLabel(s.iters, i, s.sRestShapes, [st])];
+    if (modes.has('value')) {
+      lines.push(`smem ${layoutAt(s.sp.shape, s.sp.stride, M * aM, an * aN)}`);
+    }
+    return { bg: tpShade(colorTV(st), i, s.iters), text: lines };
+  }, SR > 1 ? { overlay: ({ cs, margin, W, H }) => {
+      let out = '';
+      for (let c = 0; c <= SR; c++) {
+        const x = margin + c * gN * cs;
+        out += `<line x1="${x}" y1="${margin}" x2="${x}" y2="${H}" stroke="${TP_TILE_EDGE}" stroke-width="${Math.max(1.5, cs * 0.06)}"/>`;
+      }
+      return out;
+    } } : {});
+
+  // ---- tAgA: every tile, hue per tile, the same ramp inside each ----
+  const place = atomRes ? tpPlaceByCoord(s, aM, aN, gM, gN, dR0, dR1, gCoord) : null;
+  const gShape = place ? [place.M, place.N] : [gM * dR0, gN * dR1];
+  const gSVG = buildColoredLayoutSVG(gShape, [1, gShape[0]], modes, (M, Ncol) => {
+    let am, an, r0, r1;
+    if (place) {
+      const hit = place.cells.get(M + ',' + Ncol);
+      if (!hit) return { bg: '#f7f7f7', stroke: '#eee', text: null };
+      ({ am, an, r0, r1 } = hit);
+    } else {
+      am = M % gM; r0 = Math.floor(M / gM);
+      an = Ncol % gN; r1 = Math.floor(Ncol / gN);
+    }
+    const i = instAt(am * aM, an * aN);
+    if (!lit(i)) return { bg: '#e8e8e8', stroke: '#ddd', text: null };
+    const lines = [tpSliceLabel(s.iters, i, s.gRestShapes, [r0, r1])];
+    if (modes.has('value')) lines.push(gLabel(am * aM, an * aN, r0, r1));
+    return { bg: tpShade(colorTV(r0 + r1 * R0), i, s.iters), text: lines };
   }, {
-    // Tile boundaries are lines ACROSS cells, so they go in the overlay rather
-    // than being faked with a stroke on the edge cells.
     overlay: ({ cs, margin, W, H }) => {
       const sw = Math.max(1.5, cs * 0.06);
       let out = '';
-      for (let r = 0; r <= R0; r++) {
-        const y = margin + r * T0 * cs;
-        out += `<line x1="${margin}" y1="${y}" x2="${W}" y2="${y}" ` +
-               `stroke="${TP_TILE_EDGE}" stroke-width="${sw}"/>`;
+      const rows = place ? place.M / gM : dR0, cols = place ? place.N / gN : dR1;
+      for (let r = 0; r <= rows; r++) {
+        const y = margin + r * gM * cs;
+        out += `<line x1="${margin}" y1="${y}" x2="${W}" y2="${y}" stroke="${TP_TILE_EDGE}" stroke-width="${sw}"/>`;
       }
-      for (let c = 0; c <= R1; c++) {
-        const x = margin + c * T1 * cs;
-        out += `<line x1="${x}" y1="${margin}" x2="${x}" y2="${H}" ` +
-               `stroke="${TP_TILE_EDGE}" stroke-width="${sw}"/>`;
+      for (let c = 0; c <= cols; c++) {
+        const x = margin + c * gN * cs;
+        out += `<line x1="${x}" y1="${margin}" x2="${x}" y2="${H}" stroke="${TP_TILE_EDGE}" stroke-width="${sw}"/>`;
       }
       return out;
     },
   });
 
+  const unit = atomRes
+    ? `one cell = one atom pass (${aM}&times;${aN} elements)`
+    : `one cell = one element (the atom's footprint is not a rectangle here)`;
   const ramp = s.iters === 1
-    ? `one atom pass covers the tile, so it is flat`
-    : `brightness = which of the ${s.iters} atom passes covers it, light to dark`;
+    ? `one pass covers the tile, so each tile is a single cell`
+    : `brightness = which of the ${s.iters} passes`;
   const legend = (extra) =>
     `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
-    `${extra} &mdash; ${ramp}` +
+    `${unit} &mdash; ${extra} &mdash; ${ramp}` +
     (s.highlight !== null ? ` &mdash; <b>pass ${s.highlight} only</b>` : '') +
     `</div>`;
   document.getElementById(`${tabId}-tp-s-svg`).innerHTML =
-    legend(`one hue: this is one tile; cell = SMEM offset`) + sSVG;
+    legend(SR > 1
+      ? `hue = which of the ${SR} stages (separate buffers, ` +
+        `<span style="color:${TP_TILE_EDGE}">split in red</span>); cell = the coordinate that selects it`
+      : `one hue: a single tile buffer; cell = the coordinate that selects it`) + sSVG;
   document.getElementById(`${tabId}-tp-g-svg`).innerHTML =
-    legend(`hue = which tile (${clipped ? `${R0}&times;${R1} of ${fullR0}&times;${fullR1} drawn` : `${R0}&times;${R1} of them`}, ` +
-           `<span style="color:${TP_TILE_EDGE}">outlined in red</span>` +
+    legend(`hue = which tile (${R0}&times;${R1}` +
            (restBeyond > 1 ? `, further Rest modes at 0` : '') +
-           `); cell = ${s.gBasis ? 'GMEM coordinate' : 'GMEM offset'}`) + gSVG;
+           `, <span style="color:${TP_TILE_EDGE}">outlined in red</span>); cell = the ` +
+           `coordinate that selects it`) + gSVG;
   applyZoomState(`${tabId}-tp-s-svg`);
   applyZoomState(`${tabId}-tp-g-svg`);
   updateModeBtns(`${tabId}-tp-mode-btns`, modes);
   document.getElementById(`${tabId}-tp-s-title`).textContent =
-    `tAsA = ${s.sPartStr} — one tile, ${s.iters} instruction${s.iters === 1 ? '' : 's'}`;
-  const totalTiles = fullR0 * fullR1 * restBeyond;
+    `tAsA — one tile, ${s.iters} pass${s.iters === 1 ? '' : 'es'}` +
+    (SR > 1 ? ` x ${SR} stages` : '');
   document.getElementById(`${tabId}-tp-g-title`).textContent =
-    `tAgA = ${s.gPartStr}` +
-    (rest.length
-      ? (clipped ? ` — ${R0 * R1} of ${totalTiles} tiles drawn` : ` — all ${totalTiles} tiles`)
-      : '');
+    `tAgA — ${R0 * R1 * restBeyond} tiles x ${s.iters} pass${s.iters === 1 ? '' : 'es'}`;
 }
 
 function setTpMode(tabId, mode) {

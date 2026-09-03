@@ -507,6 +507,26 @@ other direction: a 4-bit type models a **densely** packed source (32 elements pe
 `DTYPE_BITS` contains no width that fails to divide 128 — a unit test pins that, so adding a
 sub-byte entry there cannot silently open the hole.
 
+**The first family is made unreachable too: the picker is filtered, not merely checked.**
+`mcaSyncDtypeOptions` removes every non-8-bit type from `tensor_dtype` whenever `unpack_bits` is on,
+the same treatment `transpose` gets on the Ops that require it — a control that can only produce a
+diagnostic is worse than one that cannot be set wrong. `int8_t` / `uint8_t` both survive, since the
+signedness is a real choice, and the label carries a live note saying why the list shrank.
+`mcaUnpackBitsIssue` stays as the DOM-free statement of the rule (it is what `tests/unit.js` pins)
+and as the backstop for any path that sets the two independently.
+
+**This makes `tensor_dtype` the tab's second option list computed from another control**, and the
+assignment-order rule now has two links in the chain:
+
+```
+op  ->  mcaRenderOpParams  ->  num_matrices, transpose, unpack_bits
+                           ->  mcaSyncDtypeOptions  ->  tensor_dtype
+```
+
+`setMCA` and `applyKeyParam` both follow it exactly. Get it wrong and the write is a silent no-op —
+which is also the useful property here: a shared link asking for `unpack_bits=4` with `half_t` lands
+on `int8_t` rather than carrying the illegal pair through. The smoke check asserts that specific URL.
+
 **`num_matrices` decides how many lanes' addresses the hardware CONSUMES, not how much a lane
 addresses.** A lane always covers one 128-bit row; it consumes `(matrixBytes/16) * num_matrices` of
 the 32 lanes.

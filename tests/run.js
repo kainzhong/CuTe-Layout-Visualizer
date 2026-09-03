@@ -280,6 +280,71 @@ if (section('ldmatrix_atom')) {
       if (spec.transpose === 'required') check(c.id, 'transpose_forced', c.transpose, true);
       if (c.unpack_bits !== undefined)
         check(c.id, 'unpack_bits_legal', !!spec.unpackBits, true);
+
+      // ── the PICTURE, not just the arithmetic ──────────────────────────────
+      // Everything above says mcaLdmatrixAtom agrees with CuTeDSL. None of it
+      // says the tab draws that atom correctly, which is the part a reader of
+      // the tab actually relies on. These drive the SHIPPED builder through the
+      // SHIPPED argument list (mcaLdsmPaneArgs), so a transposed tile stride or
+      // a mis-set dimTids fails here rather than on screen.
+      for (const side of ['src', 'dst']) {
+        const args = V.mcaLdsmPaneArgs(a, side, true);
+        const [shape, stride, tileShape, tileStride, , , , , opts] = args;
+        const numT = V.product(shape[0]), numV = V.product(shape[1]);
+
+        // 1. PLACEMENT. Reproduce the cell each (t, v) lands in exactly as
+        //    buildTVSVG does, and require that cell's row-major flat index to
+        //    equal the layout's own output. This is the statement that
+        //    tile.stride is right; a col-major tile would fail every case.
+        const claims = new Map();       // cell -> [tids]
+        let misplaced = 0;
+        for (let t = 0; t < numT; t++) for (let v = 0; v < numV; v++) {
+          const idx = V.crd2idx(V.unflatten(t, shape[0]), shape[0], stride[0]) +
+                      V.crd2idx(V.unflatten(v, shape[1]), shape[1], stride[1]);
+          const m = Math.floor(idx / tileStride[0]) % M;
+          const n = Math.floor(idx / tileStride[1]) % N;
+          if (m * N + n !== idx) misplaced++;
+          const cell = m * N + n;
+          if (!claims.has(cell)) claims.set(cell, []);
+          claims.get(cell).push(t);
+        }
+        check(`${c.id}/${side}`, 'every (t,v) lands on its own output', misplaced, 0);
+
+        // 2. NO HOLES. An uncovered cell would draw as an empty "—" box, i.e.
+        //    the picture would claim the instruction skips an element.
+        check(`${c.id}/${side}`, 'every tile cell claimed', claims.size, M * N);
+
+        // 3. NO FALSE COLLISION. buildTVSVG strokes a cell red when two ENABLED
+        //    threads claim it. Broadcast lanes alias onto live ones by design,
+        //    so the stroke must never fire for a valid atom.
+        const dim = opts.dimTids || new Set();
+        let liveCollisions = 0;
+        for (const tids of claims.values())
+          if (tids.filter(t => !dim.has(t)).length > 1) liveCollisions++;
+        check(`${c.id}/${side}`, 'no cell claimed by 2 enabled threads', liveCollisions, 0);
+
+        // 4. GREYING IS EXACTLY THE IGNORED LANES, and hides nothing: every
+        //    dimmed entry sits on a cell a live thread also claims.
+        const wantDim = side === 'src' ? 32 - a.liveLanes : 0;
+        check(`${c.id}/${side}`, 'dimmed lane count', dim.size, wantDim);
+        let orphanDim = 0;
+        for (const tids of claims.values())
+          if (tids.every(t => dim.has(t))) orphanDim++;
+        check(`${c.id}/${side}`, 'no cell drawn only by dimmed lanes', orphanDim, 0);
+
+        // 5. THE RENDERED SVG AGREES. Run the real builder and read back the
+        //    three things a wrong picture would show.
+        const svg = V.buildTVSVG(...args);
+        check(`${c.id}/${side}`, 'svg has no empty cells',
+              (svg.match(/>\u2014</g) || []).length, 0);
+        check(`${c.id}/${side}`, 'svg has no collision stroke',
+              (svg.match(/#e53e3e/g) || []).length, 0);
+        const deadEntries = side === 'src' ? (32 - a.liveLanes) * numV : 0;
+        check(`${c.id}/${side}`, 'svg dimmed-entry count',
+              (svg.match(/rgba\(17,24,39,0\.34\)/g) || []).length, deadEntries);
+        check(`${c.id}/${side}`, 'svg cell count',
+              (svg.match(/<rect /g) || []).length, M * N + 1);   // +1 background
+      }
     });
   }
 }

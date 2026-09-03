@@ -1363,10 +1363,12 @@ const DTYPE_BITS = {
 
 /** <option> list for a tensor_dtype <select>. Single source of truth so the
  *  tabs can never drift apart on which dtypes they accept. */
-function dtypeOptions(selected) {
-  return Object.entries(DTYPE_BITS).map(([name, bits]) =>
-    `<option value="${name}"${name === selected ? ' selected' : ''}>${name} (${bits})</option>`
-  ).join('');
+function dtypeOptions(selected, onlyBits) {
+  return Object.entries(DTYPE_BITS)
+    .filter(([, bits]) => onlyBits === undefined || bits === onlyBits)
+    .map(([name, bits]) =>
+      `<option value="${name}"${name === selected ? ' selected' : ''}>${name} (${bits})</option>`
+    ).join('');
 }
 
 /** Apply a CuTe `Swizzle<B, M, S>` to an element offset: the B bits starting at
@@ -1603,12 +1605,13 @@ function applyKeyParam(tabId) {
       renderRakedProduct(tabId);
       break;
     case 'make_copy_atom':
-      document.getElementById(`${tabId}-mca-op-input`).value    = inputs[0];
-      document.getElementById(`${tabId}-mca-bits-input`).value  = inputs[1];
-      document.getElementById(`${tabId}-mca-dtype-input`).value = inputs[2];
-      // The num_matrices options are per-Op, so rebuild them BEFORE assigning:
-      // `.value = '2'` on a select still holding the previous Op's options is a
-      // silent no-op, and the render would then use a stale k.
+      // Same assignment order setMCA uses, and for the same reason: two selects
+      // have option lists computed from other controls (num_matrices /
+      // unpack_bits from the Op, tensor_dtype from unpack_bits), and assigning
+      // `.value` to a select that does not yet hold that option is a SILENT
+      // no-op. So: op -> rebuild -> nm/tr/ub -> rebuild dtype -> dtype.
+      document.getElementById(`${tabId}-mca-op-input`).value   = inputs[0];
+      document.getElementById(`${tabId}-mca-bits-input`).value = inputs[1];
       mcaRenderOpParams(tabId, MCA_OPS[inputs[0]] || MCA_OPS.universal);
       // Only the LdMatrix Ops carry these; older 3-input links omit them.
       if (inputs[3] !== undefined)
@@ -1618,6 +1621,8 @@ function applyKeyParam(tabId) {
       // Only the two 8-bit LdMatrix Ops accept unpack_bits.
       if (inputs[5] !== undefined)
         document.getElementById(`${tabId}-mca-ub-input`).value = inputs[5];
+      mcaSyncDtypeOptions(tabId);
+      document.getElementById(`${tabId}-mca-dtype-input`).value = inputs[2];
       switchInnerTab(tabId, 'make_copy_atom');
       renderMakeCopyAtom(tabId);
       break;

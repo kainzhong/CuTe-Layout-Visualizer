@@ -105,6 +105,9 @@ const MCA_CPASYNC_BITS = [32, 64, 128];
 //                unit come apart under transpose.
 const MCA_LDSM_ROW_BITS = 128;        // one lane's address covers 16 B
 const MCA_LDSM_MAX_ELEM_BITS = 64;
+// Every unpacking form widens INTO this container -- BaseOp.__str__ prints
+// "unpack {n}b to 8b" -- so it constrains tensor_dtype, not just the source.
+const MCA_LDSM_UNPACK_TO_BITS = 8;
 
 const MCA_LDSM_SPECS = {
   ldsm8x8x16b: {
@@ -199,6 +202,11 @@ function mcaSyncPresets(tabId, opKey) {
  *                 (BaseOp.__str__ says so literally), so it must be 8-bit.
  *    unpack_bits  the SOURCE packing in SMEM: 16 elements of 4 or 6 bits, padded
  *                 out to the same 128-bit row 16 bytes would occupy.
+ *
+ *  The tab now removes the wider types from the tensor_dtype picker whenever
+ *  unpack_bits is on, so this should not fire from the UI. It stays as the
+ *  DOM-free statement of the rule (unit-tested), and as the backstop for any
+ *  path that sets the two independently.
  *
  *  Returns a message, or '' when the pair is coherent. Two ways to get it wrong:
  *
@@ -393,7 +401,7 @@ ${copyMoveField(id, 'mca')}
           <summary>2. make_copy_atom(op, dtype, ...)</summary>
           <div class="cuo-section-body">
             <div class="form-group">
-              <label>tensor_dtype</label>
+              <label>tensor_dtype<span id="${id}-mca-dtype-note" style="color:#6b7280;font-weight:normal;display:none">&nbsp;&mdash; </span></label>
               <select id="${id}-mca-dtype-input" onchange="renderMakeCopyAtom('${id}')">${dtypeOptions('half_t')}</select>
             </div>
             <div class="form-group" id="${id}-mca-bits-group">
@@ -692,6 +700,67 @@ function mcaRenderLdmatrix(tabId, opKey, op, dtype, elemBits, prev) {
   updateOuterTabLabel(tabId, `make_copy_atom:${spec.matrix}${q}/${dtype}`);
 }
 
+/** The exact argument list `mcaDrawLdmatrix` hands to `buildTVSVG` for one
+ *  pane. Split out so the tests can drive the REAL builder rather than a
+ *  reimplementation of it — a viz test that rebuilds the placement itself would
+ *  pass while the shipped picture was transposed.
+ *
+ *  Two arguments carry the whole visualization contract:
+ *    tile.stride  is [N, 1] — the atom's tile is ROW-major in its own codomain,
+ *                 where the TV tab's is col-major. Wrong here and every cell
+ *                 lands transposed or wrapped.
+ *    dimTids      is exactly the lanes the instruction ignores. They alias onto
+ *                 live lanes, so they must be greyed rather than dropped, and
+ *                 must NOT trigger the multi-claim stroke. */
+function mcaLdsmPaneArgs(atom, side, showValue) {
+  const L = side === 'src' ? atom.src : atom.dst;
+  const N = atom.tile.shape[1];
+  const dimTids = new Set();
+  // Only the src side has ignored lanes: on the dst side every lane that the
+  // layout maps genuinely receives registers.
+  if (side === 'src') for (let t = atom.liveLanes; t < 32; t++) dimTids.add(t);
+  return [L.shape, L.stride, atom.tile.shape, atom.tile.stride, false, 'row', null,
+          showValue ? 'value' : '',
+          { dimTids: side === 'src' ? dimTids : null, cellIndex: (m, n) => m * N + n }];
+}
+
+/** Rebuild the tensor_dtype options. When an LdMatrix Op is unpacking, the
+ *  destination register container is 8-bit by definition of the instruction —
+ *  `BaseOp.__str__` prints "unpack {n}b to 8b" — so the wider types are removed
+ *  rather than left selectable and reported afterwards. `int8_t` / `uint8_t`
+ *  both remain, since the signedness is a real choice.
+ *
+ *  This is the one control whose options depend on ANOTHER control's value, so
+ *  every caller that assigns `dtype` must run this first — see the ordering
+ *  note on `setMCA`. */
+function mcaSyncDtypeOptions(tabId) {
+  const sel = document.getElementById(`${tabId}-mca-dtype-input`);
+  if (!sel) return;
+  const op = MCA_OPS[document.getElementById(`${tabId}-mca-op-input`).value] || MCA_OPS.universal;
+  const spec = op.ldsm ? MCA_LDSM_SPECS[op.ldsm] : null;
+  const ubEl = document.getElementById(`${tabId}-mca-ub-input`);
+  const unpacking = !!(spec && spec.unpackBits && ubEl && parseInt(ubEl.value, 10));
+  const want = sel.value;
+  sel.innerHTML = dtypeOptions(undefined, unpacking ? MCA_LDSM_UNPACK_TO_BITS : undefined);
+  // Keep the selection when it survives the filter; otherwise fall back to the
+  // first surviving option, which is what a <select> does on its own anyway.
+  sel.value = want;
+  if (!sel.value) sel.value = Object.keys(DTYPE_BITS).find(
+    n => !unpacking || DTYPE_BITS[n] === MCA_LDSM_UNPACK_TO_BITS);
+  sel.title = unpacking
+    ? `unpack_bits widens the packed source into an ${MCA_LDSM_UNPACK_TO_BITS}-bit register ` +
+      `container, so tensor_dtype is restricted to ${MCA_LDSM_UNPACK_TO_BITS}-bit types`
+    : '';
+  const note = document.getElementById(`${tabId}-mca-dtype-note`);
+  if (note) {
+    note.style.display = unpacking ? '' : 'none';
+    note.textContent = unpacking
+      ? `restricted to ${MCA_LDSM_UNPACK_TO_BITS}-bit — unpack_bits widens into an ` +
+        `${MCA_LDSM_UNPACK_TO_BITS}-bit register container`
+      : '';
+  }
+}
+
 /** Rebuild the LdMatrix controls for `spec`. The three Ops disagree on all
  *  three parameters, and an illegal combination must not be reachable:
  *  num_matrices is {1,2,4} / {2,4} / {1,2}, transpose is optional on the b16 Op
@@ -732,6 +801,8 @@ function mcaRenderOpParams(tabId, op) {
   if (ldsm) ldsm.style.display = op.kind === 'ldmatrix' ? '' : 'none';
   if (op.kind === 'ldmatrix') mcaSyncLdsmControls(tabId, MCA_LDSM_SPECS[op.ldsm]);
   mcaSyncPresets(tabId, op.key);
+  // Last: its option list depends on the unpack_bits control set up above.
+  mcaSyncDtypeOptions(tabId);
   // num_bits_per_copy is meaningless for ldmatrix — grey it out rather than
   // hide it, so the absence is legible instead of just missing.
   const bits = document.getElementById(`${tabId}-mca-bits-input`);
@@ -834,9 +905,6 @@ function mcaDrawSimt(tabId, s) {
 function mcaDrawLdmatrix(tabId, s) {
   const a = s.atom;
   const [M, N] = a.tile.shape;
-  const dimTids = new Set();
-  for (let t = a.liveLanes; t < 32; t++) dimTids.add(t);
-  const labelMode = s.showValue ? 'value' : '';
 
   for (const side of ['src', 'dst']) {
     const L = side === 'src' ? a.src : a.dst;
@@ -849,9 +917,7 @@ function mcaDrawLdmatrix(tabId, s) {
         (a.numMatrices > 1 ? `, ${a.numMatrices} matrices` : '');
     document.getElementById(`${tabId}-mca-${side}-svg`).innerHTML =
       `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">${head}</div>` +
-      buildTVSVG(L.shape, L.stride, a.tile.shape, a.tile.stride, false, 'row', null, labelMode,
-                 { dimTids: side === 'src' ? dimTids : null,
-                   cellIndex: (m, n) => m * N + n });
+      buildTVSVG(...mcaLdsmPaneArgs(a, side, s.showValue));
     applyZoomState(`${tabId}-mca-${side}-svg`);
   }
   const q = `.x${a.numMatrices}${a.transpose ? '.trans' : ''}`;
@@ -860,18 +926,20 @@ function mcaDrawLdmatrix(tabId, s) {
 }
 
 
+// Assignment order matters, because two selects have option lists computed from
+// other controls: num_matrices / unpack_bits from the Op, and tensor_dtype from
+// unpack_bits. Assigning `.value` to a select that does not yet hold that option
+// is a SILENT no-op, so each list has to be rebuilt before it is written.
+//   op -> mcaRenderOpParams -> nm, tr, ub -> mcaSyncDtypeOptions -> dtype
 function setMCA(tabId, opKey, bits, dtype, nm, tr, ub) {
   document.getElementById(`${tabId}-mca-op-input`).value    = opKey;
   document.getElementById(`${tabId}-mca-bits-input`).value  = bits;
-  document.getElementById(`${tabId}-mca-dtype-input`).value = dtype;
-  // The num_matrices options are per-Op, so rebuild them BEFORE assigning —
-  // otherwise `.value = '2'` on a select that still holds the previous Op's
-  // options silently does nothing and the render uses a stale k.
-  const op = MCA_OPS[opKey] || MCA_OPS.universal;
-  mcaRenderOpParams(tabId, op);
+  mcaRenderOpParams(tabId, MCA_OPS[opKey] || MCA_OPS.universal);
   if (nm !== undefined) document.getElementById(`${tabId}-mca-nm-input`).value = String(nm);
   if (tr !== undefined) document.getElementById(`${tabId}-mca-trans-input`).value = String(tr);
   if (ub !== undefined) document.getElementById(`${tabId}-mca-ub-input`).value = String(ub);
+  mcaSyncDtypeOptions(tabId);
+  document.getElementById(`${tabId}-mca-dtype-input`).value = dtype;
   renderMakeCopyAtom(tabId);
 }
 

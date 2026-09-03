@@ -1042,10 +1042,6 @@ function tmaRenderDescriptor(tabId) {
   host.innerHTML = html;
 }
 
-// The coordinate tensor is affine, so a corner is fully representative — and a
-// full 256x128 grid would be 32k unreadable cells. Draw as much of the corner as
-// fits in a cell budget, which shows small tensors whole.
-const TMA_TENSOR_FULL_CELLS = 256;
 
 function tmaRenderTensorViz(tabId) {
   const s = tmaState[tabId];
@@ -1053,18 +1049,15 @@ function tmaRenderTensorViz(tabId) {
   if (!s || !host) return;
   const strideStr = tmaFormatBasisStride(s.tmaTensorStride);
   const full = `(0,0) o (${s.gShape.join(',')}):${strideStr}`;
-  let P0 = s.gShape[0], P1 = s.gShape[1];
-  for (let k = 1; k <= Math.max(s.gShape[0], s.gShape[1]); k++) {
-    const a = Math.min(s.gShape[0], k), b = Math.min(s.gShape[1], k);
-    if (a * b > TMA_TENSOR_FULL_CELLS) break;
-    P0 = a; P1 = b;
-  }
-  const clipped = P0 !== s.gShape[0] || P1 !== s.gShape[1];
+  // Draw the whole tensor. A budget that silently showed a corner made a 32x64
+  // tensor look 16x16; ui.js's MAX_CELLS already refuses anything genuinely
+  // undrawable, with a message, which beats a partial picture either way.
+  const P0 = s.gShape[0], P1 = s.gShape[1];
   const ndim = Math.max(basisRank(s.tmaTensorStride), 2);
   host.innerHTML =
     `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
     `tma_tensor = ${full}` +
-    (clipped ? ` &mdash; showing the top-left ${P0}&times;${P1} corner` : '') +
+
     `</div>` +
     buildBasisLayoutSVG([P0, P1], s.tmaTensorStride, ndim, null, new Set(['value']));
   applyZoomState(`${tabId}-tma-tensor-svg`);

@@ -1,0 +1,13 @@
+{
+  "name": "cute-layout-visualizer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Interactive browser tool for visualizing CUTLASS CuTe layouts, TV layouts, and layout operations.",
+  "scripts": {
+    "test": "node tests/run.js",
+    "test:verbose": "node tests/run.js --verbose",
+    "reference": "python3 tests/gen_reference.py",
+    "reference:check": "python3 tests/gen_reference.py --check"
+  },
+  "license": "MIT"
+}

@@ -72,6 +72,11 @@ function buildCellLines(modes, offset, index, coord) {
 /** Emit SVG <text> elements for cell labels, auto-fitting to cell size.
  *  cx, cy = cell center;  cs = cell size in px;  lines = array of strings;  fg = fill color. */
 function cellTextSVG(cx, cy, lines, cs, fg) {
+  // `fg` is either one colour for every line, or an array parallel to `lines`
+  // — the latter lets one cell mix live and dimmed entries, which is what the
+  // ldmatrix src grid needs (a broadcast lane's TxVx sits in the same cell as
+  // the live lane's and must read as subordinate to it).
+  const fgAt = (i) => (Array.isArray(fg) ? (fg[i] !== undefined ? fg[i] : fg[0]) : fg);
   const maxChars = Math.max(...lines.map(l => l.length));
   // ~0.6 char-width ratio for monospace; leave small padding
   const fsByWidth = (cs * 0.9) / (maxChars * 0.6);
@@ -84,7 +89,7 @@ function cellTextSVG(cx, cy, lines, cs, fg) {
   let out = '';
   for (let i = 0; i < lines.length; i++) {
     out += `<text x="${cx}" y="${startY + i * lineH}" text-anchor="middle" dominant-baseline="middle"
-      fill="${fg}" font-size="${fs}" font-family="monospace">${lines[i]}</text>`;
+      fill="${fgAt(i)}" font-size="${fs}" font-family="monospace">${lines[i]}</text>`;
   }
   return out;
 }
@@ -249,11 +254,23 @@ function buildLayoutSVG(shape, stride, mode, cellTextColor, allCellsEdgeColor) {
 }
 
 /** Build axis-label and grid SVG for a TV layout. */
-function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underlyingLayout, highlightTid, labelMode) {
+function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underlyingLayout, highlightTid, labelMode, opts) {
   // labelMode === 'value' → show the TV layout's output at each cell, i.e. the
   // col-major flat position (m + n*M). Anything else (including '' / undefined)
   // → no cell text. Thread id remains encoded by cell color.
   const showIdx = labelMode === 'value';
+  // opts.dimTids  — Set of thread ids drawn in transparent grey. A DISABLED
+  //   thread is one the layout still maps (layouts are total functions) but
+  //   whose contribution the instruction discards: ldmatrix.x1 takes addresses
+  //   from lanes 0-7 only, and CuTe encodes the other 24 as a stride-0 alias.
+  //   They must be visible — they are why size(layout) exceeds cosize — but
+  //   must not read as ordinary owners of the cell.
+  // opts.cellIndex — override for the `value` label. The default is the
+  //   col-major flat position, which is right for a col-major tile; a tile that
+  //   is row-major in its own codomain (the ldmatrix atom) passes its own.
+  opts = opts || {};
+  const dimTids = opts.dimTids || null;
+  const isDim = (tid) => !!(dimTids && dimTids.has(tid));
   underlyingLayout = underlyingLayout || 'col';
   // highlightTid is a number or null. When set, only cells whose entries
   // include that tid are shown in full color; all others are dimmed.
@@ -327,32 +344,43 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underl
       const dimmed = highlightTid !== null
         && entries.length > 0
         && !entries.some(e => e.tid === highlightTid);
+      const idxLabel = String(opts.cellIndex ? opts.cellIndex(m, n) : (m + n * M));
+      // Live entries decide the cell's identity; disabled ones ride along.
+      const live = entries.filter(e => !isDim(e.tid));
+      const dead = entries.filter(e => isDim(e.tid));
 
       if (entries.length === 0) {
         body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
           fill="#f0f0f0" stroke="#ccc" stroke-width="0.5"/>`;
         body += cellTextSVG(x + cs/2, y + cs/2, ['\u2014'], cs, '#bbb');
-      } else if (entries.length === 1) {
+      } else if (entries.length === 1 && live.length === 1) {
         const { tid, vid } = entries[0];
         const bg = dimmed ? '#f0f0f0' : colorTV(tid);
         const fg = dimmed ? '#bbb' : '#111';
         body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
           fill="${bg}" stroke="#ccc" stroke-width="0.5"/>`;
-        // T/V labels always visible; 'value' picker adds the col-major flat
-        // position (= the TV layout's output at this cell) on top.
+        // T/V labels always visible; 'value' picker adds the flat position
+        // (= the TV layout's output at this cell) on top.
         const lines = [`T${tid}`, `V${vid}`];
-        if (showIdx) lines.push(String(m + n * M));
+        if (showIdx) lines.push(idxLabel);
         body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fg);
       } else {
-        const bg = dimmed ? '#f0f0f0' : colorTV(entries[0].tid);
-        const fg = dimmed ? '#bbb' : '#111';
-        const stroke = dimmed ? '#ccc' : '#e53e3e';
-        const sw = dimmed ? 0.5 : 1.5;
+        // A cell claimed more than once. That is a COLLISION only when two
+        // enabled threads claim it — several disabled threads aliasing onto a
+        // live one is broadcast, which is the normal, correct shape of a
+        // stride-0 thread mode and must not be flagged red.
+        const collide = live.length > 1;
+        const bg = dimmed ? '#f0f0f0'
+                 : live.length ? colorTV(live[0].tid) : '#f7f8fa';
+        const stroke = (dimmed || !collide) ? '#ccc' : '#e53e3e';
+        const sw = (dimmed || !collide) ? 0.5 : 1.5;
         body += `<rect x="${x}" y="${y}" width="${cs}" height="${cs}"
           fill="${bg}" stroke="${stroke}" stroke-width="${sw}"/>`;
-        const lines = entries.map(e => `T${e.tid}/V${e.vid}`);
-        if (showIdx) lines.push(String(m + n * M));
-        body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fg);
+        const ordered = [...live, ...dead];
+        const lines = ordered.map(e => `T${e.tid}/V${e.vid}`);
+        const fills = ordered.map(e => dimmed ? '#bbb' : (isDim(e.tid) ? TV_DISABLED_FG : '#111'));
+        if (showIdx) { lines.push(idxLabel); fills.push(dimmed ? '#bbb' : '#111'); }
+        body += cellTextSVG(x + cs/2, y + cs/2, lines, cs, fills);
       }
     }
   }
@@ -1178,6 +1206,20 @@ const COPY_OP_MOVES = {
   tma_g2s: [
     ['GMEM', 'SMEM'],
   ],
+  // ldmatrix reads .shared::cta and writes registers — the source operand is a
+  // shared-memory address and the destination is the warp's register file, both
+  // fixed by the instruction encoding. There is no GMEM form (that is what
+  // cp.async / TMA are for) and no RMEM->SMEM form (that is stmatrix, a
+  // different Op). So the picker is a single disabled entry.
+  ldmatrix: [
+    ['SMEM', 'RMEM'],
+  ],
+  ldmatrix16x8x8b: [
+    ['SMEM', 'RMEM'],
+  ],
+  ldmatrix16x16x8b: [
+    ['SMEM', 'RMEM'],
+  ],
 };
 
 /** Section-0 control: pick one of the Op's legal memory movements. Options are
@@ -1430,7 +1472,7 @@ const FEATURE_SPEC = {
   zipped_product:  { inputs: 2 },
   blocked_product: { inputs: 2 },
   raked_product:   { inputs: 2 },
-  make_copy_atom:     { inputs: 3 },  // op, bits, dtype
+  make_copy_atom:     { inputs: 3, optional: 3 },  // op, bits, dtype [, num_matrices, transpose [, unpack_bits]]
   make_tiled_copy:    { inputs: 5 },  // op, bits, dtype, layout_tv, tiler_mn
   make_tiled_copy_tv: { inputs: 5 },  // op, bits, dtype, thr, val
   make_tiled_tma_atom: { inputs: 5 },  // dtype, gmem, swizzle, smem, tiler
@@ -1453,7 +1495,11 @@ function parseKeyParam() {
     method = parts[1];
     inputs = parts.slice(2);
   }
-  if (inputs.length !== spec.inputs) return null;
+  // `optional` lets a feature grow inputs without invalidating already-shared
+  // links: every URL exported before make_copy_atom learned about ldmatrix has
+  // 3 inputs and must keep working, so the tail is accepted but not required.
+  const maxInputs = spec.inputs + (spec.optional || 0);
+  if (inputs.length < spec.inputs || inputs.length > maxInputs) return null;
   return { feature, method, inputs };
 }
 
@@ -1560,6 +1606,18 @@ function applyKeyParam(tabId) {
       document.getElementById(`${tabId}-mca-op-input`).value    = inputs[0];
       document.getElementById(`${tabId}-mca-bits-input`).value  = inputs[1];
       document.getElementById(`${tabId}-mca-dtype-input`).value = inputs[2];
+      // The num_matrices options are per-Op, so rebuild them BEFORE assigning:
+      // `.value = '2'` on a select still holding the previous Op's options is a
+      // silent no-op, and the render would then use a stale k.
+      mcaRenderOpParams(tabId, MCA_OPS[inputs[0]] || MCA_OPS.universal);
+      // Only the LdMatrix Ops carry these; older 3-input links omit them.
+      if (inputs[3] !== undefined)
+        document.getElementById(`${tabId}-mca-nm-input`).value = inputs[3];
+      if (inputs[4] !== undefined)
+        document.getElementById(`${tabId}-mca-trans-input`).value = inputs[4];
+      // Only the two 8-bit LdMatrix Ops accept unpack_bits.
+      if (inputs[5] !== undefined)
+        document.getElementById(`${tabId}-mca-ub-input`).value = inputs[5];
       switchInnerTab(tabId, 'make_copy_atom');
       renderMakeCopyAtom(tabId);
       break;

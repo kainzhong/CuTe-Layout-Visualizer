@@ -388,6 +388,49 @@ function runUnitTests(V, T) {
     check('stripTrivialTrailing', 'leaves rank 2 alone', `${k.shape}:${k.stride}`, '8,4:1,8');
   });
 
+  // ── unpack_bits vs tensor_dtype ────────────────────────────────────────────
+  // Both are arguments to the same make_copy_atom call and they describe
+  // OPPOSITE SIDES of the copy, but CuTeDSL relates them not at all: verified
+  // byte-for-byte identical layouts across unpack_bits in {None, 4, 6} for
+  // every dtype, on all three 8-bit Ops. So a disagreeing pair is accepted in
+  // silence and the DSL cannot be the oracle for it.
+  setSection('unit/mcaUnpackBitsIssue');
+  guard('coherent-pairs-pass', () => {
+    // 8-bit dtype is the container these Ops unpack INTO -- the only coherent
+    // choice, and the only one that must stay silent.
+    check('mcaUnpackBitsIssue', 'int8 + unpack 4', V.mcaUnpackBitsIssue(8, 4), '');
+    check('mcaUnpackBitsIssue', 'int8 + unpack 6', V.mcaUnpackBitsIssue(8, 6), '');
+    // No unpacking requested: dtype is unconstrained by this check.
+    check('mcaUnpackBitsIssue', 'no unpack, half_t', V.mcaUnpackBitsIssue(16, 0), '');
+    check('mcaUnpackBitsIssue', 'no unpack, double', V.mcaUnpackBitsIssue(64, 0), '');
+  });
+  guard('mismatched-pairs-report', () => {
+    for (const [e, ub] of [[16, 4], [16, 6], [32, 4], [64, 6]]) {
+      const msg = V.mcaUnpackBitsIssue(e, ub);
+      check('mcaUnpackBitsIssue', `${e}-bit dtype + unpack ${ub} reports`, msg !== '', true);
+      check('mcaUnpackBitsIssue', `${e}-bit dtype + unpack ${ub} names both`,
+            msg.includes('unpack_bits') && msg.includes('tensor_dtype'), true);
+    }
+  });
+  guard('padding-arithmetic', () => {
+    // The reason no layout changes: 16 packed elements plus their padding
+    // occupy exactly the 128-bit row that 16 bytes do. If this stopped holding,
+    // the "unpack_bits changes nothing" claim would stop holding with it.
+    for (const [ub, pad] of [[4, 64], [6, 32], [8, 0]]) {
+      check('unpack padding', `16 x ${ub}b + ${pad}b pad`, 16 * ub + pad, 128);
+    }
+  });
+  guard('sub-byte-dtypes-absent', () => {
+    // A sub-byte tensor_dtype would model a DENSELY packed source (32 elements
+    // per row at 4 bits), which is not what .b4x16_p64 reads, and a 6-bit one
+    // is not even representable -- CuTeDSL returns a 22-element row, i.e. 132
+    // bits in a 128-bit row, without complaint. The dropdown offers no width
+    // that fails to divide the row, which is what keeps that unreachable here.
+    for (const [name, bits] of Object.entries(V.DTYPE_BITS)) {
+      check('DTYPE_BITS', `${name} (${bits}b) divides the 128b row`, 128 % bits, 0);
+    }
+  });
+
   // ── The load-order hazard CLAUDE.md warns about ────────────────────────────
   setSection('unit/load-order');
   guard('layout-js-wins', () => {

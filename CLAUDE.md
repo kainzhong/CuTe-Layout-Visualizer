@@ -483,6 +483,30 @@ visualization rather than a table row.
 `mcaLdmatrixAtom` at all; the render path reads it only to label the instruction and to say plainly
 that the picture is unchanged. Pinned by `unpack_bits` cases in `tests/cases.json`.
 
+The reason it changes nothing is arithmetic worth keeping: `16*4 + 64 == 16*6 + 32 == 16*8 == 128`.
+The padding exists so that 16 packed elements occupy exactly the 128-bit row 16 bytes would, which
+keeps the element count per row — and therefore every layout — invariant. `tests/unit.js` pins that
+identity, since the "changes nothing" claim rests on it.
+
+**`unpack_bits` and `tensor_dtype` describe OPPOSITE SIDES of the same copy, and CuTeDSL relates
+them not at all.** `_make_trait` routes `unpack_bits` into the LdsmSzPattern and
+`copy_internal_type` into the layouts; nothing checks that the two agree, so a disagreeing pair is
+accepted in silence. `mcaUnpackBitsIssue(elemBits, unpackBits)` is the guard (`tests/unit.js`, since
+by construction the DSL cannot be its oracle):
+
+- `tensor_dtype` is the **destination** register container. These Ops unpack *to 8b* —
+  `BaseOp.__str__` prints exactly that — so it must be 8-bit.
+- `unpack_bits` is the **source** packing in SMEM.
+
+Two ways to get it wrong. `unpack_bits=4` with `half_t` asks to unpack into 8-bit registers while
+describing the copy in 16-bit units; the DSL returns an 8-element row and says nothing. And the
+tempting one — passing a *sub-byte* `tensor_dtype` to match the packed source — is wrong in the
+other direction: a 4-bit type models a **densely** packed source (32 elements per row) where
+`.b4x16_p64` reads 16 plus padding, and a 6-bit type yields a **22-element row**, i.e. 132 bits in a
+128-bit row, again with no error. That second family is unreachable from this tab only because
+`DTYPE_BITS` contains no width that fails to divide 128 — a unit test pins that, so adding a
+sub-byte entry there cannot silently open the hole.
+
 **`num_matrices` decides how many lanes' addresses the hardware CONSUMES, not how much a lane
 addresses.** A lane always covers one 128-bit row; it consumes `(matrixBytes/16) * num_matrices` of
 the 32 lanes.

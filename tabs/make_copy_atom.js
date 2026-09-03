@@ -189,6 +189,38 @@ function mcaSyncPresets(tabId, opKey) {
   });
 }
 
+/** `unpack_bits` and `dtype` describe OPPOSITE SIDES of the same copy, and
+ *  CuTeDSL relates them not at all — `_make_trait` puts `unpack_bits` into the
+ *  LdsmSzPattern and `copy_internal_type` into the layouts, and nothing checks
+ *  that the two agree. So the disagreement is silent, which is why it is checked
+ *  here.
+ *
+ *    dtype        the DESTINATION register container. These Ops unpack "to 8b"
+ *                 (BaseOp.__str__ says so literally), so it must be 8-bit.
+ *    unpack_bits  the SOURCE packing in SMEM: 16 elements of 4 or 6 bits, padded
+ *                 out to the same 128-bit row 16 bytes would occupy.
+ *
+ *  Returns a message, or '' when the pair is coherent. Two ways to get it wrong:
+ *
+ *  - `unpack_bits=4, dtype=half_t` — asks to unpack into 8-bit registers while
+ *    describing the copy in 16-bit units. The DSL returns an 8-element row and
+ *    says nothing.
+ *  - `unpack_bits=4, dtype=<a 4-bit type>` — the tempting one, and wrong: it
+ *    models a DENSELY packed 4-bit source (32 per row), where `.b4x16_p64`
+ *    reads 16 plus 64 bits of padding. This tab cannot produce it, since
+ *    DTYPE_BITS has no sub-byte entry, but the DSL will. Worse, a 6-bit dtype
+ *    gives a 22-element row — 132 bits in a 128-bit row — with no error. */
+function mcaUnpackBitsIssue(elemBits, unpackBits) {
+  if (!unpackBits) return '';
+  if (elemBits === 8) return '';
+  return `unpack_bits=${unpackBits} unpacks into an 8-bit register container, but ` +
+         `tensor_dtype is ${elemBits}-bit. These two describe opposite sides of the copy — ` +
+         `unpack_bits the packed SOURCE in SMEM, tensor_dtype the DESTINATION container — ` +
+         `and CuTeDSL relates them not at all, so the pair is accepted and the layouts are ` +
+         `built entirely from tensor_dtype. For a packed ${unpackBits}-bit source, pass an ` +
+         `8-bit tensor_dtype and let unpack_bits describe the source.`;
+}
+
 /** The Copy_Atom produced by `make_copy_atom(<an LdMatrix Op>, dtype)`.
  *  DOM-free on purpose — `renderMakeCopyAtom` reads the form and draws, this
  *  does the arithmetic, and tests/run.js diffs it against CuTeDSL (see
@@ -590,6 +622,8 @@ function mcaRenderLdmatrix(tabId, opKey, op, dtype, elemBits, prev) {
       `${product(a.src.shape[0]) * product(a.src.shape[1])} against cosize = ` +
       `${a.tile.shape[0] * a.tile.shape[1]}. They are drawn in transparent grey.`);
   }
+  const ubIssue = mcaUnpackBitsIssue(elemBits, unpackBits);
+  if (ubIssue) notes.push(ubIssue);
   if (unpackBits) {
     notes.push(
       `unpack_bits=${unpackBits} selects the ` +
@@ -624,6 +658,13 @@ function mcaRenderLdmatrix(tabId, opKey, op, dtype, elemBits, prev) {
     `${a.rowsPerMatrix} rows &times; ${a.rowElems} ` +
     `(${MCA_LDSM_ROW_BITS} bits = 16 B per row, ${spec.matrixBytes} B per matrix)</div>` +
     `<div class="cuo-result-line">lanes supplying addresses = <b>${a.liveLanes}</b> of 32</div>` +
+    (unpackBits
+      ? `<div class="cuo-result-line">source container = 16 &times; ${unpackBits}b + ` +
+        `${128 - 16 * unpackBits}b padding = ${MCA_LDSM_ROW_BITS} b per row` +
+        `<span style="color:#9ca3af"> &mdash; the padding is what keeps 16 packed elements ` +
+        `in the same 128-bit row 16 bytes would occupy, which is why no layout changes` +
+        `</span></div>`
+      : '') +
     `<div class="cuo-result-line" style="color:#9ca3af">` +
     `<code>num_bits_per_copy</code> is <b>not</b> read for this Op &mdash; the width is fixed ` +
     `by the instruction, so <code>_make_trait</code> ignores the argument.</div>`;

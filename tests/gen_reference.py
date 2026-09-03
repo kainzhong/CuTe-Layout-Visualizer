@@ -254,12 +254,24 @@ def run_copy_atom(c):
     }
 
 
+LDSM_OPS = {
+    "ldsm8x8x16b": warp.LdMatrix8x8x16bOp,
+    "ldsm16x8x8b": warp.LdMatrix16x8x8bOp,
+    "ldsm16x16x8b": warp.LdMatrix16x16x8bOp,
+}
+
+
 def run_ldmatrix_atom(c):
-    # No num_bits_per_copy: LdMatrix8x8x16bOp._make_trait never reads it, the
+    # No num_bits_per_copy: _make_trait never reads it for any of these Ops, the
     # instruction width being fixed by the Op. Passing one would silently do
     # nothing, which is exactly the confusion the tab's disabled field avoids.
-    op = warp.LdMatrix8x8x16bOp(transpose=bool(c["transpose"]),
-                                num_matrices=c["num_matrices"])
+    kwargs = {"transpose": bool(c["transpose"]),
+              "num_matrices": c["num_matrices"]}
+    # unpack_bits is only legal on the two 8-bit Ops; where it IS legal it
+    # selects the LdsmSzPattern and changes no layout, which the JS side asserts.
+    if c.get("unpack_bits"):
+        kwargs["unpack_bits"] = c["unpack_bits"]
+    op = LDSM_OPS[c.get("op", "ldsm8x8x16b")](**kwargs)
     atom = cute.make_copy_atom(op, DTYPES[c["dtype"]])
     return {
         "thr_id": canon(atom.thr_id),

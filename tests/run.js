@@ -252,7 +252,8 @@ if (section('ldmatrix_atom')) {
     guard(c.id, () => {
       const elemBits = V.DTYPE_BITS[c.dtype];
       if (!elemBits) throw new Error(`DTYPE_BITS has no entry for "${c.dtype}"`);
-      const a = V.mcaLdmatrixAtom(elemBits, c.num_matrices, !!c.transpose);
+      const opKey = c.op || 'ldsm8x8x16b';
+      const a = V.mcaLdmatrixAtom(opKey, elemBits, c.num_matrices, !!c.transpose);
       check(c.id, 'thr_id', fmt(V, new V.Layout(a.thrId.shape, a.thrId.stride)), ref.thr_id);
       checkLayout(`${c.id}/src`, new V.Layout(a.src.shape, a.src.stride), ref.src);
       checkLayout(`${c.id}/dst`, new V.Layout(a.dst.shape, a.dst.stride), ref.dst);
@@ -264,10 +265,21 @@ if (section('ldmatrix_atom')) {
       check(c.id, 'tile_cells', M * N, ref.src.cosize);
       check(c.id, 'tile_cells_dst', M * N, ref.dst.cosize);
 
-      // The stride-0 broadcast: `.x1`/`.x2` map all 32 lanes but the hardware
-      // consumes 8/16 of them, so size exceeds cosize by exactly 32/liveLanes.
-      check(c.id, 'live_lanes', a.liveLanes, 8 * c.num_matrices);
+      // The stride-0 broadcast: an Op consumes (matrixBytes/16)*num_matrices of
+      // the 32 lanes, so size exceeds cosize by exactly 32/liveLanes. liveLanes
+      // is also the tile's row count -- one lane addresses one 16 B row.
+      const spec = V.MCA_LDSM_SPECS[opKey];
+      check(c.id, 'live_lanes', a.liveLanes,
+            (spec.matrixBytes / 16) * c.num_matrices);
+      check(c.id, 'live_lanes_eq_rows', a.liveLanes, M);
       check(c.id, 'src_broadcast', ref.src.size / ref.src.cosize, 32 / a.liveLanes);
+
+      // The Op's own parameter domains, as __post_init__ enforces them. A tab
+      // that offered an out-of-domain num_matrices would only produce errors.
+      check(c.id, 'num_matrices_legal', spec.numMatrices.includes(c.num_matrices), true);
+      if (spec.transpose === 'required') check(c.id, 'transpose_forced', c.transpose, true);
+      if (c.unpack_bits !== undefined)
+        check(c.id, 'unpack_bits_legal', !!spec.unpackBits, true);
     });
   }
 }

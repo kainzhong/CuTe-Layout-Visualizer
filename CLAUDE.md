@@ -29,8 +29,9 @@ tabs/
   make_copy_atom.js     "make_copy_atom" tab (COPY scope) — mirrors cute.make_copy_atom(op, dtype,
                         num_bits_per_copy). Section 1 picks the Op and shows its CONSTRUCTOR params;
                         section 2 takes make_copy_atom's own arguments. Two visualizations, chosen by
-                        `MCA_OPS[key].kind`: the SIMT Ops draw one 1xN value grid, `warp.LdMatrix8x8x16bOp`
-                        draws the src/dst TV layouts over the atom's tile. Prefix `mca`.
+                        `MCA_OPS[key].kind`: the SIMT Ops draw one 1xN value grid, the three
+                        `warp.LdMatrix*` Ops draw the src/dst TV layouts over the atom's tile.
+                        Presets are filtered to the selected Op. Prefix `mca`.
   make_tiled_copy.js    "make_tiled_copy" tab (COPY scope) — the PRIMITIVE constructor: you supply
                         layout_tv and Tiler_MN directly. Also holds everything shared with the
                         make_tiled_copy_tv tab (mtcAtomSection/mtcReadAtom, mtcVizSection,
@@ -218,6 +219,7 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=raked_product-(2,2):(1,2)-(3,3):(1,3)
 ?key=make_copy_atom-universal-128-half_t
 ?key=make_copy_atom-ldmatrix-128-half_t-4-1   # ldmatrix adds num_matrices, transpose
+?key=make_copy_atom-ldmatrix16x16x8b-128-int8_t-2-1-6   # the 8b Ops add unpack_bits
 ?key=make_tiled_copy-cpasync-128-half_t-((8,16),8):((128,1),16)-(16, 64)
 ?key=make_tiled_copy_tv-cpasync-128-half_t-(16,8):(8,1)-(1,8):(1,1)
 ?key=swizzle-(8, 8):(8, 1)-3, 0, 3
@@ -226,8 +228,14 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ```
 - Parsing is in `parseKeyParam()` (driven by `FEATURE_SPEC` in ui.js).
 - A feature may declare `optional: N` alongside `inputs`, accepting `inputs .. inputs+N` values. That
-  is how `make_copy_atom` grew `num_matrices` / `transpose` for ldmatrix **without invalidating the
-  3-input links already shared**; `exportMCA` emits the tail only for the Op that has one.
+  is how `make_copy_atom` grew `num_matrices` / `transpose` for ldmatrix, then `unpack_bits` for the
+  8-bit Ops, **without invalidating the shorter links already shared**; `exportMCA` emits each part of
+  the tail only for the Ops that have it, so a `CopyUniversalOp` link stays 3 inputs and an
+  `LdMatrix8x8x16bOp` link stays 5.
+- **A `<select>` whose options are rebuilt per Op must be repopulated BEFORE the value is assigned.**
+  `sel.value = '2'` on a select still holding the previous Op's options is a silent no-op, and the
+  render then runs with a stale parameter. `setMCA` and `applyKeyParam` both call `mcaRenderOpParams`
+  first for exactly this reason.
 - Rendering is in `applyKeyParam()` (dispatches to the tab's render function).
 - Export buttons live next to each Render button and call `exportURL(btnId, feature, ...inputs)`.
 
@@ -318,11 +326,19 @@ One thing `run.js` does check against the DSL here: for every `tma_atom` case Cu
 accepted, the tab must report **no** error-level issue. A validation that fires on valid
 input is as broken as one that misses invalid input.
 
-`ldmatrix_atom` does the same trick for the two facts the tab draws but the DSL does not
-name: the tile the panes are placed into must equal `cosize` on **both** sides (a tile
-bigger or smaller would draw empty cells or silently wrap), and `size/cosize` on the src
-side must equal `32/liveLanes` — i.e. the greyed-out lanes are exactly the broadcast
-factor, checked against CuTeDSL's own `size` and `cosize` rather than against a guess.
+`ldmatrix_atom` does the same trick for the facts the tab draws but the DSL does not name:
+the tile the panes are placed into must equal `cosize` on **both** sides (a tile bigger or
+smaller would draw empty cells or silently wrap); `size/cosize` on the src side must equal
+`32/liveLanes`, i.e. the greyed-out lanes are exactly the broadcast factor; and
+`liveLanes === tile rows`, which is the `matrixBytes/16` identity above. All checked against
+CuTeDSL's own `size` and `cosize` rather than against a guess. The section also pins each
+Op's parameter domains, since a tab offering an out-of-domain `num_matrices` would produce
+nothing but error boxes.
+
+The `unpack_bits` cases exist for a claim the tab makes in prose: that the parameter selects
+the `LdsmSzPattern` and changes no layout. Those cases pass the argument to CuTeDSL and diff
+the result against a derivation that never received it, so the claim is enforced rather than
+asserted.
 
 ### The harness, and the load-order hazard
 
@@ -430,14 +446,46 @@ For `CopyUniversalOp` and `cpasync.CopyG2SOp` the two panes are identical, becau
 src layout is an *addressing* pattern (which lane points where) and the dst layout is the register
 outcome. Keep the two render paths separate even while they agree.
 
-### make_copy_atom's ldmatrix Op
+### make_copy_atom's LdMatrix family
 
-`warp.LdMatrix8x8x16bOp(transpose, num_matrices)` — PTX
-`ldmatrix.sync.aligned.m8n8.x{1,2,4}[.trans].shared.b16`. This is the tab's first Op with constructor
-params, its first `ThrID` above 1, and its first genuinely divergent src/dst pair.
+Three Ops, all warp-collective SMEM→RMEM loads with `ThrID = 32:1` and a genuinely divergent
+src/dst pair. `MCA_LDSM_SPECS[key]` carries the geometry and the parameter domains;
+`mcaLdmatrixAtom(opKey, elemBits, numMatrices, transpose)` is the one DOM-free derivation for all
+three. `MCA_OPS` entries just name a spec via `ldsm`.
+
+| Op | matrix | unitBits | bytes/matrix | num_matrices | transpose | unpack_bits |
+|---|---|---|---|---|---|---|
+| `LdMatrix8x8x16bOp` | 8x8 | 16 | 128 | 1, 2, 4 | optional | **rejected** |
+| `LdMatrix16x8x8bOp` | 16x8 | 8 | 128 | 2, 4 | **required** | None, 4, 6 |
+| `LdMatrix16x16x8bOp` | 16x16 | 8 | 256 | 1, 2 | **required** | None, 4, 6 |
+
+The domains are enforced by `__post_init__`, so `mcaSyncLdsmControls` rebuilds the `num_matrices`
+options per Op, pins-and-disables `transpose` where it is mandatory, and hides `unpack_bits` where it
+is rejected — an out-of-domain control could only ever produce an error box.
+
+**`matrixBytes/16` is the load-bearing constant.** A lane addresses 16 B, so it is simultaneously the
+rows per matrix and the lanes one matrix consumes, which is why `liveLanes === tile rows` always
+(asserted in the tests). 8x8 of 16-bit and 16x8 of 8-bit are both 128 B and therefore both give
+`8*k` rows; 16x16 of 8-bit is 256 B and gives `16*k`.
+
+**`LdMatrix16x8x8bOp` is the one that is NOT a re-parameterization.** It has no direct PTX form: the
+DSL lowers it to `.m16n16` plus address and value permutations chosen to match
+`stmatrix.m16n8.trans`. That permutation is baked into `ValLayoutSrc`, which is a **rank-4 thread
+mode** `((2,2,4,2), R):((R, 8R, 2R, 0 or 16R), 1)` rather than the `(live, broadcast)` pair every
+other Op has. Concretely the lane→row map is permuted — `T0→r0 T1→r1 T2→r8 T3→r9 T4→r2 T5→r3
+T6→r10 …` — which the src pane now shows directly, and which is exactly why this Op earns a
+visualization rather than a table row.
+
+**`unpack_bits` changes NO layout.** It selects the `LdsmSzPattern` the DSL hands to MLIR (`u8` /
+`u4x16p64to8` / `u6x16p32to8`), i.e. the PTX qualifier and the packed source container — 16x4b with
+64b padding, or 16x6b with 32b padding, widened into 8-bit registers. Verified identical across all
+**156** accepted combinations of the two 8-bit Ops, which is why it is not a parameter of
+`mcaLdmatrixAtom` at all; the render path reads it only to label the instruction and to say plainly
+that the picture is unchanged. Pinned by `unpack_bits` cases in `tests/cases.json`.
 
 **`num_matrices` decides how many lanes' addresses the hardware CONSUMES, not how much a lane
-addresses.** A lane always covers one 128-bit row; `.x1` consumes lanes 0–7, `.x2` 0–15, `.x4` all 32.
+addresses.** A lane always covers one 128-bit row; it consumes `(matrixBytes/16) * num_matrices` of
+the 32 lanes.
 The lanes it does not consume still execute the instruction and still hand over an address operand —
 `.sync.aligned` requires the whole warp converged, and there is no membermask on this instruction —
 so `ValLayoutSrc` has to be a total function over the warp. CuTe writes that as a **stride-0** second
@@ -451,37 +499,39 @@ codomain, covering the same cells and nothing more. Do not add a connector betwe
 *which lane points at which 16 B row*; dst is *which lane ends up holding which element*; the data
 crosses lanes inside the instruction, so a lane never receives the row it addressed.
 
-**`mcaLdmatrixAtom(elemBits, numMatrices, transpose)` is the DOM-free derivation**, and everything it
-returns is the instruction's fixed 16-bit geometry divided through by the element width — which is
-what `copy_internal_type` does in the DSL, and why `Float32` gives an 8x4 tile where `Float16` gives
-8x8 for the same instruction. Three structural branches, all diffed against CuTeDSL:
+**Everything the derivation returns is the instruction's fixed geometry divided through by the
+element width** — which is what `copy_internal_type` does in the DSL, and why `Float32` gives an 8x4
+tile where `Float16` gives 8x8 for the same instruction. The scale is `unitBits / elemBits`, so the
+same three structural branches appear for every Op, just around a different unit:
 
-- element **is** the 16-bit transpose unit (`half_t`) — the base case
-- element **smaller** (`int8_t`) — a leading value mode of `16/e` appears, because `.trans` moves
-  16-bit units so adjacent bytes stay together
-- element **larger** (`float`, `double`) — an element spans several units, which the transpose
-  separates, so the transposed thread mode drops **below 32 lanes**
+- element **is** the transpose unit — the base case (`half_t` for the b16 Op, `int8_t` for the 8b ones)
+- element **smaller** — a leading value mode of `unitBits/e` appears, because the transpose moves
+  whole units so the elements packed inside one stay adjacent
+- element **larger** — an element spans several units, which the transpose separates, so the
+  transposed thread mode drops **below 32 lanes**
 
 The tab reports that last case rather than hiding it: CuTeDSL recasts happily and returns a layout,
-but `.trans` on `.m8n8` is a `.b16` transpose whatever `copy_internal_type` says. Elements wider than
-64 bits are refused outright — a 128-bit row would hold fewer than 2 of them and the 8x8 matrix
-degenerates.
+but the transpose is `unitBits` wide whatever `copy_internal_type` says. Elements wider than 64 bits
+are refused outright — a 128-bit row would hold fewer than 2 of them and the matrix degenerates.
+Note the 8-bit Ops can never hit the "element smaller" branch, since 8 bits is the narrowest entry
+in `DTYPE_BITS`.
 
 **`num_bits_per_copy` is ignored by this Op** (`_make_trait` never reads it). The field is *disabled*
 rather than hidden, so the absence is legible rather than mysterious.
 
-**`unpack_bits` does not belong here.** It is on the shared `BaseOp`, but `LdMatrix8x8x16bOp`'s
-`__post_init__` raises `"Op doesn't support unpacking"` for anything but `None`. It selects the
-`.b4x16_p64` / `.b6x16_p32` qualifiers on the sub-byte Ops (`LdMatrix8x16x8bOp`,
-`LdMatrix16x8x8bOp`, `LdMatrix16x16x8bOp`) — a packed 4- or 6-bit source container widened into 8-bit
-registers. Those are separate Ops and become separate `MCA_OPS` entries, each with its own
-`num_matrices` domain (`{1,2,4}` here, `{2,4}` for `16x8x8b`, `{1,2}` for `16x16x8b`) and its own
-transpose rule (mandatory on the two 16-row Ops, rejected on `8x16x8b`). `StMatrix*` is the same
-shape of work in the RMEM→SMEM direction.
+**Still missing from the family**: `LdMatrix8x16x8bOp` (the third 8-bit Op — `transpose` is
+*rejected* on it, `num_matrices` is `{1,2,4}`, and without unpacking the DSL notes it is equivalent
+to `8x8x16b`), and the whole `StMatrix*` set, which is the same shape of work in the RMEM→SMEM
+direction and would need `COPY_OP_MOVES` entries pointing the other way.
 
-**The atom's tile is ROW-major in its own codomain** — flat = `m*N + n`, `8*num_matrices` rows of
-`128/elemBits` elements, one lane-addressed row per grid row. That is why the viz passes `cellIndex`
-to `buildTVSVG`; the TV tab's tile is col-major and the default would print the wrong number.
+**The atom's tile is ROW-major in its own codomain** — flat = `m*N + n`,
+`(matrixBytes/16)*num_matrices` rows of `128/elemBits` elements, one lane-addressed row per grid row.
+That is why the viz passes `cellIndex` to `buildTVSVG`; the TV tab's tile is col-major and the
+default would print the wrong number.
+
+**Presets are data, not markup** (`MCA_PRESETS` + `mcaPresetButtons`), because they are FILTERED to
+the selected Op by `mcaSyncPresets`. Twenty buttons for five unrelated instructions is a wall, and
+only one Op's presets can ever apply. Adding an Op means adding rows, not editing the template.
 
 Concretely: a copy-atom tab must NOT take a tensor layout, must NOT compute a partition, and must NOT
 offer coalescing or bank-conflict checks. Those belong to the TV Layout tab, which already accepts a

@@ -149,6 +149,7 @@ function renderMakeTiledCopyTv(tabId) {
       tileMode: (prev.tileMode instanceof Set) ? prev.tileMode : new Set(),
     };
 
+    mtcRenderAtomViz(tabId, 'mtv', mtvState[tabId]);
     mtcRenderTileViz(tabId, 'mtv', mtvState[tabId]);
     mtcRenderThreadPanel(tabId, 'mtv', mtvState[tabId]);
     updateOuterTabLabel(tabId, `make_tiled_copy_tv:${atom.numBits}b/${atom.dtype}`);

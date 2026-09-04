@@ -21,7 +21,8 @@ tabs/
   divide.js        "Logical Divide" tab
   zipped.js        "Zipped / Tiled / Flat Divide" tab (dropdown picks result form)
   local_tile.js    "local_tile" tab — `zipped_divide` + a slice. Greys out everything the coord
-                   did NOT select, one colour per surviving tile. Prefix `lt`.
+                   did NOT select, one colour per surviving tile. Takes the optional `proj`
+                   (`(1, x, 1)`), which dices tiler and coord first. Prefix `lt`.
   product.js       "Logical Product" tab
   zipped_product.js "Zipped / Tiled / Flat Product" tab (single-layout tiler, dropdown picks result form)
   blocked_product.js "Blocked Product" tab (rank-preserving matrix tiling)
@@ -36,7 +37,7 @@ tabs/
                         layout_tv and Tiler_MN directly. Also holds everything shared with the
                         make_tiled_copy_tv tab (mtcAtomSection/mtcReadAtom, mtcVizSection,
                         mtcBuildTileLookup, mtcCoverageCheck, mtcVectorizationCheck, mtcRenderTileViz,
-                        mtcRenderThreadPanel, setMtcMode) — prefix `mtc`.
+                        mtcRenderThreadPanel, mtcReadHighlight, setMtcMode) — prefix `mtc`.
   make_tiled_copy_tv.js "make_tiled_copy_tv" tab (COPY scope) — the DERIVED constructor: thr_layout
                         + val_layout in, (layout_tv, Tiler_MN) out, then the same viz — prefix `mtv`.
   make_tiled_tma_atom.js "make_tiled_tma_atom" tab (COPY scope) — the TMA atom for
@@ -178,6 +179,15 @@ produce hierarchical coordinates this 2-D grid cannot draw.
 - **SVG helpers**: `cellSize`, `svgFitStyle`, `cellTextSVG`, `buildCellLines`, `toModeSet`
 - **Zoom**: `applyZoomState`, `toggleZoom`
 - **Copy SRC/DST panes**: `COPY_OP_MOVES`, `copyMoveField`, `syncCopyMoves`, `copyMove`, `setCopyMove`, `updateCopyPaneTitles`, `initCopyPanes`, `copyDirButtons`, `copyPanes`, `setCopyDir`, `copyDir`, `toggleCopyZoom` — the side-by-side view shared by all four Copy tabs. Both SVGs are always in the DOM; `data-dir` on `.copy-panes` decides visibility, so SRC/DST/BOTH is pure CSS and needs no re-render. In BOTH mode the panes are equal flex children, which halves each SVG's width while `width:100%;height:auto` preserves its ratio. Note `attachVizFullscreenButtons` iterates **every** `.viz-box` inside a `.comp-viz-item`, not just the first — the Copy tabs put two panes in one item, and taking the first left DST without a button.
+- **One atom renderer, three tabs**: `simtAtomPaneHTML(side, layoutStr, elements, dtype)` draws the
+  `(1, N):(0, 1)` value strip. `make_copy_atom` uses it for its panes; `make_tiled_copy` /
+  `make_tiled_copy_tv` draw the SAME strip in a `comp-viz-item` **above** their tile viz, so the unit
+  and the tiling of that unit are visible together. Every cell is `colorTV(0)` — the colour T0's first
+  invocation gets in the tile grid below — so the two pictures line up rather than merely coexist.
+  The atom panes use prefix `<p>-atom` and have no movement picker of their own; `mtcReadAtom` calls
+  `updateCopyPaneTitles(tabId, '<p>-atom', p)` so they follow the tab's selection. `mtcClearPanes`
+  clears both pairs, since a stale atom strip over a blank tile would read as "the atom is fine, the
+  tiling failed".
 - **One Op table, three pickers**: `SIMT_COPY_OPS` + `simtCopyOpOptions(sel)`. Every Op whose Atom is
   `ThrID = 1:0` with `ValLayoutSrc == ValLayoutDst == (1, N):(0, 1)` — `CopyUniversalOp`,
   `cpasync.CopyG2SOp`, and the four directional `CopyG2ROp` / `CopyR2GOp` / `CopyS2ROp` / `CopyR2SOp`.
@@ -232,6 +242,7 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=complement-(2,2):(1,2)-(4,4):(1,4)
 ?key=logical_divide-(12,32):(32,1)-3:1\n8:1
 ?key=local_tile-(16, 16):(16, 1)-(4, 4)-(1, 2)
+?key=local_tile-(32, 64):(64, 1)-(8, 16, 4)-(1, 2, _)-(1, X, 1)   # proj is the optional 4th
 ?key=zipped_product-(2,2):(1,2)-(2,2):(1,2)
 ?key=blocked_product-(2,2):(1,2)-(3,3):(1,3)
 ?key=raked_product-(2,2):(1,2)-(3,3):(1,3)
@@ -280,12 +291,15 @@ Layout:
 tests/cases.json        the shared corpus — inputs as CuTe layout STRINGS, so the
                         parser is exercised on the way in
                         Sections: layout_ops, basis_ops, make_layout_tv, make_tiled_copy,
-                        copy_atom, ldmatrix_atom, mma_atom, tma_atom, tma_partition, swizzle
+                        copy_atom, ldmatrix_atom, mma_atom, tma_atom, tma_partition,
+                        swizzle, local_tile
 tests/gen_reference.py  runs cases.json through CuTeDSL -> tests/reference.json
 tests/reference.json    committed golden output (never hand-edit)
 tests/harness.js        loads the browser globals into node
 tests/run.js            runs cases.json through the JS port and diffs
 tests/unit.js           only the parts with no CuTeDSL analogue
+tests/dom_smoke.js      the tabs' RENDER paths against a DOM shim — every preset,
+                        renderAllTabs, and every ?key= round-trip. Part of `npm test`.
 tests/gpu_check.py      OPTIONAL, needs a GPU. Compiles and EXECUTES each Op a
                         tab offers -- the gate for adding one. Not in `npm test`.
 ```
@@ -299,6 +313,44 @@ No GPU is needed to regenerate. Every layout in the corpus is static, so the gen
 runs entirely at **trace time** inside one `@cute.jit` function. It tolerates the MLIR
 compilation of that combined trace failing (tracing a hundred unrelated TMA descriptors
 in one function does that) but only after verifying every case was evaluated first.
+
+### The math is not the tab
+
+`run.js` diffs the math against CuTeDSL. It cannot see the other half of a tab: a mistyped element id,
+a preset that throws, a `<select>` whose options are rebuilt after its value is assigned, a pane that
+never receives an SVG. Those stay invisible until someone opens the page — and for `applyKeyParam`,
+until someone opens a shared **link**, which is worse because it throws during init outside any
+try/catch.
+
+`tests/dom_smoke.js` runs the real render functions against a DOM shim rich enough to execute them,
+and fails on a throw, a populated error box, an element id no template declared, or an empty
+visualization pane. It drives `initCopyPanes` + `renderAllTabs` (exactly what `addOuterTab` does),
+every preset button found in the generated markup, and every `?key=` form through `parseKeyParam`.
+It is Node-only and part of `npm test`.
+
+It has already earned its place twice: it caught `make_mma_atom`'s K `<select>` reading `''` on the
+first render (the options are built by `mmaSyncControls`, and the code was leaning on the browser
+auto-selecting option 0 after an `innerHTML` swap), and it caught `updateCopyPaneTitles` blind-probing
+for an atom pane pair that only two of the four Copy tabs have.
+
+Two things it needs and a new tab must not break: controls are seeded from the markup's declared
+defaults (`value="…"`, `<textarea>` bodies, `<option selected>`), and every preset button's handler
+must be `setX('${id}', ...)` so the driver can find it.
+
+**Handler arguments are obtained by EVALUATING the handler with its target stubbed, never by regex.**
+The markup is two decodings away from the values a browser passes: character references resolve
+first, then the JS parser resolves backslash escapes. A regex gets both layers wrong — it hands back
+`&lt;` where the browser hands back `<`, and the two characters `\n` where the browser hands back a
+newline. `handlerArgs` runs the onclick through `vm.runInContext` instead, which is what the browser
+does, so both layers are right for free.
+
+**Silence is the failure mode to design against here.** Two `local_tile` presets were dead for four
+commits — a `\n` in the template literal put a real newline inside the onclick's single-quoted
+string, so the browser raised a SyntaxError and the button did nothing — and dom_smoke did not
+notice, because its matcher's `.` does not cross a newline and it *skipped* what it could not parse.
+Two checks close that off, and neither should be removed: **every inline handler must parse as JS**
+(405 of them, covering handlers the driver never invokes), and **every preset button must be
+accounted for** as having actually run, rather than merely the ones a pattern liked.
 
 ### Only ship an Op a user can actually use
 
@@ -448,6 +500,50 @@ The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. E
   bug ate every preset on the first pass. A line *with* a colon is still a single layout tiler, and
   several lines are still one per mode. It also uses `parseValue`, not `parseLayout`, because the
   latter pads a bare `8` out to `(8,1)` and would silently invent a second tiler mode.
+
+  **`proj` is pure pre-processing, and the tab implements it as exactly that.**
+  `local_tile(t, tiler, coord, proj)` is *defined* as
+  `local_tile(t, dice(proj, tiler), dice(proj, coord))` (tensor_impl.hpp:1049), so `ltDiceTiler`
+  runs before anything else and everything downstream — `zipped_divide`, the slice, both grids,
+  the rank warning — sees only the projected tiler. It is what lets one
+  `cta_tiler = (BLK_M, BLK_N, BLK_K)` and one `cta_coord = (m, n, _)` tile all three GEMM operands.
+  `proj` and `coord` decide independent things per dimension: `proj` decides whether the tiler mode
+  exists at all (a number **selects** it, `x` / `_` / `None` **masks it out**), and `coord` matters
+  only for the survivors, where an index picks a tile and `_` keeps the mode as the result's k-loop
+  mode. A masked dimension's coord component is thrown away **unread** — that is the point, since
+  `cta_coord`'s `m` and `n` are concrete and gA must discard `n` while gB discards `m`. Verified
+  against CuTeDSL: `(1, 2, _)`, `(1, 999, _)` and `(1, _, _)` under `(1, x, 1)` all give the same
+  layout and origin.
+  The rank warning deliberately reports the **projected** tiler: a rank-3 tiler is the normal case
+  with a proj, so warning about the pre-dice form would be noise.
+
+  **Both fields normalize on Render** (`projNorm` / `coordNorm`, computed in `ltComputeLocalTile` so
+  the strings are unit-testable, written back by `renderLocalTile`). Every selected dimension comes
+  back `1` and every masked one `_`, because `dice` never reads the value — `(2, X, 7)` and
+  `(1, _, 1)` are the *same* projection and one spelling stops that looking like a distinction the
+  tool tracks. The coord is rewritten **in the masked slots only**: a number there is discarded
+  unread, so leaving it on screen would imply it still selects something; surviving slots keep
+  exactly what was typed. Without a proj nothing is masked and neither field is touched — in
+  particular a blank coord stays blank rather than expanding to `(_, _)`. Normalization runs only on
+  **success**, so a rejected input stays on screen to be fixed, and only from the Render path —
+  neither field has an `oninput` handler, so it cannot fight typing. `dom_smoke` asserts the
+  write-back lands in the right box, which the pure test cannot see.
+
+  **The field takes VALUES, and CUTLASS C++'s `Step<_1, X, _1>` is deliberately refused.** `_1` is
+  `Int<1>` — a template parameter, not something anyone types into a text box — so the grammar is
+  `(1, x, 1)` or the DSL's `(1, None, 1)`. `ltParseProj` still *recognizes* both C++ spellings well
+  enough to name them in the error, because `Step<_1, X, _1>` is exactly what gets pasted out of a
+  GEMM kernel and "Cannot read proj component" would be a poor answer to it. `parse_lt_coord` in
+  `tests/gen_reference.py` is the Python twin of this grammar and must stay in step; the refusals are
+  pinned in `tests/unit.js`, since CuTeDSL takes C++ types and cannot be the oracle for text.
+
+  **A rest mode can itself be a tuple**, which a single layout tiler routinely produces
+  (`(2,(2,16))`). A scalar coord component into such a mode is a *flat* index into it — CuTe's
+  `crd2idx` does `idx2crd` on it first — so the "which tiles survived" scan decomposes the rest
+  index col-major keeping each mode flat, rather than comparing against `idx2crd`'s nested
+  coordinate. Comparing structurally selected **zero** tiles and left `kept[0]` undefined.
+  CuTeDSL is not the oracle for this one: its MLIR `crd2idx` cannot infer a result type for that
+  coord/layout pair at all, so the case lives in `tests/unit.js`.
 - `copy` — the copy-construction pipeline: `make_copy_atom` (one instruction), then `make_tiled_copy` / `make_tiled_copy_tv` (replicate it over a tile), plus `make_tiled_tma_atom` and `tma_partition` (the TMA path, which bypasses threads entirely). Accent color: emerald (`#10b981`).
 - `mma` — the MMA side: `make_mma_atom`. Accent color: amber (`#f59e0b`). The natural next tabs are `make_tiled_mma` (the analogue of `make_tiled_copy`) and `make_tiled_copy_A/B`, which is where the copy and MMA scopes finally meet.
 
@@ -684,6 +780,25 @@ Two ways the sizes legitimately differ:
   which splits top-level commas and reads each mode separately. Tiler strides are accepted and
   reported but do not change the picture: they say where the tile's cells sit in the *tensor*, and
   this tab never involves a tensor.
+
+### Highlighting a thread
+
+All three tabs that draw a TV partition — `tv`, `make_tiled_copy`, `make_tiled_copy_tv` — take a
+**Highlight thread** id, live on `oninput`, and must dim the same way: a dimmed cell keeps its
+`T`/`V` labels in `#bbb` on `#f0f0f0`, the palette `buildTVSVG` uses. Highlighting is a **focus, not
+a mask** — erasing the text instead (which `mtcRenderTileViz` used to do) made the rest of the tile
+unreadable the moment a thread was picked, so you could no longer see what the highlighted thread was
+interleaved *with*, which is the whole reason to pick one. An unclaimed cell is `—` in the same grey,
+again as the TV tab draws it.
+
+The mtc/mtv side adds two things the TV tab has no analogue for, and both should stay: `mtcReadHighlight`
+**warns** on an out-of-range id and shows all threads, rather than silently ignoring it (the tile's
+thread count is derived, so a stale id after an Op change is easy to hit); and `mtcRenderThreadPanel`
+prints that thread's atom-by-atom `(m, n)` coordinates below the grid, which is where `FrgX > 1`
+becomes legible.
+
+`tests/dom_smoke.js` drives all three setters with an in-range id, an out-of-range one and a clear —
+the fields ship empty, so nothing else in the suite reaches those handlers.
 
 ### Validation that CuTe itself skips
 
@@ -1046,4 +1161,11 @@ demo error messages — never ship one that lands in the error box. If a case is
 because it is subtly wrong (e.g. a `val_layout` that can't vectorize), it belongs as a preset only
 if the tab still renders and reports it as an inline diagnostic.
 
-Edit the relevant `tabs/*.js` file and add preset buttons to its `generateXTabContent` output. Each preset button should call the tab's `setX(tabId, ...)` helper. For multi-line tiler presets, use `\\n` in the string (the template literal produces `\n` in the HTML, which JS then interprets as a newline).
+Edit the relevant `tabs/*.js` file and add preset buttons to its `generateXTabContent` output. Each preset button should call the tab's `setX(tabId, ...)` helper.
+
+**For multi-line tiler presets, use `\\n` in the string** — the template literal then emits the two
+characters `\n` into the attribute, and the onclick's own string literal reads them as a newline. A
+single `\n` emits a *real* newline into the attribute, which is a SyntaxError inside a single-quoted
+JS string: the browser reports it and the button silently does nothing. Two presets shipped that way.
+`dom_smoke` now parses every inline handler and requires every preset button to have run, so this
+cannot recur silently.

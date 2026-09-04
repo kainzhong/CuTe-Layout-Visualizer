@@ -1271,6 +1271,28 @@ const SIMT_COPY_OPS = {
   },
 };
 
+/** One SIMT atom pane: the `(1, N):(0, 1)` value strip, as a header line plus
+ *  the SVG. Shared by all three tabs that draw a SIMT atom — `make_copy_atom`
+ *  and, above their tile viz, `make_tiled_copy` / `make_tiled_copy_tv`. One
+ *  renderer so the three pictures cannot drift apart; that is the same lesson
+ *  SIMT_COPY_OPS records.
+ *
+ *  Every cell gets the SAME colour: one instruction moves the whole row, so
+ *  there is nothing to distinguish. It is `colorTV(0)` — the colour the tiled
+ *  tabs give T0's first atom invocation — so the atom strip and the tile grid
+ *  below it line up visually. */
+function simtAtomPaneHTML(side, layoutStr, elements, dtype) {
+  const lp = parseLayout(layoutStr);
+  const initColor = colorTV(0);
+  return `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
+    `ValLayout${side === 'src' ? 'Src' : 'Dst'} = ${layoutStr} &mdash; ` +
+    `${elements} contiguous ${dtype} element${elements === 1 ? '' : 's'}, one instruction` +
+    `</div>` +
+    buildColoredLayoutSVG(lp.shape, lp.stride, 'value', (m, n, offset) =>
+      // One quantity per cell: which value of the atom this slot holds.
+      ({ bg: initColor, text: [`V${offset}`] }));
+}
+
 /** `<option>` markup for every SIMT Op, with `sel` preselected. */
 function simtCopyOpOptions(sel) {
   return Object.entries(SIMT_COPY_OPS).map(([k, o]) =>
@@ -1353,9 +1375,14 @@ function copyMove(tabId, p) {
 
 function setCopyMove(tabId, p) { updateCopyPaneTitles(tabId, p); }
 
-/** Push the selected movement onto the two pane headers. */
-function updateCopyPaneTitles(tabId, p) {
-  const [src, dst] = copyMove(tabId, p);
+/** Push the selected movement onto a pane pair's headers. `p` is the pane
+ *  prefix, which is usually the tab prefix but need not be: the tiled-copy tabs
+ *  draw a second, atom-level pair under `<tab>-atom` and call this again for it,
+ *  reading the movement from their own picker. Callers name the prefix rather
+ *  than this probing for optional ones — a blind lookup for a pair that most
+ *  tabs do not have is how you end up not noticing a genuine typo. */
+function updateCopyPaneTitles(tabId, p, moveFrom) {
+  const [src, dst] = copyMove(tabId, moveFrom || p);
   const a = document.getElementById(`${tabId}-${p}-src-space`);
   const b = document.getElementById(`${tabId}-${p}-dst-space`);
   if (a) a.textContent = src;
@@ -1562,7 +1589,7 @@ const FEATURE_SPEC = {
   complement:     { inputs: 2 },
   logical_divide: { inputs: 2 },
   zipped_divide:  { inputs: 2 },
-  local_tile:     { inputs: 3 },  // A, tiler, coord
+  local_tile:     { inputs: 3, optional: 1 },  // A, tiler, coord [, proj]
   logical_product: { inputs: 2 },
   zipped_product:  { inputs: 2 },
   blocked_product: { inputs: 2 },
@@ -1671,6 +1698,9 @@ function applyKeyParam(tabId) {
       document.getElementById(`${tabId}-lt-a-input`).value     = inputs[0];
       document.getElementById(`${tabId}-lt-tiler-input`).value = inputs[1];
       document.getElementById(`${tabId}-lt-coord-input`).value = inputs[2];
+      // proj is optional, so a link shared before it existed carries 3 inputs
+      // and must clear the field rather than leave whatever was in it.
+      document.getElementById(`${tabId}-lt-proj-input`).value  = inputs[3] || '';
       switchInnerTab(tabId, 'local_tile');
       renderLocalTile(tabId);
       break;

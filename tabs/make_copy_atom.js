@@ -784,25 +784,14 @@ function renderMcaAtomViz(tabId) {
 }
 
 function mcaDrawSimt(tabId, s) {
-  // Every cell gets the same colour — there is nothing to distinguish, since one
-  // instruction moves the whole row. It is the colour the make_tiled_copy tabs
-  // give T0's first atom invocation, so the two pictures line up visually.
-  const initColor = colorTV(0);
-  // ValLayoutSrc == ValLayoutDst for both Ops here, so the two panes draw the
+  // ValLayoutSrc == ValLayoutDst for every Op here, so the two panes draw the
   // same grid. Rendering them separately anyway keeps the code honest for
-  // atoms where they differ.
+  // atoms where they differ. `simtAtomPaneHTML` lives in ui.js because the two
+  // tiled-copy tabs draw this identical strip above their tile viz.
   for (const side of ['src', 'dst']) {
     const layoutStr = side === 'src' ? s.atomStr : s.atomDstStr;
-    const lp = parseLayout(layoutStr);
     document.getElementById(`${tabId}-mca-${side}-svg`).innerHTML =
-      `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
-      `ValLayout${side === 'src' ? 'Src' : 'Dst'} = ${layoutStr} &mdash; ` +
-      `${s.elements} contiguous ${s.dtype} element${s.elements === 1 ? '' : 's'}, one instruction` +
-      `</div>` +
-      buildColoredLayoutSVG(lp.shape, lp.stride, 'value', (m, n, offset) => {
-        // One quantity per cell: which value of the atom this slot holds.
-        return { bg: initColor, text: [`V${offset}`] };
-      });
+      simtAtomPaneHTML(side, layoutStr, s.elements, s.dtype);
     applyZoomState(`${tabId}-mca-${side}-svg`);
   }
   document.getElementById(`${tabId}-mca-atom-title`).textContent =

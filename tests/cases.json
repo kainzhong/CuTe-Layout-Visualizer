@@ -683,12 +683,13 @@
  "_comment_copy_atom": [
   "make_copy_atom(op, dtype, num_bits_per_copy) -> Copy_Atom whose ValLayout is",
   "(1, num_bits/dtype_bits):(0,1). Checks ui.js's DTYPE_BITS table against the DSL.",
-  "Covers all six SIMT Ops: CopyUniversalOp, cpasync.CopyG2SOp, and the four",
-  "directional CopyG2R/R2G/S2R/R2S. They differ in PTX and in MLIR atom type but",
-  "produce identical Atoms, which is exactly what these cases pin -- run.js checks",
-  "every one against the SAME (1,N):(0,1) expectation, so a future divergence in",
-  "any of them shows up as a failure rather than as a tab quietly drawing the",
-  "wrong picture.",
+  "The six SIMT Ops -- CopyUniversalOp, cpasync.CopyG2SOp and the four",
+  "directional CopyG2ROp / CopyR2GOp / CopyS2ROp / CopyR2SOp -- all produce a",
+  "byte-identical Atom, so every case here is checked against the SAME",
+  "(1,N):(0,1) expectation. The directional cases mirror universal ones at the",
+  "same widths on purpose: that identity is the reason make_copy_atom,",
+  "make_tiled_copy and make_tiled_copy_tv can share one Op table (ui.js's",
+  "SIMT_COPY_OPS), and it is checked here rather than assumed.",
   "The `attrs` cases pin the tab's claim that the directional Ops' memory",
   "attributes change the MLIR atom type and the emitted PTX but NOT the layouts:",
   "run.js checks them against the same (1,N):(0,1) expectation as everything",
@@ -747,58 +748,58 @@
    "bits": 64
   },
   {
-   "id": "mca-g2r-half_t-128",
+   "id": "mca-g2r-f16-128",
    "op": "g2r",
    "dtype": "half_t",
    "bits": 128
   },
   {
-   "id": "mca-g2r-float-32",
+   "id": "mca-g2r-f32-32",
    "op": "g2r",
    "dtype": "float",
    "bits": 32
   },
   {
-   "id": "mca-g2r-int8_t-64",
+   "id": "mca-g2r-i8-64",
    "op": "g2r",
    "dtype": "int8_t",
    "bits": 64
   },
   {
-   "id": "mca-r2g-float-128",
+   "id": "mca-r2g-f32-128",
    "op": "r2g",
    "dtype": "float",
    "bits": 128
   },
   {
-   "id": "mca-r2g-half_t-64",
+   "id": "mca-r2g-bf16-128",
    "op": "r2g",
-   "dtype": "half_t",
-   "bits": 64
+   "dtype": "bfloat16_t",
+   "bits": 128
   },
   {
-   "id": "mca-s2r-half_t-128",
+   "id": "mca-s2r-f16-128",
    "op": "s2r",
    "dtype": "half_t",
    "bits": 128
   },
   {
-   "id": "mca-s2r-double-128",
+   "id": "mca-s2r-f64-128",
    "op": "s2r",
    "dtype": "double",
    "bits": 128
   },
   {
-   "id": "mca-r2s-half_t-64",
+   "id": "mca-r2s-f16-64",
    "op": "r2s",
    "dtype": "half_t",
    "bits": 64
   },
   {
-   "id": "mca-r2s-uint8_t-8",
+   "id": "mca-r2s-f32-64",
    "op": "r2s",
-   "dtype": "uint8_t",
-   "bits": 8
+   "dtype": "float",
+   "bits": 64
   },
   {
    "id": "mca-g2r-attr-prefetch",
@@ -1597,6 +1598,172 @@
    "id": "sw-2- 3-2",
    "bms": "2,3,2",
    "layout": "(8,8):(8,1)"
+  }
+ ],
+ "_comment_local_tile": [
+  "local_tile(tensor, tiler, coord[, proj]) -- zipped_divide plus a slice, and,",
+  "with a fourth argument, dice(proj, tiler) / dice(proj, coord) before that.",
+  "The oracle is cute.local_tile itself, run over a real Tensor: the result LAYOUT",
+  "is diffed pointwise as everywhere else, and the tile's POSITION is checked",
+  "separately, because a layout structurally cannot carry a constant. For an",
+  "ordinary tensor that position is recorded as CuTeDSL's own crd2idx of the tile",
+  "origin (which local_tile over make_identity_tensor reports); for a coordinate",
+  "(basis-strided) tensor the iterator IS the origin coordinate, read off directly.",
+  "'tiler' and 'coord' are the raw strings the tab's fields take -- several lines is",
+  "a Tiler tuple, one line with a colon a single layout tiler, one without a Shape",
+  "tiler (CLAUDE.md) -- so the parser is exercised on the way in.",
+  "An 'equiv' block gives the same call with proj already applied by hand; run.js",
+  "requires the two to agree, which turns the tab's claim that proj is nothing but",
+  "dicing into something enforced rather than asserted."
+ ],
+ "local_tile": [
+  {
+   "id": "lt-basic",
+   "a": "(16, 16):(16, 1)",
+   "tiler": "(4, 4)",
+   "coord": "(1, 2)"
+  },
+  {
+   "id": "lt-pick-one",
+   "a": "(32, 64):(64, 1)",
+   "tiler": "(8, 32)",
+   "coord": "(1, 0)"
+  },
+  {
+   "id": "lt-keep-mode",
+   "a": "(32, 64):(64, 1)",
+   "tiler": "(8, 32)",
+   "coord": "(_, 0)"
+  },
+  {
+   "id": "lt-keep-all",
+   "a": "(16, 16):(16, 1)",
+   "tiler": "(4, 4)",
+   "coord": "(_, _)"
+  },
+  {
+   "id": "lt-colmajor",
+   "a": "(8, 8):(1, 8)",
+   "tiler": "(4, 4)",
+   "coord": "(0, 1)"
+  },
+  {
+   "id": "lt-strided-tiler",
+   "a": "(12, 32):(32, 1)",
+   "tiler": "3:4\n8:4",
+   "coord": "(1, 2)"
+  },
+  {
+   "id": "lt-nested-modes",
+   "a": "(8, 16):(1, 8)",
+   "tiler": "(2,2):(1,4)\n(4,2):(1,8)",
+   "coord": "(1, 1)"
+  },
+  {
+   "id": "lt-basis-identity",
+   "a": "(16, 16):(1@0, 1@1)",
+   "tiler": "(4, 4)",
+   "coord": "(1, 2)"
+  },
+  {
+   "id": "lt-basis-keep-all",
+   "a": "(16, 16):(1@0, 1@1)",
+   "tiler": "(4, 4)",
+   "coord": "(_, _)"
+  },
+  {
+   "id": "lt-basis-transposed",
+   "a": "(8, 16):(1@1, 1@0)",
+   "tiler": "(4, 4)",
+   "coord": "(1, 1)"
+  },
+  {
+   "id": "lt-proj-gemm-a",
+   "a": "(32, 64):(64, 1)",
+   "tiler": "(8, 16, 4)",
+   "coord": "(1, 2, _)",
+   "proj": "(1, x, 1)",
+   "equiv": {
+    "tiler": "(8, 4)",
+    "coord": "(1, _)"
+   }
+  },
+  {
+   "id": "lt-proj-gemm-b",
+   "a": "(48, 64):(64, 1)",
+   "tiler": "(8, 16, 4)",
+   "coord": "(1, 2, _)",
+   "proj": "(x, 1, 1)",
+   "equiv": {
+    "tiler": "(16, 4)",
+    "coord": "(2, _)"
+   }
+  },
+  {
+   "id": "lt-proj-gemm-c",
+   "a": "(32, 48):(48, 1)",
+   "tiler": "(8, 16, 4)",
+   "coord": "(1, 2, _)",
+   "proj": "(1, 1, x)",
+   "equiv": {
+    "tiler": "(8, 16)",
+    "coord": "(1, 2)"
+   }
+  },
+  {
+   "id": "lt-proj-dsl-spelling",
+   "a": "(32, 64):(64, 1)",
+   "tiler": "(8, 16, 4)",
+   "coord": "(1, 2, 3)",
+   "proj": "(1, None, 1)",
+   "equiv": {
+    "tiler": "(8, 4)",
+    "coord": "(1, 3)"
+   }
+  },
+  {
+   "id": "lt-proj-layout-tiler",
+   "a": "(32, 64):(64, 1)",
+   "tiler": "8:1\n16:1\n4:1",
+   "coord": "(1, 2, _)",
+   "proj": "(1, _, 1)",
+   "equiv": {
+    "tiler": "8:1\n4:1",
+    "coord": "(1, _)"
+   }
+  },
+  {
+   "id": "lt-proj-strided",
+   "a": "(12, 32):(32, 1)",
+   "tiler": "3:4\n4:1\n8:4",
+   "coord": "(1, 0, 2)",
+   "proj": "(1, X, 1)",
+   "equiv": {
+    "tiler": "3:4\n8:4",
+    "coord": "(1, 2)"
+   }
+  },
+  {
+   "id": "lt-proj-basis",
+   "a": "(16, 16):(1@0, 1@1)",
+   "tiler": "(4, 8, 4)",
+   "coord": "(1, 0, 2)",
+   "proj": "(1, X, 1)",
+   "equiv": {
+    "tiler": "(4, 4)",
+    "coord": "(1, 2)"
+   }
+  },
+  {
+   "id": "lt-proj-noop",
+   "a": "(16, 16):(16, 1)",
+   "tiler": "(4, 4)",
+   "coord": "(1, 2)",
+   "proj": "(1, 1)",
+   "equiv": {
+    "tiler": "(4, 4)",
+    "coord": "(1, 2)"
+   }
   }
  ]
 }

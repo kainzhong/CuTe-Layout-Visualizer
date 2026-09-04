@@ -90,6 +90,9 @@ function mtcReadAtom(tabId, p) {
   const atomNumVal = numBits / elemBits;
   const atomStr = formatLayoutStr(new Layout([1, atomNumVal]).shape, new Layout([1, atomNumVal]).stride);
   syncCopyMoves(tabId, p, opKey);
+  // The atom strip above the tile viz is a second pane pair with no picker of
+  // its own; it follows this tab's movement selection.
+  updateCopyPaneTitles(tabId, `${p}-atom`, p);
 
   document.getElementById(`${tabId}-${p}-atom-result`).innerHTML =
     `<div class="cuo-result-line"><b>Copy_Atom&lt;${op.label}&lt;${numBits}b&gt;, ${dtype}&gt;</b></div>` +
@@ -377,6 +380,25 @@ function mtcVizSection(id, p) {
       <div class="comp-results" style="grid-template-columns:1fr">
         <div class="comp-viz-item">
           <div class="comp-viz-header">
+            <span class="comp-viz-label" id="${id}-${p}-atom-title">Copy_Atom &mdash; the unit being tiled</span>
+            <span style="display:flex;align-items:center;gap:4px">
+              ${copyDirButtons(id, `${p}-atom`)}
+              <button class="mode-btn" id="${id}-${p}-atom-src-svg-zoom" onclick="toggleCopyZoom('${id}','${p}-atom')">Zoom in</button>
+            </span>
+          </div>
+          <div class="cuo-viz-desc">
+            One invocation of the atom, drawn exactly as the <b>make_copy_atom</b>
+            tab draws it: <code>V<i>k</i></code> is the value index within the
+            instruction, and <code>ThrID = 1:0</code> means one thread issues the
+            whole thing. This is the <em>unit</em>; everything below is that unit
+            replicated over <code>Tiler_MN</code> by <code>layout_tv</code>. The
+            colour is the one T0's first invocation gets in the tile grid, so the
+            two pictures line up.
+          </div>
+${copyPanes(id, `${p}-atom`)}
+        </div>
+        <div class="comp-viz-item">
+          <div class="comp-viz-header">
             <span class="comp-viz-label" id="${id}-${p}-tile-title">TiledCopy tile</span>
             <span style="display:flex;align-items:center;gap:4px">
               ${copyDirButtons(id, p)}
@@ -416,6 +438,26 @@ function mtcThreadAtomColor(tid, atomIdx, totalAtoms) {
   return darkenRGB(base, (atomIdx / (totalAtoms - 1)) * 0.45);
 }
 
+/** The atom strip above the tile grid. Identical to what make_copy_atom draws —
+ *  same `simtAtomPaneHTML`, so the two tabs cannot drift. `ValLayoutSrc ==
+ *  ValLayoutDst` for every Op these tabs accept, so the panes are equal; they
+ *  are still rendered as a pair because the SRC/DST headers carry the memory
+ *  movement, which now differs per Op. */
+function mtcRenderAtomViz(tabId, p, s) {
+  for (const side of ['src', 'dst']) {
+    const host = document.getElementById(`${tabId}-${p}-atom-${side}-svg`);
+    if (!host) continue;
+    host.innerHTML = simtAtomPaneHTML(side, s.atomStr, s.atomNumVal, s.dtype);
+    applyZoomState(`${tabId}-${p}-atom-${side}-svg`);
+  }
+  const title = document.getElementById(`${tabId}-${p}-atom-title`);
+  if (title) {
+    title.textContent =
+      `${s.op.label} — ${s.numBits}b / ${s.dtype} → ${s.atomNumVal} ` +
+      `element${s.atomNumVal === 1 ? '' : 's'} per invocation`;
+  }
+}
+
 function mtcRenderTileViz(tabId, p, s) {
   const M_tile = s.tiler_mn[0];
   const filterTid = s.highlightTid;
@@ -429,12 +471,19 @@ function mtcRenderTileViz(tabId, p, s) {
     `</div>`;
   const svg = buildColoredLayoutSVG(s.tiler_mn.slice(), [1, M_tile], 'value', (m, n, offset) => {
       const e = s.lookup[m + n * M_tile];
-      if (!e) return { bg: '#f0f0f0', text: null };
-      if (filterTid !== null && e.tid !== filterTid) {
-        return { bg: '#e8e8e8', stroke: '#d1d5db', text: null };
-      }
+      // No owner at all -- the coverage check has already said so; draw it the
+      // way the TV tab draws an unclaimed cell rather than as a blank box.
+      if (!e) return { bg: '#f0f0f0', fg: '#bbb', text: ['\u2014'] };
       const lines = [`T${e.tid}`, `V${e.vid}`];
       if (modes.has('value')) lines.push(String(offset));
+      // Highlighting is a FOCUS, not a mask: a dimmed cell keeps its T/V labels
+      // in muted grey so the surrounding ownership stays readable, which is what
+      // buildTVSVG does for the TV tab. Erasing the text instead made the rest of
+      // the tile unreadable the moment a thread was picked. Same palette as
+      // buildTVSVG (#f0f0f0 on #bbb) so the two tabs look like one tool.
+      if (filterTid !== null && e.tid !== filterTid) {
+        return { bg: '#f0f0f0', fg: '#bbb', text: lines };
+      }
       return { bg: mtcThreadAtomColor(e.tid, Math.floor(e.vid / s.atomNumVal), s.frgX), text: lines };
     });
   // Same picture on both sides: layout_tv describes the tile, and for these Ops
@@ -484,9 +533,14 @@ function mtcRenderThreadPanel(tabId, p, s) {
 
 /** Wipe both SRC/DST panes — used on every error path. */
 function mtcClearPanes(tabId, p) {
-  for (const side of ['src', 'dst']) {
-    const el = document.getElementById(`${tabId}-${p}-${side}-svg`);
-    if (el) el.innerHTML = '';
+  // Both pane pairs: the tile grid and the atom strip above it. Leaving a stale
+  // atom picture up while the tile went blank would read as "the atom is fine,
+  // the tiling failed" — sometimes true, but not something to imply by accident.
+  for (const prefix of [p, `${p}-atom`]) {
+    for (const side of ['src', 'dst']) {
+      const el = document.getElementById(`${tabId}-${prefix}-${side}-svg`);
+      if (el) el.innerHTML = '';
+    }
   }
 }
 
@@ -679,6 +733,7 @@ function renderMakeTiledCopy(tabId) {
       tileMode: (prev.tileMode instanceof Set) ? prev.tileMode : new Set(),
     };
 
+    mtcRenderAtomViz(tabId, 'mtc', mtcState[tabId]);
     mtcRenderTileViz(tabId, 'mtc', mtcState[tabId]);
     mtcRenderThreadPanel(tabId, 'mtc', mtcState[tabId]);
     updateOuterTabLabel(tabId, `make_tiled_copy:${tiler_mn[0]}x${tiler_mn[1]}`);

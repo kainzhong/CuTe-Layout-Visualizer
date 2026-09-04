@@ -228,6 +228,77 @@ def to_crd(x):
     return x
 
 
+# ── local_tile ────────────────────────────────────────────────────────────────
+# The tab's own input conventions, in Python. Kept next to run_local_tile rather
+# than folded into parse_tiler because local_tile reads a bare `(8, 32)` as a
+# SHAPE tiler -- one extent per mode of A -- where the Divide tabs read it as a
+# single layout tiler. That difference ate every preset on the tab's first pass.
+
+def parse_lt_tiler(raw):
+    lines = [l.strip() for l in raw.split("\n") if l.strip()]
+    if len(lines) > 1:
+        return tuple(parse_layout(l) for l in lines)
+    if _top_level_colon(lines[0]) != -1:
+        return parse_layout(lines[0])
+    return _parse_value(lines[0])
+
+
+def parse_lt_coord(raw):
+    """`(1, _, 2)` -> (1, None, 2). Serves both the coord and the proj field.
+
+    Deliberately NOT accepting CUTLASS C++'s `Step<_1, X, _1>` / `_1`: `_1` is
+    Int<1>, a template parameter rather than a value, so the tab does not take it
+    and neither does the corpus. Keep this in step with cute.js/ltParseProj."""
+    s = raw.strip()
+    if s.startswith("(") and s.endswith(")"):
+        s = s[1:-1]
+    out = []
+    for p in s.split(","):
+        p = p.strip()
+        out.append(None if p in ("", "_", "X", "x", "None", "none") else int(p))
+    return tuple(out)
+
+
+def run_local_tile(c):
+    layout = parse_layout(c["a"], allow_basis=True)
+    tiler = parse_lt_tiler(c["tiler"])
+    coord = parse_lt_coord(c["coord"])
+    proj = parse_lt_coord(c["proj"]) if c.get("proj") else None
+    out = _local_tile_record(layout, tiler, coord, proj)
+    # The same call with proj applied by hand. Recording it too lets run.js check
+    # the JS port's dicing against CuTeDSL on BOTH sides rather than only on the
+    # projected one.
+    if "equiv" in c:
+        out["equiv"] = _local_tile_record(layout, parse_lt_tiler(c["equiv"]["tiler"]),
+                                          parse_lt_coord(c["equiv"]["coord"]), None)
+    return out
+
+
+def _local_tile_record(layout, tiler, coord, proj):
+    shape = layout.shape
+    rank = len(shape) if isinstance(shape, tuple) else 1
+    if has_basis(layout):
+        # A coordinate tensor's iterator IS a coordinate, so local_tile hands the
+        # tile's origin back directly -- and statically, since nothing here is a
+        # runtime value.
+        t = cute.make_tensor(tuple(0 for _ in range(rank)), layout)
+        g = cute.local_tile(t, tiler=tiler, coord=coord, proj=proj)
+        out = record(g.layout)
+        out["origin"] = [int(v) for v in g.iterator]
+        return out
+    # An ordinary tensor's iterator is a POINTER, whose offset is a runtime value
+    # and unreadable at trace time. The identity tensor over the same shape gives
+    # the same tile's origin as a coordinate instead, and CuTeDSL's own crd2idx
+    # turns that into the offset the tab prints.
+    t = cute.make_tensor(cute.make_ptr(cutlass.Float32, 0, cute.AddressSpace.gmem), layout)
+    g = cute.local_tile(t, tiler=tiler, coord=coord, proj=proj)
+    gi = cute.local_tile(cute.make_identity_tensor(shape), tiler=tiler, coord=coord, proj=proj)
+    out = record(g.layout)
+    out["origin"] = [int(v) for v in gi.iterator]
+    out["offset"] = int(cute.crd2idx(tuple(gi.iterator), layout))
+    return out
+
+
 def run_make_layout_tv(c):
     thr, val = parse_layout(c["thr"]), parse_layout(c["val"])
     tiler_mn, layout_tv = cute.make_layout_tv(thr, val)
@@ -416,6 +487,7 @@ SECTIONS = [
     ("mma_atom", run_mma_atom),
     ("tma_atom", run_tma_atom),
     ("tma_partition", run_tma_partition),
+    ("local_tile", run_local_tile),
     ("swizzle", run_swizzle),
 ]
 

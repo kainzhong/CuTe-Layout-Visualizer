@@ -351,6 +351,98 @@ function runUnitTests(V, T) {
     check('tp-non-permutation-smem', 'throws', threw, true);
   });
 
+  // ── local_tile: proj, and the coord reading CuTeDSL cannot type ────────────
+  // Two things here have no oracle. The nested-rest-mode case is one CuTeDSL
+  // cannot evaluate AT ALL -- its MLIR crd2idx reports "failed to infer result
+  // type" for a scalar coord against a tuple rest mode -- so the expectation
+  // encodes C++ CuTe's rule instead: crd2idx runs idx2crd on a scalar first, so
+  // a scalar coord into a tuple mode is a FLAT index into it. The proj parser is
+  // the other: proj is a C++ type (`Step<_1, X, _1>`), and this field takes
+  // VALUES, so both that spelling and the bare `_1` are refused by name.
+  setSection('unit/local_tile');
+  guard('lt-nested-rest-mode', () => {
+    // A single layout tiler makes the rest mode a tuple: zipped_divide gives
+    // ((2,2),(2,(2,16))). Coord (1,2) must select ONE tile -- comparing against
+    // idx2crd's nested coordinate matched nothing and left kept[0] undefined.
+    const r = V.ltComputeLocalTile('(16,16):(16,1)', '(2,2):(1,4)', '(1,2)', '');
+    check('lt-nested-rest-mode', 'rest mode is a tuple',
+          JSON.stringify(r.restShape), '[2,[2,16]]');
+    check('lt-nested-rest-mode', 'selects exactly one tile', r.kept.length, 1);
+    check('lt-nested-rest-mode', 'at the flat index the coord names',
+          JSON.stringify(r.kept[0].rcArr), '[1,2]');
+    check('lt-nested-rest-mode', 'offset', r.baseOffset, 33);
+  });
+  guard('lt-parse-proj', () => {
+    // A number selects the dimension; x / _ / None masks it out.
+    for (const spelling of ['(1, x, 1)', '(1, X, 1)', '(1, None, 1)', '1,_,1']) {
+      check('lt-parse-proj', spelling,
+            JSON.stringify(V.ltParseProj(spelling)), '[true,false,true]');
+    }
+    check('lt-parse-proj', 'blank is no projection', V.ltParseProj('   '), null);
+    // Any number selects -- `dice` never reads the value, so 2 and 7 are not
+    // special-cased into meaning something other than 1.
+    check('lt-parse-proj', 'any number selects',
+          JSON.stringify(V.ltParseProj('(2, _, 7)')), '[true,false,true]');
+  });
+  guard('lt-normalize', () => {
+    const n = (c, p) => {
+      const r = V.ltComputeLocalTile('(32,64):(64,1)', '(8,16,4)', c, p);
+      return `${r.projNorm} ${r.coordNorm}`;
+    };
+    // proj: any number -> 1, any mask spelling -> _. dice never reads the value,
+    // so (2, X, 7) and (1, _, 1) are the same projection.
+    check('lt-normalize', '(2, X, 7)', n('(1, 2, _)', '(2, X, 7)'), '(1, _, 1) (1, _, _)');
+    check('lt-normalize', '(1, None, 1)', n('(1, 2, _)', '(1, None, 1)'), '(1, _, 1) (1, _, _)');
+    // coord: only the MASKED slot is rewritten -- 2 is discarded unread, while
+    // the surviving 1 and 3 are left exactly as typed.
+    check('lt-normalize', 'masked coord slot only',
+          n('(1, 2, 3)', '(1, _, 1)'), '(1, _, 1) (1, _, 3)');
+    check('lt-normalize', 'mask in the last mode',
+          n('(1, 2, 3)', '(1, 1, _)'), '(1, 1, _) (1, 2, _)');
+    // A blank coord is implicitly all-underscores; writing that back makes the
+    // expansion visible rather than leaving the field looking unrelated.
+    check('lt-normalize', 'blank coord expands', n('', '(1, _, 1)'), '(1, _, 1) (_, _, _)');
+  });
+  guard('lt-normalize-noop-without-proj', () => {
+    // Nothing is masked without a proj, so neither field is touched -- in
+    // particular a blank coord must stay blank rather than become (_, _).
+    const r = V.ltComputeLocalTile('(32,64):(64,1)', '(8,32)', '(1, 0)', '');
+    check('lt-normalize-noop-without-proj', 'projNorm', r.projNorm, null);
+    check('lt-normalize-noop-without-proj', 'coordNorm', r.coordNorm, null);
+  });
+  guard('lt-proj-rejects-cpp-syntax', () => {
+    // `_1` is Int<1>, a template parameter. It is refused BY NAME rather than
+    // as an unreadable token, because `Step<_1, X, _1>` is exactly what someone
+    // pastes out of a GEMM kernel and a generic parse error would not help.
+    const msg = (t) => { try { V.ltParseProj(t); return ''; } catch (e) { return e.message; } };
+    check('lt-proj-rejects-cpp-syntax', 'Step<...> named',
+          /CUTLASS C\+\+ template syntax/.test(msg('Step<_1, X, _1>')), true);
+    check('lt-proj-rejects-cpp-syntax', '_1 named',
+          /integral-constant syntax \(Int<1>\)/.test(msg('(_1, X, _1)')), true);
+    check('lt-proj-rejects-cpp-syntax', '_1 suggests the value',
+          /Write "1"/.test(msg('(_1, X, _1)')), true);
+  });
+  guard('lt-proj-rejects', () => {
+    const bad = (proj, re) => {
+      let msg = '';
+      try { V.ltComputeLocalTile('(16,16):(16,1)', '(4,4)', '(1,2)', proj); }
+      catch (e) { msg = e.message; }
+      check('lt-proj-rejects', `${proj} -> ${re}`, re.test(msg), true);
+    };
+    bad('(1, _, 1)', /tiler is rank 2/);        // proj rank must match the tiler's
+    bad('(_, _)', /masks out every tiler mode/);
+    bad('(1, q)', /Cannot read proj component/);
+  });
+  guard('lt-proj-coord-rank', () => {
+    // With a proj the coord is given over the FULL tiler, since dice() pairs the
+    // two mode by mode. A short one is a mistake, not a padded coord.
+    let msg = '';
+    try { V.ltComputeLocalTile('(32,64):(64,1)', '(8,16,4)', '(1,2)', '(1,_,1)'); }
+    catch (e) { msg = e.message; }
+    check('lt-proj-coord-rank', 'rejects a coord shorter than proj',
+          /Coord has 2 components? but proj has 3/.test(msg), true);
+  });
+
   // ── filter's target profile ────────────────────────────────────────────────
   // layout.js mirrors the C++ `filter(layout, profile)` overload, but CuTeDSL's
   // cute.filter takes no target_profile, so there is nothing to diff against.

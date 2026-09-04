@@ -22,6 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const { loadVisualizer, parseExact, parseTiler, fmt, evalAll } = require('./harness');
 const { runUnitTests } = require('./unit');
+const { runDomSmoke } = require('./dom_smoke');
 
 const V = loadVisualizer();
 const CASES = JSON.parse(fs.readFileSync(path.join(__dirname, 'cases.json'), 'utf8'));
@@ -400,7 +401,46 @@ if (section('tma_partition')) {
 }
 
 // ═══════════════════════════════════════════════════════
-//  7. Swizzle  (applySwizzleOffset vs cute::Swizzle<B,M,S>)
+//  7. local_tile  (ltComputeLocalTile)
+//
+//  The inputs are the raw strings the tab's four fields take, so the tiler and
+//  coord conventions are under test alongside the algebra.
+// ═══════════════════════════════════════════════════════
+
+/** Layout, plus the tile's POSITION in A -- which is not in the layout, because
+ *  a layout structurally cannot carry a constant. An ordinary tensor keeps it as
+ *  an integer offset; a coordinate (basis-strided) tensor keeps it as the origin
+ *  coordinate, since there is no 1-D offset to hold. */
+function checkLocalTile(id, r, ref) {
+  checkLayout(id, r.resultLayout, ref);
+  if (r.originCrd) check(id, 'origin', `(${r.originCrd.join(',')})`, `(${ref.origin.join(',')})`);
+  else check(id, 'offset', r.baseOffset || 0, ref.offset);
+}
+
+if (section('local_tile')) {
+  for (const c of CASES.local_tile) {
+    const ref = refFor('local_tile', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const r = V.ltComputeLocalTile(c.a, c.tiler, c.coord, c.proj || '');
+      checkLocalTile(c.id, r, ref);
+      if (!c.equiv) return;
+      // proj is DEFINED as dice(proj, tiler) / dice(proj, coord) and nothing
+      // else (tensor_impl.hpp:1049). `equiv` is the same call with the dicing
+      // done by hand, so this pins the tab's whole implementation of proj: it
+      // must land on a result CuTeDSL independently confirms for BOTH forms.
+      const e = V.ltComputeLocalTile(c.a, c.equiv.tiler, c.equiv.coord, '');
+      checkLocalTile(`${c.id}/equiv`, e, ref.equiv);
+      check(c.id, 'proj == dice (layout)', fmt(V, e.resultLayout), fmt(V, r.resultLayout));
+      check(c.id, 'proj == dice (position)',
+            r.originCrd ? String(r.originCrd) : String(r.baseOffset),
+            e.originCrd ? String(e.originCrd) : String(e.baseOffset));
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  8. Swizzle  (applySwizzleOffset vs cute::Swizzle<B,M,S>)
 // ═══════════════════════════════════════════════════════
 
 if (section('swizzle')) {
@@ -427,13 +467,24 @@ if (section('swizzle')) {
 }
 
 // ═══════════════════════════════════════════════════════
-//  8. JS-only unit tests (no CuTeDSL analogue)
+//  9. JS-only unit tests (no CuTeDSL analogue)
 // ═══════════════════════════════════════════════════════
 
 if (!FILTERS.length || FILTERS.some(f => 'unit'.includes(f))) {
   currentSection = 'unit';
   process.stdout.write(`\n${C.bold}unit${C.off}\n`);
   runUnitTests(V, { check, guard, C, results, setSection: (n) => { currentSection = n; } });
+}
+
+// ═══════════════════════════════════════════════════════
+//  dom_smoke  (the tabs' render paths, not their math)
+// ═══════════════════════════════════════════════════════
+
+if (section('dom_smoke')) {
+  const r = runDomSmoke({ verbose: VERBOSE, log: (m) => console.log(m) });
+  results.pass += r.pass;
+  results.fail += r.fail;
+  for (const f of r.failures) results.failures.push(`dom_smoke/${f}`);
 }
 
 // ═══════════════════════════════════════════════════════

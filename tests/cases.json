@@ -1077,6 +1077,135 @@
    "unpack_bits": 4
   }
  ],
+ "_comment_mma_atom": [
+  "make_mma_atom(op) for the three DENSE cute.nvgpu.warp WarpMmaOp subclasses.",
+  "Oracle: cutlass.cute -- thr_id, shape_mnk, and tv_layout_A/B/C, each with",
+  "size/cosize and its value at every point of the domain.",
+  "Ported by tabs/make_mma_atom.js:mmaWarpAtom, which is a TABLE rather than a",
+  "derivation -- CUTLASS itself defines these as hand-written MMA_Traits",
+  "specializations (include/cute/atom/mma_traits_sm80.hpp:78), so there is no",
+  "arithmetic to port and the only way to be right is to diff every entry.",
+  "The corpus is EXHAUSTIVE over the valid parameter domains (16 cases). That is",
+  "what pins the tab's load-bearing claim that the three layouts depend only on",
+  "the Op family and K: 16 combinations collapse to 6 distinct layout triples, so",
+  "neither ab_dtype nor acc_dtype provably changes anything.",
+  "Excluded on purpose: MmaF16BF16SparseOp, the fourth WarpMmaOp subclass -- it",
+  "traces fine, but MmaAtom exposes no metadata (E) layout and its A layout is",
+  "over the LOGICAL (M,K) tile, so the tab could not draw what distinguishes it.",
+  "Also MmaMXF4Op / MmaMXF8Op / MmaMXF4NVF4Op / MmaMXF8F6F4Op, which subclass",
+  "MmaOp rather than WarpMmaOp and are sm_120-only, so no oracle could be",
+  "generated for them here -- an untested tab entry is worse than a missing one."
+ ],
+ "mma_atom": [
+  {
+   "id": "mma-f16bf16-half_t-half_t-k8",
+   "op": "f16bf16",
+   "k": 8,
+   "ab_dtype": "half_t",
+   "acc_dtype": "half_t"
+  },
+  {
+   "id": "mma-f16bf16-half_t-half_t-k16",
+   "op": "f16bf16",
+   "k": 16,
+   "ab_dtype": "half_t",
+   "acc_dtype": "half_t"
+  },
+  {
+   "id": "mma-f16bf16-half_t-float-k8",
+   "op": "f16bf16",
+   "k": 8,
+   "ab_dtype": "half_t",
+   "acc_dtype": "float"
+  },
+  {
+   "id": "mma-f16bf16-half_t-float-k16",
+   "op": "f16bf16",
+   "k": 16,
+   "ab_dtype": "half_t",
+   "acc_dtype": "float"
+  },
+  {
+   "id": "mma-f16bf16-bfloat16_t-float-k8",
+   "op": "f16bf16",
+   "k": 8,
+   "ab_dtype": "bfloat16_t",
+   "acc_dtype": "float"
+  },
+  {
+   "id": "mma-f16bf16-bfloat16_t-float-k16",
+   "op": "f16bf16",
+   "k": 16,
+   "ab_dtype": "bfloat16_t",
+   "acc_dtype": "float"
+  },
+  {
+   "id": "mma-tf32-na-na-k4",
+   "op": "tf32",
+   "k": 4
+  },
+  {
+   "id": "mma-tf32-na-na-k8",
+   "op": "tf32",
+   "k": 8
+  },
+  {
+   "id": "mma-fp8-float_e4m3_t-half_t-k16",
+   "op": "fp8",
+   "k": 16,
+   "ab_dtype": "float_e4m3_t",
+   "acc_dtype": "half_t"
+  },
+  {
+   "id": "mma-fp8-float_e4m3_t-half_t-k32",
+   "op": "fp8",
+   "k": 32,
+   "ab_dtype": "float_e4m3_t",
+   "acc_dtype": "half_t"
+  },
+  {
+   "id": "mma-fp8-float_e4m3_t-float-k16",
+   "op": "fp8",
+   "k": 16,
+   "ab_dtype": "float_e4m3_t",
+   "acc_dtype": "float"
+  },
+  {
+   "id": "mma-fp8-float_e4m3_t-float-k32",
+   "op": "fp8",
+   "k": 32,
+   "ab_dtype": "float_e4m3_t",
+   "acc_dtype": "float"
+  },
+  {
+   "id": "mma-fp8-float_e5m2_t-half_t-k16",
+   "op": "fp8",
+   "k": 16,
+   "ab_dtype": "float_e5m2_t",
+   "acc_dtype": "half_t"
+  },
+  {
+   "id": "mma-fp8-float_e5m2_t-half_t-k32",
+   "op": "fp8",
+   "k": 32,
+   "ab_dtype": "float_e5m2_t",
+   "acc_dtype": "half_t"
+  },
+  {
+   "id": "mma-fp8-float_e5m2_t-float-k16",
+   "op": "fp8",
+   "k": 16,
+   "ab_dtype": "float_e5m2_t",
+   "acc_dtype": "float"
+  },
+  {
+   "id": "mma-fp8-float_e5m2_t-float-k32",
+   "op": "fp8",
+   "k": 32,
+   "ab_dtype": "float_e5m2_t",
+   "acc_dtype": "float"
+  }
+ ],
  "_comment_tma": [
   "make_tiled_tma_atom for cpasync.CopyBulkTensorTileG2SOp. The reference records",
   "the atom's NumValSrc (== the inferred box size) and the returned TMA coordinate",

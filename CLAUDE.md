@@ -45,6 +45,11 @@ tabs/
                         CTA tile (SRC) against SMEM (DST), the cuTensorMapEncodeTiled argument list,
                         and the returned coordinate tensor. Self-contained — shares nothing with the
                         mtc/mtv tabs but ui.js's copy panes. Prefix `tma`.
+  make_mma_atom.js      "make_mma_atom" tab (MMA scope) — mirrors cute.make_mma_atom(op) for the three
+                        DENSE `cute.nvgpu.warp` WarpMmaOp subclasses. Draws the A/B/C operand fragments as
+                        three TV grids over three DIFFERENT tiles — (M,K), (N,K), (M,N). A lookup
+                        TABLE, not a derivation: CUTLASS defines these as hand-written MMA_Traits
+                        specializations. Prefix `mma`.
   tma_partition.js      "tma_partition" tab (COPY scope) — CuTe's "VectorCopy Partitioner"
                         (copy_traits_sm90_tma.hpp:1409). Splits mode 0 of every tensor into
                         (TMA, TMA_Iter) using the atom's NumValSrc for the chunk size and the SMEM
@@ -223,6 +228,8 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=make_tiled_copy-cpasync-128-half_t-((8,16),8):((128,1),16)-(16, 64)
 ?key=make_tiled_copy_tv-cpasync-128-half_t-(16,8):(8,1)-(1,8):(1,1)
 ?key=swizzle-(8, 8):(8, 1)-3, 0, 3
+?key=make_mma_atom-f16bf16-half_t-float-16   # op, ab_dtype, acc_dtype, K
+?key=make_mma_atom-tf32-na-na-8             # 'na' where the Op takes no dtype
 ?key=make_tiled_tma_atom-half_t-(256, 128):(128, 1)-3,4,3-(64, 64):(64, 1)-(64, 64)
 ?key=tma_partition-1024-float-3,4,3-(8, 32):(32, 1)-(4, 2)
 ```
@@ -260,12 +267,14 @@ Layout:
 tests/cases.json        the shared corpus — inputs as CuTe layout STRINGS, so the
                         parser is exercised on the way in
                         Sections: layout_ops, basis_ops, make_layout_tv, make_tiled_copy,
-                        copy_atom, ldmatrix_atom, tma_atom, tma_partition, swizzle
+                        copy_atom, ldmatrix_atom, mma_atom, tma_atom, tma_partition, swizzle
 tests/gen_reference.py  runs cases.json through CuTeDSL -> tests/reference.json
 tests/reference.json    committed golden output (never hand-edit)
 tests/harness.js        loads the browser globals into node
 tests/run.js            runs cases.json through the JS port and diffs
 tests/unit.js           only the parts with no CuTeDSL analogue
+tests/gpu_check.py      OPTIONAL, needs a GPU. Compiles and EXECUTES each Op a
+                        tab offers -- the gate for adding one. Not in `npm test`.
 ```
 
 For every layout-valued result the suite compares the printed layout, its `size`/
@@ -277,6 +286,35 @@ No GPU is needed to regenerate. Every layout in the corpus is static, so the gen
 runs entirely at **trace time** inside one `@cute.jit` function. It tolerates the MLIR
 compilation of that combined trace failing (tracing a hundred unrelated TMA descriptors
 in one function does that) but only after verifying every case was evaluated first.
+
+### Only ship an Op a user can actually use
+
+Three things can be true of a DSL Op, and only the third earns it a place in a tab:
+
+1. it **constructs** — the dataclass accepts your parameters
+2. it **traces** — `make_*_atom` returns layouts
+3. it **lowers and runs** — MLIR → NVVM → PTX, and the numbers come out right
+
+`cases.json` + `gen_reference.py` can only ever reach (2): the reference generator runs
+entirely at trace time and explicitly *tolerates* MLIR compilation failing. So a tab can
+be fully green and still be advertising an instruction nobody can execute.
+
+`tests/gpu_check.py` closes that gap and is the gate for adding an Op. It is optional and
+NOT part of `npm test` — the standard suite stays GPU-free on purpose — but run it before
+adding an entry, and re-run it after a CuTeDSL upgrade. Verified on a GB200 (sm_100): all
+ten `make_mma_atom` configurations compile and compute correctly.
+
+**Do not trust the DSL's own support matrix.** `cute/nvgpu/warp/mma.py:47-77` carries a
+commented table with a `DSL` column marking each instruction Y/N. It is **stale**: TF32 is
+marked `N` with no DSL class, yet `MmaTF32Op` exists, traces, lowers and computes correctly
+(rel err 6.8e-4 on a GB200 — exactly tf32's 10-bit mantissa, which is itself the proof the
+hardware really did tf32 math rather than silently widening to fp32). Trust the hardware
+over the docstring. The table is still useful as a *map of what does not exist yet* — F64
+`m8n8k4` and `m16n8k{4,8,16}`, all the integer types (I8/U8/I4/U4/B1), TF32 sparse — none
+of which have a DSL class at all, so none can be offered.
+
+It also marks `MmaF16BF16SparseOp` as `[I]` = internal release only, which is a second,
+independent reason it is excluded beyond the drawability argument below.
 
 ### When you add a tab, you add tests — this is not optional
 
@@ -325,6 +363,15 @@ Two categories, both in `tests/unit.js`:
 One thing `run.js` does check against the DSL here: for every `tma_atom` case CuTeDSL
 accepted, the tab must report **no** error-level issue. A validation that fires on valid
 input is as broken as one that misses invalid input.
+
+`mma_atom` is EXHAUSTIVE over its parameter domains (16 cases) for a reason beyond
+coverage: it is what pins the tab's load-bearing claim that the three layouts depend
+only on `(op family, K)`. `run.js` groups the cases by that key and requires every
+member of a group to produce identical layout strings, so if a future CUTLASS made
+`acc_dtype` matter, the suite would say so rather than the tab quietly lying. It also
+checks each operand is a bijection onto the tile the tab draws it over — `size` and
+`cosize` both equal `M*K` / `N*K` / `M*N` — since a grid of the wrong shape is exactly
+the failure a layout string alone would not reveal.
 
 `ldmatrix_atom` does the same trick for the facts the tab draws but the DSL does not name:
 the tile the panes are placed into must equal `cosize` on **both** sides (a tile bigger or
@@ -389,6 +436,7 @@ The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. E
   several lines are still one per mode. It also uses `parseValue`, not `parseLayout`, because the
   latter pads a bare `8` out to `(8,1)` and would silently invent a second tiler mode.
 - `copy` — the copy-construction pipeline: `make_copy_atom` (one instruction), then `make_tiled_copy` / `make_tiled_copy_tv` (replicate it over a tile), plus `make_tiled_tma_atom` and `tma_partition` (the TMA path, which bypasses threads entirely). Accent color: emerald (`#10b981`).
+- `mma` — the MMA side: `make_mma_atom`. Accent color: amber (`#f59e0b`). The natural next tabs are `make_tiled_mma` (the analogue of `make_tiled_copy`) and `make_tiled_copy_A/B`, which is where the copy and MMA scopes finally meet.
 
 ### How scopes are wired
 
@@ -828,6 +876,94 @@ Out of scope for now, each a clean follow-on: multicast (`domain_offset` is alwa
 `cta_layout = (1)`), TMA store, im2col, `gather4`/`scatter4`, `internal_type` recasts, and
 rank > 2 tensors.
 
+## The MMA scope
+
+### make_mma_atom
+
+`cute.make_mma_atom(op)` — note it takes **only the op**. Unlike `make_copy_atom` there is no dtype
+argument: an MMA's input and accumulator types are part of the instruction, so they live on the Op.
+
+**An MMA Atom is the exact analogue of a Copy Atom**, with one structural difference that drives the
+whole tab. A Copy Atom has two TV layouts (`src`, `dst`, plus `ref`) over **one** tile. An MMA Atom
+has three — `A`, `B`, `C` — over **three different tiles**, because the instruction reads two operands
+and accumulates into a third:
+
+| | over | for m16n8k16 f16 |
+|---|---|---|
+| `tv_layout_A` | (M, K) | 16x16, 8 elements/lane |
+| `tv_layout_B` | (N, K) | 8x16, 4 elements/lane |
+| `tv_layout_C` | (M, N) | 16x8, 4 elements/lane |
+
+The viz mirrors that shape: **A and B sit side by side** in the two columns `.comp-results` already
+provides, since they share the K axis and differ only in the M/N extent — B visibly having none is the
+point. **C spans the full width below them** via `.comp-viz-span` (the general form of the older
+`.comp-viz-complement` rule), because it is over a different pair of axes entirely and is what the
+epilogue has to deal with.
+
+All three are **bijections** — `size == cosize` — so every cell is owned by exactly one lane and there
+is no broadcast at the atom level. That is asserted for all 28 cases, and it is why the viz passes
+neither `dimTids` nor `cellIndex` to `buildTVSVG`: nothing is disabled, and these tiles are col-major
+in their own codomain, which is the builder's default. (Contrast the ldmatrix atom, which needs both.)
+
+**This tab is a TABLE, and that is the correct port.** CUTLASS defines these layouts as hand-written
+`MMA_Traits` specializations — literal `Layout<Shape<...>, Stride<...>>` typedefs, one per instruction
+(`include/cute/atom/mma_traits_sm80.hpp:78`). There is no arithmetic to port, because an MMA atom is a
+hardware fact rather than a computation: it is the PTX register signature transcribed into layout form.
+`mma.sync.aligned.m16n8k16` takes `{d0..d3}, {a0..a3}, {b0,b1}, {c0..c3}`, and that *is* 8/8/4 elements
+per lane in f16. Do not try to derive `MMA_ATOM_TABLE`; extend it from CuTeDSL and add cases.
+
+**The layouts depend only on `(op family, K)`** — 16 valid parameter combinations collapse to 6 distinct
+triples. `ab_dtype` does not matter (half_t vs bfloat16_t, e4m3 vs e5m2 are identical) and neither does
+`acc_dtype` (an f16 accumulator packs the same four values into two registers instead of four — that
+changes the register count, not the map). The layouts are stated in units of ELEMENTS, and how many
+elements pack into a 32-bit register is fixed by the family.
+`run.js` enforces this rather than trusting it: any two cases sharing an `op|K` key must produce
+identical layout strings. `MMA_C_LAYOUT` is a separate constant because C is invariant across
+*everything* here, K included.
+
+**Scope: `cute.nvgpu.warp`, and within it the three DENSE `WarpMmaOp` subclasses** — `MmaF16BF16Op`,
+`MmaTF32Op`, `MmaFP8Op`. Two separate exclusions, for two different reasons:
+
+- `MmaF16BF16SparseOp` is the fourth `WarpMmaOp` subclass and traces perfectly well, but it is left out
+  because **the tab could not draw what distinguishes it**: `MmaAtom` exposes no metadata (E) layout,
+  only A/B/C, and its A layout is over the *logical* (M, K) tile — cosize `M*K` — so the 2:4
+  compression is invisible in the only thing shown. Re-adding it is a `MMA_ATOM_TABLE` entry plus a
+  `sparse_metadata_format` control (which changes no layout, and neither does `acc_dtype`). The
+  layouts, traced from CuTeDSL, are:
+
+  ```
+  'f16bf16_sparse|16': A '((4,8),(4,2)):((64,1),(16,8))'        B '((4,8),(2,2)):((16,1),(8,64))'
+  'f16bf16_sparse|32': A '((4,8),(4,2,2)):((64,1),(16,8,256))'  B '((4,8),(2,4)):((16,1),(8,64))'
+  ```
+
+  C is `MMA_C_LAYOUT` as always. `kDomain` is `[16, 32]`; `sparse_metadata_format` is
+  `{TID, REG_OFFSET}` from `cutlass.cute.nvgpu.warp.mma.SparseMetadataFormat`.
+- `MmaMXF4Op` / `MmaMXF8Op` / `MmaMXF4NVF4Op` / `MmaMXF8F6F4Op` subclass `MmaOp` *directly*, not
+  `WarpMmaOp` — `issubclass(MmaMXF4Op, WarpMmaOp)` is `False` — and are sm_120-only, so constructing
+  one on an sm_100 box raises `expects arch to be one of [sm_120a, ...]`. No oracle could be
+  generated, so they are absent rather than shipped untested.
+
+The `WarpMmaOp` subclass check is the structural boundary; "can the three grids show what makes this
+Op different" is the editorial one. Both matter when deciding whether a new Op belongs here.
+
+Further out, Hopper `wgmma` and Blackwell `tcgen05` are a different shape of problem and do NOT belong
+in this tab: `wgmma` reads A/B from SMEM through descriptors (its Op takes an `OperandSource`), and
+`tcgen05` accumulates in TMEM, which is not thread-addressable. The "three register fragments" reading
+that makes this tab work stops holding for both.
+
+**Per-Op `<select>`s must be repopulated before their value is assigned**, and `mmaSyncControls`'s
+`fill()` assigns the fallback EXPLICITLY (`sel.value = ok ? want : String(values[0])`) rather than
+leaning on the browser auto-selecting option 0 after an `innerHTML` swap. Without that the first
+render reads `''` and `parseInt` gives `NaN` — which `renderAllTabs` hits immediately, since the
+template ships those selects empty. Same hazard and same shape of fix as `syncCopyMoves` and
+`mcaRenderOpParams`.
+
+**Where this meets the Copy scope.** `tv_layout_A` is exactly what `make_tiled_copy_A(atom, tiled_mma)`
+hands to a copy as its `layout_tv`, and since every ldmatrix trait sets `RefLayout = DstLayout`, the
+copy's destination *is* this fragment. So the ldmatrix story in `make_copy_atom` reads backwards from
+here: the MMA declares the fragment, and `right_inverse(Ref) o Src` solves for which lane must supply
+which address. The MMA atom is the fixed point.
+
 ## Layout input convention (rank warnings)
 
 The visualizer renders 2D grids, so any layout with outer rank > 2 (e.g. `(2,3,4):(1,2,6)`) renders value-correct but structurally-misleading. **Every tab that accepts layout-syntax input MUST surface this caveat** using the shared input component:
@@ -855,7 +991,7 @@ This is enforced by convention, not by the framework — if you add a new layout
 ## Adding presets
 
 **Every preset — and every tab's default input values — must render cleanly.** `addOuterTab` now
-renders all 15 tabs on creation via `renderAllTabs`, so a tab whose defaults error would show its
+renders all 18 tabs on creation via `renderAllTabs`, so a tab whose defaults error would show its
 error box before the user has touched anything.
 
 **Every preset must render cleanly.** Presets are there to show working configurations, not to

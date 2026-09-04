@@ -716,6 +716,7 @@ const TAB_RENDER_FN = {
   make_tiled_copy_tv: 'renderMakeTiledCopyTv',
   make_tiled_tma_atom: 'renderMakeTiledTmaAtom',
   tma_partition:      'renderTmaPartition',
+  make_mma_atom:      'renderMakeMmaAtom',
 };
 
 /** True on Apple platforms, where the modifier is ⌘ rather than Ctrl. */
@@ -794,6 +795,10 @@ function generateTabContent(id) {
           <span class="tab-scope-icon">⇄</span>Copy
           <span class="tab-scope-count">5</span>
         </div>
+        <div class="tab-scope-btn" data-scope="mma" onclick="switchTabGroup('${id}', 'mma')">
+          <span class="tab-scope-icon">\u2B21</span>MMA
+          <span class="tab-scope-count">1</span>
+        </div>
       </div>
     <div class="tab-bar" data-scope="basics">
       <div data-tab="layout" class="tab active" data-scope="basics" onclick="switchInnerTab('${id}', 'layout')">Layout</div>
@@ -813,6 +818,7 @@ function generateTabContent(id) {
       <div data-tab="make_tiled_copy_tv" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy_tv')">make_tiled_copy_tv</div>
       <div data-tab="make_tiled_tma_atom" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_tma_atom')">make_tiled_tma_atom</div>
       <div data-tab="tma_partition" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'tma_partition')">tma_partition</div>
+      <div data-tab="make_mma_atom" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_mma_atom')">make_mma_atom</div>
     </div>
     </div>
     ${generateLayoutTabContent(id)}
@@ -832,6 +838,7 @@ function generateTabContent(id) {
     ${generateMakeTiledCopyTvTabContent(id)}
     ${generateMakeTiledTmaAtomTabContent(id)}
     ${generateTmaPartitionTabContent(id)}
+    ${generateMakeMmaAtomTabContent(id)}
   </div>`;
 }
 
@@ -1041,7 +1048,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_tma_atom: 15, tma_partition: 16 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_tma_atom: 15, tma_partition: 16, make_mma_atom: 17 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1478,6 +1485,7 @@ const FEATURE_SPEC = {
   make_tiled_tma_atom: { inputs: 5 },  // dtype, gmem, swizzle, smem, tiler
   tma_partition:       { inputs: 5 },  // values, dtype, swizzle, smem, rest
   swizzle:         { inputs: 2 },
+  make_mma_atom:   { inputs: 4 },  // op, ab_dtype, acc_dtype, K
 };
 
 function parseKeyParam() {
@@ -1621,6 +1629,18 @@ function applyKeyParam(tabId) {
       switchInnerTab(tabId, 'make_copy_atom');
       renderMakeCopyAtom(tabId);
       break;
+    case 'make_mma_atom': {
+      const sel = document.getElementById(`${tabId}-mma-op-input`);
+      sel.value = inputs[0];
+      // Rebuild the per-Op options BEFORE assigning into them — see mmaSyncControls.
+      mmaSyncControls(tabId, inputs[0]);
+      if (inputs[1] !== 'na') document.getElementById(`${tabId}-mma-ab-input`).value  = inputs[1];
+      if (inputs[2] !== 'na') document.getElementById(`${tabId}-mma-acc-input`).value = inputs[2];
+      document.getElementById(`${tabId}-mma-k-input`).value = inputs[3];
+      switchInnerTab(tabId, 'make_mma_atom');
+      renderMakeMmaAtom(tabId);
+      break;
+    }
     case 'make_tiled_copy':
       document.getElementById(`${tabId}-mtc-op-input`).value    = inputs[0];
       document.getElementById(`${tabId}-mtc-bits-input`).value  = inputs[1];

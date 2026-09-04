@@ -285,6 +285,43 @@ if (section('ldmatrix_atom')) {
 }
 
 // ═══════════════════════════════════════════════════════
+//  4c. make_mma_atom(warp.Mma*Op(...))  (mmaWarpAtom)
+// ═══════════════════════════════════════════════════════
+
+if (section('mma_atom')) {
+  const seen = new Map();   // layout triple -> the `op|K` that produced it
+  for (const c of CASES.mma_atom) {
+    const ref = refFor('mma_atom', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const a = V.mmaWarpAtom(c.op, c.k);
+      check(c.id, 'thr_id', fmt(V, new V.Layout(a.thrId.shape, a.thrId.stride)), ref.thr_id);
+      check(c.id, 'shape_mnk', `(${a.shapeMNK.join(',')})`, ref.shape_mnk);
+      for (const name of ['A', 'B', 'C']) {
+        const L = new V.Layout(a[name].shape, a[name].stride);
+        checkLayout(`${c.id}/${name}`, L, ref[name]);
+        // Each operand is drawn over the tile the tab derives from shape_mnk --
+        // A over (M,K), B over (N,K), C over (M,N). All three must be
+        // BIJECTIONS onto it: an MMA atom has no broadcast, so a size or cosize
+        // that misses the tile would mean the grid is the wrong shape.
+        const cells = a[name].tile.shape[0] * a[name].tile.shape[1];
+        check(`${c.id}/${name}`, 'tile_cells', cells, ref[name].size);
+        check(`${c.id}/${name}`, 'tile_is_cosize', cells, ref[name].cosize);
+      }
+      // The tab's load-bearing claim: the layouts depend ONLY on (op, K).
+      // Any two cases sharing that key must agree whatever their dtypes are.
+      const key = `${c.op}|${c.k}`;
+      const triple = `${ref.A.str} ${ref.B.str} ${ref.C.str}`;
+      if (seen.has(key)) check(c.id, `layouts independent of dtype (vs ${seen.get(key).id})`,
+                               triple, seen.get(key).triple);
+      else seen.set(key, { id: c.id, triple });
+      // C never varies at all -- not with K, not with acc_dtype.
+      check(c.id, 'C is the universal 16x8 accumulator', ref.C.str, V.MMA_C_LAYOUT);
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
 //  5. make_tiled_tma_atom  (tmaComputeAtom)
 // ═══════════════════════════════════════════════════════
 

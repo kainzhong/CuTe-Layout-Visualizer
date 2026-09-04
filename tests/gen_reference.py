@@ -45,6 +45,8 @@ DTYPES = {
     "int64_t": cutlass.Int64,
     "uint64_t": cutlass.Uint64,
     "uint128_t": cutlass.Int128,
+    "float_e4m3_t": cutlass.Float8E4M3FN,
+    "float_e5m2_t": cutlass.Float8E5M2,
 }
 
 COPY_OPS = {
@@ -280,6 +282,29 @@ def run_ldmatrix_atom(c):
     }
 
 
+MMA_OPS = {
+    "f16bf16": lambda c: warp.MmaF16BF16Op(
+        DTYPES[c["ab_dtype"]], DTYPES[c["acc_dtype"]], (16, 8, c["k"])),
+    "tf32": lambda c: warp.MmaTF32Op((16, 8, c["k"])),
+    "fp8": lambda c: warp.MmaFP8Op(
+        DTYPES[c["ab_dtype"]], DTYPES[c["acc_dtype"]], (16, 8, c["k"])),
+}
+
+
+def run_mma_atom(c):
+    # make_mma_atom takes ONLY the op -- no dtype argument, unlike
+    # make_copy_atom. An MMA's input and accumulator types are part of the
+    # instruction, so they live on the Op.
+    atom = cute.make_mma_atom(MMA_OPS[c["op"]](c))
+    return {
+        "thr_id": canon(atom.thr_id),
+        "shape_mnk": canon(atom.shape_mnk),
+        "A": record(atom.tv_layout_A),
+        "B": record(atom.tv_layout_B),
+        "C": record(atom.tv_layout_C),
+    }
+
+
 def _smem_layout(spec, sw):
     base = parse_layout(spec)
     if sw is None:
@@ -355,6 +380,7 @@ SECTIONS = [
     ("make_tiled_copy", run_make_tiled_copy),
     ("copy_atom", run_copy_atom),
     ("ldmatrix_atom", run_ldmatrix_atom),
+    ("mma_atom", run_mma_atom),
     ("tma_atom", run_tma_atom),
     ("tma_partition", run_tma_partition),
     ("swizzle", run_swizzle),

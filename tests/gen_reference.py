@@ -52,6 +52,15 @@ DTYPES = {
 COPY_OPS = {
     "universal": lambda: common.CopyUniversalOp(),
     "cpasync": lambda: cpasync.CopyG2SOp(),
+    # The four directional SIMT Ops. Constructed with DEFAULT memory attributes:
+    # the corpus pins that they give the same Atom as CopyUniversalOp, and
+    # tests/unit.js pins the separate claim that varying the attributes changes
+    # nothing either (which CuTeDSL cannot be the oracle for -- there is no
+    # layout difference to diff).
+    "g2r": lambda: common.CopyG2ROp(),
+    "r2g": lambda: common.CopyR2GOp(),
+    "s2r": lambda: common.CopyS2ROp(),
+    "r2s": lambda: common.CopyR2SOp(),
 }
 
 EVAL_CAP = 4096
@@ -233,7 +242,11 @@ def run_make_layout_tv(c):
 
 
 def run_make_tiled_copy(c):
-    atom = cute.make_copy_atom(common.CopyUniversalOp(), DTYPES[c["dtype"]],
+    # Optional "op" defaults to universal. It exists to pin that the tiling does
+    # not depend on WHICH SIMT Op the tab picked: all six give an identical Atom,
+    # so run.js checks these against the same expectations as the universal
+    # cases and a divergence would surface as a failure.
+    atom = cute.make_copy_atom(COPY_OPS[c.get("op", "universal")](), DTYPES[c["dtype"]],
                                num_bits_per_copy=c["bits"])
     layout_tv = parse_layout(c["tv"])
     tiler = _parse_value(c["tiler"])
@@ -246,9 +259,29 @@ def run_make_tiled_copy(c):
     }
 
 
+# Memory attributes a case may set via its optional "attrs" dict. Named here so
+# a typo in cases.json is a KeyError rather than a silently ignored kwarg.
+COPY_ATTRS = {
+    "memory_order": lambda v: getattr(common.MemoryOrder, v),
+    "memory_scope": lambda v: getattr(common.MemoryScope, v),
+    "l2_prefetch_size": lambda v: getattr(common.L2PrefetchSize, v),
+    "l1c_evict_priority": lambda v: getattr(common.CacheEvictionPriority, v),
+    "load_cache_mode": lambda v: getattr(common.LoadCacheMode, v),
+    "store_cache_mode": lambda v: getattr(common.StoreCacheMode, v),
+    "shared_space": lambda v: getattr(common.SharedSpace, v),
+    "invariant": bool,
+}
+
+
 def run_copy_atom(c):
+    # `attrs` exists to pin a claim the tab makes in prose: the directional SIMT
+    # Ops' memory attributes change the Atom's MLIR TYPE (and the emitted PTX)
+    # but not its layouts. run.js checks every case here against the same
+    # (1,N):(0,1) expectation, so an attribute that ever started mattering would
+    # surface as a failure rather than as stale documentation.
+    attrs = {k: COPY_ATTRS[k](v) for k, v in c.get("attrs", {}).items()}
     atom = cute.make_copy_atom(COPY_OPS[c["op"]](), DTYPES[c["dtype"]],
-                               num_bits_per_copy=c["bits"])
+                               num_bits_per_copy=c["bits"], **attrs)
     return {
         "layout_src_tv": canon(atom.layout_src_tv),
         "layout_dst_tv": canon(atom.layout_dst_tv),

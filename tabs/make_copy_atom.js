@@ -27,24 +27,12 @@
 // Copy Ops this tab can build. `params` lists the Op's own constructor
 // parameters; `kind` selects the derivation and the visualization.
 const MCA_OPS = {
-  universal: {
-    label: 'CopyUniversalOp',
-    ctor: 'cute.nvgpu.CopyUniversalOp()',
-    kind: 'simt',
-    cpasync: false,
-    params: [],
-    note: 'CuTe\'s generic single-thread load/store. Takes no constructor parameters — ' +
-          'the dataclass has no fields at all.',
-  },
-  cpasync: {
-    label: 'cpasync.CopyG2SOp',
-    ctor: 'cute.nvgpu.cpasync.CopyG2SOp()',
-    kind: 'simt',
-    cpasync: true,
-    params: [],
-    note: 'SM80+ non-bulk cp.async, GMEM→SMEM. Its one field, cache_mode, ' +
-          'defaults to ALWAYS and does not change the Atom\'s layouts.',
-  },
+  // The six SIMT Ops come from ui.js's SIMT_COPY_OPS, which the make_tiled_copy
+  // and make_tiled_copy_tv tabs read too — one table, three pickers. They all
+  // produce a byte-identical Atom (ThrID 1:0, ValLayoutSrc == ValLayoutDst),
+  // hence the shared `kind: 'simt'` render path.
+  ...Object.fromEntries(Object.entries(SIMT_COPY_OPS).map(([k, o]) =>
+    [k, { ...o, kind: 'simt', params: [] }])),
   // The LdMatrix family. All three are warp-collective SMEM→RMEM loads whose
   // source and destination layouts differ; MCA_LDSM_SPECS below carries the
   // geometry and the parameter domains, so an entry here is just the label plus
@@ -152,6 +140,11 @@ const MCA_PRESETS = [
   { op: 'universal', bits: 8,   dtype: 'int8_t', label: '8b int8_t &rarr; 1 element (scalar)' },
   { op: 'cpasync',   bits: 128, dtype: 'half_t', label: '128b half_t (cp.async.128)' },
   { op: 'cpasync',   bits: 64,  dtype: 'float',  label: '64b float (cp.async.64)' },
+  { op: 'g2r', bits: 128, dtype: 'half_t', label: '128b half_t &mdash; GMEM&rarr;RMEM' },
+  { op: 'g2r', bits: 32,  dtype: 'float',  label: '32b float &mdash; one scalar load' },
+  { op: 'r2g', bits: 128, dtype: 'float',  label: '128b float &mdash; RMEM&rarr;GMEM' },
+  { op: 's2r', bits: 128, dtype: 'half_t', label: '128b half_t &mdash; the SIMT SMEM load' },
+  { op: 'r2s', bits: 64,  dtype: 'half_t', label: '64b half_t &mdash; RMEM&rarr;SMEM' },
   { op: 'ldmatrix', bits: 128, dtype: 'half_t', nm: 4, tr: 0, label: '.x4 half_t &mdash; all 32 lanes live' },
   { op: 'ldmatrix', bits: 128, dtype: 'half_t', nm: 2, tr: 0, label: '.x2 half_t &mdash; 16 lanes broadcast' },
   { op: 'ldmatrix', bits: 128, dtype: 'half_t', nm: 1, tr: 0, label: '.x1 half_t &mdash; 24 lanes broadcast' },
@@ -324,8 +317,7 @@ ${copyMoveField(id, 'mca')}
             <div class="form-group">
               <label>CopyAtom type</label>
               <select id="${id}-mca-op-input" onchange="setMcaOp('${id}')">
-                <option value="universal" selected>CopyUniversalOp</option>
-                <option value="cpasync">cpasync.CopyG2SOp</option>
+                ${simtCopyOpOptions('universal')}
                 <option value="ldmatrix">warp.LdMatrix8x8x16bOp</option>
                 <option value="ldmatrix16x8x8b">warp.LdMatrix16x8x8bOp</option>
                 <option value="ldmatrix16x16x8b">warp.LdMatrix16x16x8bOp</option>
@@ -385,10 +377,38 @@ ${copyMoveField(id, 'mca')}
           <b>Two steps, two kinds of parameter.</b> An Op is constructed first
           (with whatever fields it carries), then
           <code>make_copy_atom(op, dtype, num_bits_per_copy=N)</code> turns it
-          into an Atom. <code>CopyUniversalOp</code> and
-          <code>cpasync.CopyG2SOp</code> take no constructor parameters, so
+          into an Atom. The SIMT Ops take no constructor parameters, so
           section 1 only asks which one; <code>warp.LdMatrix8x8x16bOp</code>
           takes two, and they appear there.<br><br>
+          <b>Six Ops, one picture.</b> <code>CopyUniversalOp</code>,
+          <code>cpasync.CopyG2SOp</code> and the four directional SIMT Ops
+          (<code>CopyG2ROp</code>, <code>CopyR2GOp</code>, <code>CopyS2ROp</code>,
+          <code>CopyR2SOp</code>) all produce a byte-identical Atom:
+          <code>ThrID = 1:0</code> and
+          <code>ValLayoutSrc == ValLayoutDst == (1, N):(0, 1)</code>. What the
+          directional Ops add is a set of <em>memory attributes</em> &mdash;
+          ordering, scope, cache and prefetch policy &mdash; passed as
+          <code>make_copy_atom</code> kwargs. Measured across all 32 settings of
+          <code>CopyG2ROp</code>'s: <b>1</b> distinct
+          <code>(ThrID, src, dst)</code> triple, <b>26</b> distinct MLIR atom
+          types. They are encoded in the Atom's <em>type</em> and decide the PTX
+          qualifiers, not which elements move, so the picture is rightly
+          unchanged &mdash; which is why this tab states them rather than
+          offering controls that could not change a cell. Two things they
+          <em>do</em> change: the emitted instruction, and the fact that
+          <code>CopyG2RTrait</code> / <code>CopyR2GTrait</code> can carry a
+          <em>runtime</em> <code>cache_policy</code> that
+          <code>CopyUniversalTrait</code> cannot.<br><br>
+          <b>The direction is fixed by the Op</b> &mdash; baked into the MLIR
+          type (<code>!cute_nvgpu.atom.g2r&lt;...&gt;</code>), not chosen at
+          construction &mdash; so section 0's picker is a single disabled entry
+          for each. Use <code>CopyUniversalOp</code> when you just want the move
+          (it is also the only one that lets you omit
+          <code>num_bits_per_copy</code> and auto-vectorize); reach for a
+          directional Op to say something about how memory behaves. Note
+          <code>CopyS2ROp</code> shares SMEM&rarr;RMEM with
+          <code>ldmatrix</code> but is the single-thread load &mdash; same
+          direction, entirely different layouts.<br><br>
           <b>The LdMatrix family: three Ops, three parameter domains.</b>
           <code>num_matrices</code> is the <code>.x{1,2,4}</code> qualifier and
           decides <em>how many lanes' addresses the hardware consumes</em>. It
@@ -703,7 +723,19 @@ function mcaRenderOpParams(tabId, op) {
     `<div class="cuo-result-line"><b>${op.ctor}</b></div>` +
     (op.params.length === 0
       ? `<div class="cuo-result-line" style="color:#9ca3af">No constructor parameters required. ` +
-        `${op.note}</div>`
+        `${op.note}</div>` +
+        // Memory attributes are make_copy_atom kwargs, not Op fields, and they
+        // are stated rather than offered: every one of them leaves ThrID and
+        // both ValLayouts untouched, so a control for them could not change a
+        // single cell of the picture.
+        (op.attrs
+          ? `<div class="cuo-result-line" style="color:#9ca3af">Accepts as ` +
+            `<code>make_copy_atom</code> kwargs: ` +
+            op.attrs.map(a => `<code>${a}</code>`).join(', ') + `. None of them changes ` +
+            `<code>ThrID</code> or either ValLayout &mdash; they are encoded in the Atom's ` +
+            `<em>type</em> and decide the PTX qualifiers, not which elements move. That is why ` +
+            `this tab does not offer them as controls.</div>`
+          : '')
       : `<div class="cuo-result-line" style="color:#9ca3af">${op.note}</div>` +
         `<div class="cuo-result-line" style="color:#9ca3af">Constructor parameters: ` +
         op.params.map(p => `<code>${p}</code>`).join(', ') + `.` +

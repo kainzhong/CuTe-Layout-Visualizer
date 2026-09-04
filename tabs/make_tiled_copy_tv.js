@@ -52,6 +52,8 @@ ${mtcAtomSection(id, 'mtv', '1. The Copy_Atom you are tiling')}
             <button class="preset-btn" onclick="setMTV('${id}','universal',128,'float','(32,8):(1,32)','(4,1):(1,1)')">sgemm_2.cu &mdash; 128b float, thr 32x8 m-major, val 4x1</button>
             <button class="preset-btn" onclick="setMTV('${id}','universal',16,'half_t','(4,8):(8,1)','(2,4):(4,1)')">scalar atom &mdash; 16b half, val 2x4 (FrgX=8)</button>
             <button class="preset-btn" onclick="setMTV('${id}','universal',128,'half_t','(4,8):(8,1)','(2,4):(4,1)')">128b half, val 2x4 &mdash; shows why a 2-D val_layout can't vectorize</button>
+            <button class="preset-btn" onclick="setMTV('${id}','g2r',128,'half_t','(16,8):(8,1)','(1,8):(1,1)')">CopyG2ROp &mdash; same derivation, GMEM&rarr;RMEM</button>
+            <button class="preset-btn" onclick="setMTV('${id}','s2r',128,'half_t','(16,8):(8,1)','(1,8):(1,1)')">CopyS2ROp &mdash; the SIMT SMEM load (not ldmatrix)</button>
           </div>
         </div>
 

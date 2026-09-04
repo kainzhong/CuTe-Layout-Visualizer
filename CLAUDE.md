@@ -178,7 +178,20 @@ produce hierarchical coordinates this 2-D grid cannot draw.
 - **SVG helpers**: `cellSize`, `svgFitStyle`, `cellTextSVG`, `buildCellLines`, `toModeSet`
 - **Zoom**: `applyZoomState`, `toggleZoom`
 - **Copy SRC/DST panes**: `COPY_OP_MOVES`, `copyMoveField`, `syncCopyMoves`, `copyMove`, `setCopyMove`, `updateCopyPaneTitles`, `initCopyPanes`, `copyDirButtons`, `copyPanes`, `setCopyDir`, `copyDir`, `toggleCopyZoom` — the side-by-side view shared by all four Copy tabs. Both SVGs are always in the DOM; `data-dir` on `.copy-panes` decides visibility, so SRC/DST/BOTH is pure CSS and needs no re-render. In BOTH mode the panes are equal flex children, which halves each SVG's width while `width:100%;height:auto` preserves its ratio. Note `attachVizFullscreenButtons` iterates **every** `.viz-box` inside a `.comp-viz-item`, not just the first — the Copy tabs put two panes in one item, and taking the first left DST without a button.
-- **Memory movement is constrained, not free.** `COPY_OP_MOVES` lists the legal `(src, dst)` pairs per Op key; section 0 of each Copy tab is a `<select>` built from it, and the pane titles are read-only labels driven by that select. `cpasync.CopyG2SOp` has exactly one entry (GMEM→SMEM) so its picker is `disabled`. `CopyUniversalOp` gets the six cross-space pairs over GMEM/SMEM/RMEM — **TMEM is deliberately excluded**, because it isn't thread-addressable (tcgen05's Ld/St src layout is stride-0 across all 32 lanes), so reaching it requires a tcgen05 Op. `tma_g2s` (the bulk-tensor load) has one entry too, for the same reason as `cpasync`. `ldmatrix` likewise has exactly one, SMEM→RMEM: the source operand is a `.shared::cta` address and the destination is the register file, both fixed by the instruction encoding — there is no GMEM form (that is cp.async / TMA) and no RMEM→SMEM form (that is `stmatrix`, a different Op). `syncCopyMoves(tabId, p, opKey)` rebuilds the options on every Op change and keeps the current selection when the new Op still permits it; `initCopyPanes(tabId)` runs from `addOuterTab` so the picker and titles are right before the first Render.
+- **One Op table, three pickers**: `SIMT_COPY_OPS` + `simtCopyOpOptions(sel)`. Every Op whose Atom is
+  `ThrID = 1:0` with `ValLayoutSrc == ValLayoutDst == (1, N):(0, 1)` — `CopyUniversalOp`,
+  `cpasync.CopyG2SOp`, and the four directional `CopyG2ROp` / `CopyR2GOp` / `CopyS2ROp` / `CopyR2SOp`.
+  `make_copy_atom` spreads it into `MCA_OPS` (adding `kind: 'simt'`); `make_tiled_copy` /
+  `make_tiled_copy_tv` alias it as `MTC_OPS`, and `mtcAtomSection` generates its `<option>`s from it.
+  It lives in ui.js **because the duplication had already drifted** — the four directional Ops were
+  added to `make_copy_atom`'s private table and silently did not appear in the other two tabs. Adding
+  an Op here now offers it in all three with no template edit. The ldmatrix Ops stay out of `MTC_OPS`
+  on purpose: they are warp-collective with divergent src/dst, so `mtcReadAtom`'s `AtomNumThr = 1`
+  would be a lie: supporting them means teaching those tabs a second atom shape, not a dropdown entry.
+- **Memory movement is constrained, not free.** `COPY_OP_MOVES` lists the legal `(src, dst)` pairs per Op key; section 0 of each Copy tab is a `<select>` built from it, and the pane titles are read-only labels driven by that select. `cpasync.CopyG2SOp` has exactly one entry (GMEM→SMEM) so its picker is `disabled`. `CopyUniversalOp` gets the six cross-space pairs over GMEM/SMEM/RMEM — **TMEM is deliberately excluded**, because it isn't thread-addressable (tcgen05's Ld/St src layout is stride-0 across all 32 lanes), so reaching it requires a tcgen05 Op. `tma_g2s` (the bulk-tensor load) has one entry too, for the same reason as `cpasync`. The four
+directional SIMT Ops (`g2r`, `r2g`, `s2r`, `r2s`) likewise have exactly one each — the direction is in
+the Op's name and is baked into its MLIR type (`!cute_nvgpu.atom.g2r<...>`), not chosen at
+Atom-construction time. `ldmatrix` likewise has exactly one, SMEM→RMEM: the source operand is a `.shared::cta` address and the destination is the register file, both fixed by the instruction encoding — there is no GMEM form (that is cp.async / TMA) and no RMEM→SMEM form (that is `stmatrix`, a different Op). `syncCopyMoves(tabId, p, opKey)` rebuilds the options on every Op change and keeps the current selection when the new Op still permits it; `initCopyPanes(tabId)` runs from `addOuterTab` so the picker and titles are right before the first Render.
 - **Collapsible viz**: `attachVizCollapsibles(root)` — injects a ▾/▸ chevron into each `.comp-viz-item` / `.visualization` header in `root`; clicking it folds just that viz's body (viz-box / legend / description). Called once from `addOuterTab` per new panel; the collapsed state lives on the item's class and survives in-place re-renders.
 - **Render shortcut**: `TAB_RENDER_FN` (inner-tab name -> render function name), `renderActiveInnerTab`, `attachRenderHints`, `renderShortcutLabel`, `isMacPlatform` — a single document-level keydown listener maps Cmd/Ctrl+Enter to the visible tab's Render
 - **Initial render**: `renderAllTabs(tabId, activeTab)` — called from `addOuterTab`, renders every tab once with its shipped defaults so switching to a tab shows a picture instead of an empty box. Relies on the "defaults and presets must render cleanly" rule. The active tab renders LAST so its `updateOuterTabLabel` wins, and each render is try/caught so one bad tab can't blank the rest.
@@ -480,6 +493,40 @@ adding new copy atoms.
 | What one TMA instruction moves, and the descriptor behind it | `make_tiled_tma_atom` | `copy` | A property of (tensor, smem layout, tiler) — no threads involved |
 | How a tile is split into instruction-sized chunks | `tma_partition` | `copy` | Needs only the atom's element count and the SMEM order |
 | Whether the access pattern is coalesced / bank-conflict-free | `tv` | `basics` | A property of (TV layout, **data layout**) — no atom involved |
+
+### The six SIMT Ops produce one identical Atom
+
+`CopyUniversalOp`, `cpasync.CopyG2SOp` and the four directional Ops (`CopyG2ROp`, `CopyR2GOp`,
+`CopyS2ROp`, `CopyR2SOp`) all give `ThrID = 1:0` and `ValLayoutSrc == ValLayoutDst == (1, N):(0, 1)`.
+They share `kind: 'simt'` and the same render path, on purpose — the picture is of the data movement,
+and these Ops move data identically.
+
+**What the directional Ops add is memory attributes, and those change no cell.** They are
+`make_copy_atom` kwargs, not Op fields: `memory_order`, `memory_scope`, `l1c_evict_priority`,
+`shared_space` on all of them, plus `l2_prefetch_size` / `load_cache_mode` / `invariant` on the load
+side and `store_cache_mode` on the store side. (Those asymmetries are the tell that this is not one
+parameter set gated by direction — prefetch and `ld.global.nc` have no store analogue, and SMEM has no
+L1/L2 policy, so the two shared-memory Ops get only the sync knobs.) Measured across all 32 settings of
+`CopyG2ROp`'s: **1** distinct `(ThrID, src, dst)` triple, **26** distinct MLIR atom types. So
+`MCA_OPS[key].attrs` NAMES them in the params box rather than rendering controls — a control that
+cannot change a cell is noise, the same call as `unpack_bits` not being a parameter of
+`mcaLdmatrixAtom`.
+
+Two things the attributes *do* change, worth not forgetting: the emitted PTX, and the fact that
+`CopyG2RTrait` / `CopyR2GTrait` override `unpack()` to accept a **runtime** `cache_policy` (an `Int64`
+from `createpolicy`) which `CopyUniversalTrait` cannot.
+
+**Three cross-parameter rules the DSL enforces**, found by writing the `attrs` test cases and watching
+them fail — worth knowing before adding more:
+
+- `invariant` requires every other memory feature at its default
+- `load_cache_mode` must be `ALWAYS` unless `memory_order` is `WEAK`
+- `store_cache_mode` must be `WRITE_BACK` unless `memory_order` is `WEAK`
+
+A one-attribute-at-a-time sweep never hits these; they only bite on combinations.
+
+`CopyS2ROp` shares SMEM→RMEM with the whole ldmatrix family but is the single-thread load, so its
+layouts are completely different — same `COPY_OP_MOVES` entry, opposite ends of the tab.
 
 `make_copy_atom` keeps the DSL's two-step split visible: an Op is constructed with its own fields
 first, then `make_copy_atom(op, dtype, num_bits_per_copy)` turns it into an Atom. `MCA_OPS[key]`

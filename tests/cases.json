@@ -626,7 +626,12 @@
  "_comment_mtc": [
   "The PRIMITIVE constructor _make_tiled_copy(atom, layout_tv, tiler_mn). CuTe just",
   "stores the two, so the reference records what the TiledCopy reports back and the",
-  "JS side checks its parse of the same strings (mtcParseTiler + parseLayout)."
+  "JS side checks its parse of the same strings (mtcParseTiler + parseLayout).",
+  "The `op` field is optional and defaults to universal. The directional cases",
+  "mirror universal ones with the same tv/tiler: since all six SIMT Ops give an",
+  "identical Atom, the TiledCopy must be identical too, and run.js checks them",
+  "against the same expectations. This is what stops the three tabs' shared Op",
+  "picker from silently mattering."
  ],
  "make_tiled_copy": [
   {
@@ -649,11 +654,48 @@
    "bits": 128,
    "tv": "((4,8),8):((64,1),8)",
    "tiler": "(8,32)"
+  },
+  {
+   "id": "mtc-g2r",
+   "op": "g2r",
+   "dtype": "half_t",
+   "bits": 128,
+   "tv": "((8,16),8):((128,1),16)",
+   "tiler": "(16,64)"
+  },
+  {
+   "id": "mtc-r2s",
+   "op": "r2s",
+   "dtype": "half_t",
+   "bits": 64,
+   "tv": "((4,8),8):((64,1),8)",
+   "tiler": "(8,32)"
+  },
+  {
+   "id": "mtc-s2r",
+   "op": "s2r",
+   "dtype": "float",
+   "bits": 128,
+   "tv": "(4,4):(4,1)",
+   "tiler": "(4,4)"
   }
  ],
  "_comment_copy_atom": [
   "make_copy_atom(op, dtype, num_bits_per_copy) -> Copy_Atom whose ValLayout is",
-  "(1, num_bits/dtype_bits):(0,1). Checks ui.js's DTYPE_BITS table against the DSL."
+  "(1, num_bits/dtype_bits):(0,1). Checks ui.js's DTYPE_BITS table against the DSL.",
+  "Covers all six SIMT Ops: CopyUniversalOp, cpasync.CopyG2SOp, and the four",
+  "directional CopyG2R/R2G/S2R/R2S. They differ in PTX and in MLIR atom type but",
+  "produce identical Atoms, which is exactly what these cases pin -- run.js checks",
+  "every one against the SAME (1,N):(0,1) expectation, so a future divergence in",
+  "any of them shows up as a failure rather than as a tab quietly drawing the",
+  "wrong picture.",
+  "The `attrs` cases pin the tab's claim that the directional Ops' memory",
+  "attributes change the MLIR atom type and the emitted PTX but NOT the layouts:",
+  "run.js checks them against the same (1,N):(0,1) expectation as everything",
+  "else. They also document three cross-parameter rules the DSL enforces (found",
+  "by writing these cases and watching them fail): `invariant` requires every",
+  "other memory feature at its default; `load_cache_mode` must be ALWAYS and",
+  "`store_cache_mode` WRITE_BACK unless `memory_order` is WEAK."
  ],
  "copy_atom": [
   {
@@ -703,6 +745,137 @@
    "op": "cpasync",
    "dtype": "float",
    "bits": 64
+  },
+  {
+   "id": "mca-g2r-half_t-128",
+   "op": "g2r",
+   "dtype": "half_t",
+   "bits": 128
+  },
+  {
+   "id": "mca-g2r-float-32",
+   "op": "g2r",
+   "dtype": "float",
+   "bits": 32
+  },
+  {
+   "id": "mca-g2r-int8_t-64",
+   "op": "g2r",
+   "dtype": "int8_t",
+   "bits": 64
+  },
+  {
+   "id": "mca-r2g-float-128",
+   "op": "r2g",
+   "dtype": "float",
+   "bits": 128
+  },
+  {
+   "id": "mca-r2g-half_t-64",
+   "op": "r2g",
+   "dtype": "half_t",
+   "bits": 64
+  },
+  {
+   "id": "mca-s2r-half_t-128",
+   "op": "s2r",
+   "dtype": "half_t",
+   "bits": 128
+  },
+  {
+   "id": "mca-s2r-double-128",
+   "op": "s2r",
+   "dtype": "double",
+   "bits": 128
+  },
+  {
+   "id": "mca-r2s-half_t-64",
+   "op": "r2s",
+   "dtype": "half_t",
+   "bits": 64
+  },
+  {
+   "id": "mca-r2s-uint8_t-8",
+   "op": "r2s",
+   "dtype": "uint8_t",
+   "bits": 8
+  },
+  {
+   "id": "mca-g2r-attr-prefetch",
+   "op": "g2r",
+   "dtype": "half_t",
+   "bits": 128,
+   "attrs": {
+    "l2_prefetch_size": "SIZE_256B",
+    "l1c_evict_priority": "EVICT_LAST"
+   }
+  },
+  {
+   "id": "mca-g2r-attr-invariant",
+   "op": "g2r",
+   "dtype": "half_t",
+   "bits": 128,
+   "attrs": {
+    "invariant": true
+   }
+  },
+  {
+   "id": "mca-g2r-attr-ordering",
+   "op": "g2r",
+   "dtype": "half_t",
+   "bits": 128,
+   "attrs": {
+    "memory_order": "ACQUIRE",
+    "memory_scope": "SYS"
+   }
+  },
+  {
+   "id": "mca-g2r-attr-cachemode",
+   "op": "g2r",
+   "dtype": "half_t",
+   "bits": 128,
+   "attrs": {
+    "load_cache_mode": "STREAMING"
+   }
+  },
+  {
+   "id": "mca-r2g-attr-store",
+   "op": "r2g",
+   "dtype": "float",
+   "bits": 128,
+   "attrs": {
+    "store_cache_mode": "WRITE_THROUGH"
+   }
+  },
+  {
+   "id": "mca-r2g-attr-ordering",
+   "op": "r2g",
+   "dtype": "float",
+   "bits": 128,
+   "attrs": {
+    "memory_order": "RELEASE",
+    "memory_scope": "GPU",
+    "l1c_evict_priority": "NO_ALLOCATE"
+   }
+  },
+  {
+   "id": "mca-s2r-attr-cluster",
+   "op": "s2r",
+   "dtype": "half_t",
+   "bits": 128,
+   "attrs": {
+    "shared_space": "CLUSTER",
+    "memory_order": "RELAXED"
+   }
+  },
+  {
+   "id": "mca-r2s-attr-cluster",
+   "op": "r2s",
+   "dtype": "half_t",
+   "bits": 64,
+   "attrs": {
+    "shared_space": "CLUSTER"
+   }
   }
  ],
  "_comment_ldmatrix_atom": [

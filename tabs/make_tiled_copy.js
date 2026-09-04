@@ -20,12 +20,16 @@
 // output is a flat index into the tile that `zipped_divide(tensor, Tiler_MN)`
 // carves out, so the codomain has to land inside it — see mtcCoverageCheck.
 
-// Copy ops that share the single-thread / N-contiguous-values Atom shape.
-// Both have byte-identical Copy_Traits — see the Copy_Atom tab's notes.
-const MTC_OPS = {
-  universal: { label: 'CopyUniversalOp', cpasync: false },
-  cpasync:   { label: 'cpasync.CopyG2SOp', cpasync: true  },
-};
+// The Ops both tiled-copy tabs offer: ui.js's SIMT_COPY_OPS, unfiltered.
+// Every one of them is `ThrID = 1:0` with `ValLayoutSrc == ValLayoutDst`, which
+// is precisely what mtcReadAtom assumes when it reports `AtomNumThr = 1` and a
+// single atom layout — so the SIMT set is the whole set these tabs can take.
+//
+// The ldmatrix Ops in MCA_OPS are deliberately NOT here: they are warp-collective
+// (ThrID 32:1) with divergent src/dst, so `AtomNumThr = 1` would be a lie and
+// mtcRequireAtomDivides would be checking the wrong assert. Supporting them means
+// teaching these tabs a second atom shape, not adding a dropdown entry.
+const MTC_OPS = SIMT_COPY_OPS;
 
 const MTC_CPASYNC_BITS = [32, 64, 128];
 
@@ -49,9 +53,8 @@ ${copyMoveField(id, p)}
           <div class="cuo-section-body">
             <div class="form-group">
               <label>Copy operation</label>
-              <select id="${id}-${p}-op-input">
-                <option value="universal" selected>CopyUniversalOp</option>
-                <option value="cpasync">cpasync.CopyG2SOp</option>
+              <select id="${id}-${p}-op-input" onchange="syncCopyMoves('${id}','${p}',this.value)">
+                ${simtCopyOpOptions('universal')}
               </select>
             </div>
             <div class="form-group">
@@ -91,7 +94,16 @@ function mtcReadAtom(tabId, p) {
   document.getElementById(`${tabId}-${p}-atom-result`).innerHTML =
     `<div class="cuo-result-line"><b>Copy_Atom&lt;${op.label}&lt;${numBits}b&gt;, ${dtype}&gt;</b></div>` +
     `<div class="cuo-result-line">AtomNumThr = 1, AtomNumVal = ${numBits} / ${elemBits} = <b>${atomNumVal}</b></div>` +
-    `<div class="cuo-result-line">ThrID = 1:0, ValLayoutSrc = ValLayoutDst = ${atomStr}</div>`;
+    `<div class="cuo-result-line">ThrID = 1:0, ValLayoutSrc = ValLayoutDst = ${atomStr}</div>` +
+    // The directional Ops' memory attributes are named, not offered: they change
+    // the Atom's MLIR type and the emitted PTX but not a single cell of any
+    // layout, so they cannot affect the tiling this tab is about.
+    (op.attrs
+      ? `<div class="cuo-result-line" style="color:#9ca3af">Also accepts ` +
+        op.attrs.map(a => `<code>${a}</code>`).join(', ') +
+        ` as <code>make_copy_atom</code> kwargs. None of them changes the Atom's layouts, ` +
+        `so none of them changes anything below.</div>`
+      : '');
 
   const cpasyncWarn = (op.cpasync && !MTC_CPASYNC_BITS.includes(numBits))
     ? `cp.async hardware only accepts num_bits_per_copy ∈ {32, 64, 128} — ${numBits} would be ` +
@@ -104,8 +116,8 @@ function mtcReadAtom(tabId, p) {
 //  Shared: checks
 // ═══════════════════════════════════════════════════════
 
-/** CuTe's own static assert, copy_atom.hpp:206. AtomNumThr is 1 for both ops
- *  we cover, so only the value side can fail. */
+/** CuTe's own static assert, copy_atom.hpp:206. AtomNumThr is 1 for every Op
+ *  these tabs accept (they are all SIMT), so only the value side can fail. */
 function mtcRequireAtomDivides(tiledNumVal, atomNumVal, numBits, elemBits, dtype) {
   if (tiledNumVal % atomNumVal === 0) return;
   // Spell out the way out: any num_bits whose AtomNumVal divides TiledNumVal
@@ -545,6 +557,8 @@ ${mtcAtomSection(id, 'mtc', '1. The Copy_Atom you are tiling')}
             <button class="preset-btn" onclick="setMTC('${id}','cpasync',128,'half_t','((8,16),8):((128,1),16)','(16, 64)')">sgemm_sm80 TV layout, tile 16x64</button>
             <button class="preset-btn" onclick="setMTC('${id}','universal',32,'half_t','((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))','(32, 16)')">make_tiled_copy_A shape &mdash; 2-way broadcast (stride-0 mode)</button>
             <button class="preset-btn" onclick="setMTC('${id}','universal',128,'float','(256,4):(4,1)','(128, 8)')">sgemm_2.cu TV layout &mdash; 128b float, tile 128x8</button>
+            <button class="preset-btn" onclick="setMTC('${id}','g2r',128,'half_t','((8,16),8):((128,1),16)','(16, 64)')">CopyG2ROp &mdash; same tiling, GMEM&rarr;RMEM</button>
+            <button class="preset-btn" onclick="setMTC('${id}','r2s',64,'half_t','((8,4),(2,2)):((16,2),(8,1))','(8, 16)')">CopyR2SOp &mdash; 64b half, RMEM&rarr;SMEM</button>
           </div>
         </div>
 

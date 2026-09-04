@@ -1199,6 +1199,84 @@ function updateModeBtns(groupId, modes) {
  *  thread-addressable at all (tcgen05's Ld/St src layout is stride-0 across all
  *  32 lanes), so reaching it needs a tcgen05 Op rather than a universal copy.
  *  Same-space moves (GMEM->GMEM) are omitted as degenerate. */
+/** The SIMT copy Ops — every Op whose Atom is `ThrID = 1:0` with
+ *  `ValLayoutSrc == ValLayoutDst == (1, N):(0, 1)`. One thread, N contiguous
+ *  elements, N = num_bits_per_copy / sizeof_bits(dtype).
+ *
+ *  Lives in ui.js rather than in a tab because THREE tabs offer these — the
+ *  `make_copy_atom`, `make_tiled_copy` and `make_tiled_copy_tv` tabs all build
+ *  their Op picker from it. It used to be duplicated per tab, and the
+ *  duplication immediately drifted: the four directional Ops were added to
+ *  make_copy_atom and silently did not appear in the other two. Adding an Op
+ *  here now offers it in all three, and `mtcAtomSection` generates its
+ *  `<option>`s from this table so no template edit is needed either.
+ *
+ *  `attrs` names the memory attributes the Op accepts as `make_copy_atom`
+ *  kwargs. They are NAMED, never rendered as controls: measured across all 32
+ *  settings of CopyG2ROp's, they give 1 distinct (ThrID, src, dst) triple and
+ *  26 distinct MLIR atom types — so they decide the PTX qualifiers, not which
+ *  elements move, and a control for them could not change a cell. */
+const SIMT_COPY_OPS = {
+  universal: {
+    label: 'CopyUniversalOp',
+    ctor: 'cute.nvgpu.CopyUniversalOp()',
+    cpasync: false,
+    note: 'CuTe\'s generic single-thread load/store. Takes no constructor parameters — ' +
+          'the dataclass has no fields at all. The only Op here that lets you omit ' +
+          '<code>num_bits_per_copy</code> and have the compiler auto-vectorize.',
+  },
+  cpasync: {
+    label: 'cpasync.CopyG2SOp',
+    ctor: 'cute.nvgpu.cpasync.CopyG2SOp()',
+    cpasync: true,
+    note: 'SM80+ non-bulk cp.async, GMEM→SMEM. Its one field, cache_mode, ' +
+          'defaults to ALWAYS and does not change the Atom\'s layouts.',
+  },
+  g2r: {
+    label: 'CopyG2ROp',
+    ctor: 'cute.nvgpu.CopyG2ROp()',
+    cpasync: false,
+    attrs: ['memory_order', 'memory_scope', 'l2_prefetch_size', 'l1c_evict_priority',
+            'load_cache_mode', 'shared_space', 'invariant'],
+    note: 'GMEM&rarr;RMEM with the load-side memory controls. <code>l2_prefetch_size</code> and ' +
+          '<code>invariant</code> (the <code>ld.global.nc</code> / <code>__ldg</code> read-only ' +
+          'path) exist only here &mdash; a store has no analogue for either.',
+  },
+  r2g: {
+    label: 'CopyR2GOp',
+    ctor: 'cute.nvgpu.CopyR2GOp()',
+    cpasync: false,
+    attrs: ['memory_order', 'memory_scope', 'l1c_evict_priority', 'store_cache_mode',
+            'shared_space'],
+    note: 'RMEM&rarr;GMEM. Mirror of CopyG2ROp, but with <code>store_cache_mode</code> ' +
+          '(write-back / write-through) in place of <code>load_cache_mode</code>, and no ' +
+          'prefetch or invariant.',
+  },
+  s2r: {
+    label: 'CopyS2ROp',
+    ctor: 'cute.nvgpu.CopyS2ROp()',
+    cpasync: false,
+    attrs: ['memory_order', 'memory_scope', 'shared_space'],
+    note: 'SMEM&rarr;RMEM, one thread. Only the synchronization controls &mdash; SMEM has no ' +
+          'L1/L2 policy to express, which is why the cache parameters are absent. Note this is ' +
+          'the SIMT load; the <code>ldmatrix</code> Ops move the same direction ' +
+          'warp-collectively and do NOT give the same layouts.',
+  },
+  r2s: {
+    label: 'CopyR2SOp',
+    ctor: 'cute.nvgpu.CopyR2SOp()',
+    cpasync: false,
+    attrs: ['memory_order', 'memory_scope', 'shared_space'],
+    note: 'RMEM&rarr;SMEM, one thread. The SIMT counterpart of <code>stmatrix</code>.',
+  },
+};
+
+/** `<option>` markup for every SIMT Op, with `sel` preselected. */
+function simtCopyOpOptions(sel) {
+  return Object.entries(SIMT_COPY_OPS).map(([k, o]) =>
+    `<option value="${k}"${k === sel ? ' selected' : ''}>${o.label}</option>`).join('\n                ');
+}
+
 const COPY_OP_MOVES = {
   universal: [
     ['GMEM', 'RMEM'], ['RMEM', 'GMEM'],
@@ -1227,6 +1305,16 @@ const COPY_OP_MOVES = {
   ldmatrix16x16x8b: [
     ['SMEM', 'RMEM'],
   ],
+  // The four directional SIMT Ops: one legal pairing each, by construction —
+  // the direction is in the Op's name and is baked into its MLIR type
+  // (`!cute_nvgpu.atom.g2r<...>` etc.), not chosen at Atom-construction time.
+  // So every one of these pickers is a single disabled entry, same as cpasync.
+  // Note s2r shares SMEM→RMEM with ldmatrix but is the SIMT load, not the
+  // warp-collective one, and their layouts differ accordingly.
+  g2r: [['GMEM', 'RMEM']],
+  r2g: [['RMEM', 'GMEM']],
+  s2r: [['SMEM', 'RMEM']],
+  r2s: [['RMEM', 'SMEM']],
 };
 
 /** Section-0 control: pick one of the Op's legal memory movements. Options are

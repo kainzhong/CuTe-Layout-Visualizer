@@ -133,12 +133,11 @@ function generateTVTabContent(id) {
       <div class="visualization">
         <div class="viz-header">
           <span class="viz-title" id="${id}-tv-title">&mdash;</span>
-          <span style="display:flex;align-items:center;gap:8px">
+          <span style="display:flex;align-items:center;gap:4px">
             <span class="mode-btn-group" id="${id}-tv-mode-btns">
               <button class="mode-btn" onclick="setTVMode('${id}','value')">value</button>
             </span>
-            <button class="btn" id="${id}-tv-svg-host-zoom" onclick="toggleZoom('${id}-tv-svg-host')">Zoom in</button>
-            <button class="btn" onclick="downloadSVG('${id}-tv-svg-host', 'tv_layout.svg')">Download SVG</button>
+            <button class="mode-btn" id="${id}-tv-svg-host-zoom" onclick="toggleZoom('${id}-tv-svg-host')">Zoom in</button>
           </span>
         </div>
         <div class="viz-box">

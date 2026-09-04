@@ -999,6 +999,25 @@ function viewFullscreen(hostId) {
   closeBtn.addEventListener('click', closeFullscreen);
   overlay.appendChild(closeBtn);
 
+  // Directly under Close. The overlay is where you end up when a diagram is
+  // worth looking at closely, which is also when you want to keep it — and it
+  // is the only place EVERY viz can be downloaded from, since only five of the
+  // per-tab headers carry their own Download SVG button.
+  const dlBtn = document.createElement('button');
+  dlBtn.type = 'button';
+  dlBtn.textContent = '\u2193 Download SVG';
+  dlBtn.title = 'Save this diagram as an SVG file';
+  dlBtn.style.cssText =
+    'position:fixed;top:48px;right:12px;z-index:10000;' +
+    'font-size:13px;padding:6px 12px;background:#1e3a5f;color:#93c5fd;' +
+    'border:1px solid #3b82f6;border-radius:6px;cursor:pointer;' +
+    'box-shadow:0 2px 8px rgba(0,0,0,0.25)';
+  dlBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    downloadSVG(hostId, vizFilename(hostId));
+  });
+  overlay.appendChild(dlBtn);
+
   document.body.appendChild(overlay);
   document.addEventListener('keydown', vizFullscreenEscHandler);
 }
@@ -1549,10 +1568,77 @@ function stripTrivialTrailing(shape, stride) {
 //  Download SVG
 // ═══════════════════════════════════════════════════════
 
+const SVG_WATERMARK = 'Generated with kainzhong.github.io/CuTe-Layout-Visualizer';
+
+/** Add the attribution watermark to a piece of SVG MARKUP, returning new markup.
+ *
+ *  Operates on the string rather than the DOM so it is pure (and so
+ *  tests/unit.js can pin it), and so a downloaded file never inherits whatever
+ *  inline sizing the on-screen element happened to be carrying — `svgFitStyle`
+ *  writes `max-height:70vh` for a tall grid, which is meaningless in a file.
+ *  The opening tag is rebuilt with `viewBox` plus explicit `width`/`height`,
+ *  which is what makes the result a well-formed standalone SVG.
+ *
+ *  The watermark gets its OWN band above the diagram rather than being drawn
+ *  over the top-left cells. Every builder starts its grid at `(margin, margin)`
+ *  with `margin` = one cell, so the only truly free space up there is a single
+ *  cell square — far too narrow for a 57-character URL — and spilling out of it
+ *  would cover either the column labels or the first row of cells, i.e. exactly
+ *  the data the picture exists to show. Growing the viewBox costs nothing in a
+ *  file and cannot obscure anything. */
+function watermarkSVGMarkup(markup) {
+  const open = /^\s*<svg\b[^>]*>/.exec(markup);
+  if (!open) return markup;
+  const vbAttr = /\bviewBox\s*=\s*"([^"]*)"/.exec(open[0]);
+  const vb = vbAttr ? vbAttr[1].trim().split(/[\s,]+/).map(Number) : null;
+  // No viewBox, a malformed one, or a degenerate box: hand back the original
+  // rather than emit something worse than what we were given.
+  if (!vb || vb.length !== 4 || vb.some(n => !Number.isFinite(n))) return markup;
+  const [minX, minY, w, h] = vb;
+  if (w <= 0 || h <= 0) return markup;
+
+  const r2 = (n) => Math.round(n * 100) / 100;
+  // Scale with the drawing: legible over a 4x4 grid, not overbearing over a
+  // 64x64 one. The clamp is what keeps both ends readable.
+  const fs = Math.max(9, Math.min(22, w * 0.022));
+  const band = r2(fs * 1.9);
+  const pad = fs * 0.6;
+  // A 57-character URL at the 9px floor needs ~320px, which is WIDER than a
+  // small grid's whole canvas (a 4x4 is 280). Rather than shrink the text below
+  // legibility or let it clip at the right edge, widen the exported canvas: the
+  // diagram stays exactly as drawn and left-aligned, the file is just roomier.
+  const outW = r2(Math.max(w, SVG_WATERMARK.length * fs * 0.62 + 2 * pad));
+  const outH = r2(h + band);
+  const inner = markup.slice(open[0].length).replace(/<\/svg>\s*$/, '');
+  const text = SVG_WATERMARK
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Order matters: the white backdrop covers the whole enlarged box (the
+  // builders' own background rect only spans the diagram, so the band — and any
+  // widened margin — would otherwise export transparent), then the text, then
+  // the untouched original content pushed down by exactly the band height.
+  return `<svg xmlns="http://www.w3.org/2000/svg" ` +
+    `viewBox="${minX} ${minY} ${outW} ${outH}" width="${outW}" height="${outH}">` +
+    `<rect x="${minX}" y="${minY}" width="${outW}" height="${outH}" fill="#ffffff"/>` +
+    `<text x="${r2(minX + pad)}" y="${r2(minY + band * 0.66)}" fill="#6b7280" ` +
+    `font-size="${r2(fs)}" font-family="'SFMono-Regular', Consolas, monospace">${text}</text>` +
+    `<g transform="translate(0, ${band})">${inner}</g>` +
+    `</svg>`;
+}
+
+/** A stable file name for a viz host id, for the download button in the
+ *  fullscreen overlay — which, unlike the per-tab buttons, has no hand-written
+ *  name to use. `ot1-mtc-src-svg` -> `cute-mtc-src.svg`. */
+function vizFilename(hostId) {
+  const base = String(hostId).replace(/^ot\d+-/, '').replace(/-svg(-host)?$/, '');
+  return `cute-${base || 'layout'}.svg`;
+}
+
 function downloadSVG(hostId, filename) {
-  const svg = document.getElementById(hostId).querySelector('svg');
+  const host = document.getElementById(hostId);
+  const svg = host && host.querySelector('svg');
   if (!svg) return;
-  const blob = new Blob([svg.outerHTML], { type: 'image/svg+xml' });
+  const blob = new Blob([watermarkSVGMarkup(svg.outerHTML)], { type: 'image/svg+xml' });
   const a = Object.assign(document.createElement('a'), {
     href: URL.createObjectURL(blob), download: filename
   });

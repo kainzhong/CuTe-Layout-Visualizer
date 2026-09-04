@@ -480,6 +480,64 @@ function runUnitTests(V, T) {
     check('stripTrivialTrailing', 'leaves rank 2 alone', `${k.shape}:${k.stride}`, '8,4:1,8');
   });
 
+  // ── downloadSVG's watermark ────────────────────────────────────────────────
+  // Pure string work on markup the builders produced, so it is pinned here
+  // rather than in cases.json — CuTeDSL has nothing to say about an export.
+  setSection('unit/watermark');
+  guard('watermark-structure', () => {
+    const src = V.buildLayoutSVG([4, 4], [1, 4], new Set(['value']));
+    const out = V.watermarkSVGMarkup(src);
+    check('watermark-structure', 'is an svg', /^<svg\b/.test(out), true);
+    check('watermark-structure', 'closes', out.trimEnd().endsWith('</svg>'), true);
+    check('watermark-structure', 'carries the URL', out.includes(V.SVG_WATERMARK), true);
+    // The original content must survive untouched, pushed down by the band.
+    const body = src.slice(src.indexOf('>') + 1, src.lastIndexOf('</svg>'));
+    check('watermark-structure', 'original content preserved', out.includes(body), true);
+    check('watermark-structure', 'content is translated, not redrawn',
+          /<g transform="translate\(0, [\d.]+\)">/.test(out), true);
+    // A standalone file needs explicit dimensions; the on-screen `style`
+    // (max-height:70vh and friends) must NOT come along.
+    check('watermark-structure', 'no inline style', /<svg[^>]*style=/.test(out), false);
+    check('watermark-structure', 'has width/height', /<svg[^>]*width="[\d.]+"[^>]*height="[\d.]+"/.test(out), true);
+  });
+  guard('watermark-geometry', () => {
+    // The band grows the box vertically, and the text always FITS horizontally:
+    // at the 9px legibility floor a 57-character URL needs ~330px, which is
+    // wider than a small grid's entire canvas, so the export widens instead of
+    // clipping the text or shrinking it below readability.
+    const adv = 0.62, padF = 0.6;
+    for (const [M, N] of [[4, 4], [2, 2], [8, 16], [32, 64], [1, 8]]) {
+      const src = V.buildLayoutSVG([M, N], [1, M], new Set());
+      const inVB = /viewBox="([^"]*)"/.exec(src)[1].split(' ').map(Number);
+      const out = V.watermarkSVGMarkup(src);
+      const outVB = /viewBox="([^"]*)"/.exec(out)[1].split(' ').map(Number);
+      const fs = Number(/font-size="([\d.]+)"/.exec(out)[1]);
+      const id = `${M}x${N}`;
+      check('watermark-geometry', `${id} taller`, outVB[3] > inVB[3], true);
+      check('watermark-geometry', `${id} never narrower`, outVB[2] >= inVB[2], true);
+      check('watermark-geometry', `${id} font legible`, fs >= 9 && fs <= 22, true);
+      check('watermark-geometry', `${id} text fits`,
+            V.SVG_WATERMARK.length * fs * adv + 2 * fs * padF <= outVB[2] + 0.01, true);
+      check('watermark-geometry', `${id} no float noise`,
+            /viewBox="[-\d. ]*"/.test(out) && !/\d\.\d{3,}/.test(outVB.join(' ')), true);
+    }
+  });
+  guard('watermark-passthrough', () => {
+    // Anything we cannot anchor to comes back untouched rather than mangled.
+    for (const junk of ['', 'not svg at all', '<svg></svg>',
+                        '<svg viewBox="bad">x</svg>', '<svg viewBox="0 0 0 10"></svg>']) {
+      check('watermark-passthrough', JSON.stringify(junk), V.watermarkSVGMarkup(junk), junk);
+    }
+  });
+  guard('viz-filename', () => {
+    // The overlay's download button has no hand-written name to use, so it
+    // derives one; the tab id must not leak into the file name.
+    check('viz-filename', 'layout host', V.vizFilename('ot1-layout-svg-host'), 'cute-layout.svg');
+    check('viz-filename', 'tv host', V.vizFilename('ot12-tv-svg-host'), 'cute-tv.svg');
+    check('viz-filename', 'copy pane', V.vizFilename('ot1-mtc-src-svg'), 'cute-mtc-src.svg');
+    check('viz-filename', 'local_tile pane', V.vizFilename('ot1-lt-a-svg'), 'cute-lt-a.svg');
+  });
+
   // ── The load-order hazard CLAUDE.md warns about ────────────────────────────
   setSection('unit/load-order');
   guard('layout-js-wins', () => {

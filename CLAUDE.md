@@ -178,6 +178,23 @@ produce hierarchical coordinates this 2-D grid cannot draw.
 - **Drawing ACROSS cells**: `buildColoredLayoutSVG`'s `opts.overlay(geom)` returns raw SVG appended after the cells, with `geom = { cs, margin, W, H, M, N }`. A tile boundary is a *line*, not a property of the cells beside it — faking one with per-cell strokes gives a doubled, fuzzy edge. `tma_partition` uses it for its red tile outlines.
 - **SVG helpers**: `cellSize`, `svgFitStyle`, `cellTextSVG`, `buildCellLines`, `toModeSet`
 - **Zoom**: `applyZoomState`, `toggleZoom`
+- **Fullscreen + export**: `attachVizFullscreenButtons`, `viewFullscreen`, `closeFullscreen`,
+  `downloadSVG`, `watermarkSVGMarkup`, `vizFilename`, `SVG_WATERMARK`. The overlay carries a
+  **Download SVG** button under `× Close (Esc)`, and it is the only place *every* viz can be exported
+  from — the per-tab headers only carry their own button in five places. `vizFilename` derives the
+  name there (`ot1-mtc-src-svg` -> `cute-mtc-src.svg`), since the overlay has no hand-written one.
+- **Every download is watermarked** with `SVG_WATERMARK`. `watermarkSVGMarkup` works on the MARKUP,
+  not the DOM, so it is pure (pinned in `tests/unit.js`) and so the file cannot inherit the on-screen
+  `style` — `svgFitStyle` writes `max-height:70vh` for a tall grid, which is meaningless in a file.
+  The opening tag is rebuilt with `viewBox` plus explicit `width`/`height`, which is what makes the
+  export a well-formed standalone SVG. Two decisions worth keeping: the watermark gets its **own band
+  above** the diagram rather than being drawn over the top-left cells (every builder starts its grid
+  at `(margin, margin)` with `margin` = one cell, so the only free space up there is a single cell
+  square — far too narrow for a 57-character URL, and spilling out of it would cover the column
+  labels or the first row); and when the text does not fit the width, the **canvas widens** rather
+  than the font shrinking below a 9px floor or the text clipping — at that floor the URL needs
+  ~330px, wider than a 4x4 grid's entire 280px canvas. Malformed or degenerate input comes back
+  untouched rather than mangled.
 - **Copy SRC/DST panes**: `COPY_OP_MOVES`, `copyMoveField`, `syncCopyMoves`, `copyMove`, `setCopyMove`, `updateCopyPaneTitles`, `initCopyPanes`, `copyDirButtons`, `copyPanes`, `setCopyDir`, `copyDir`, `toggleCopyZoom` — the side-by-side view shared by all four Copy tabs. Both SVGs are always in the DOM; `data-dir` on `.copy-panes` decides visibility, so SRC/DST/BOTH is pure CSS and needs no re-render. In BOTH mode the panes are equal flex children, which halves each SVG's width while `width:100%;height:auto` preserves its ratio. Note `attachVizFullscreenButtons` iterates **every** `.viz-box` inside a `.comp-viz-item`, not just the first — the Copy tabs put two panes in one item, and taking the first left DST without a button.
 - **One atom renderer, three tabs**: `simtAtomPaneHTML(side, layoutStr, elements, dtype)` draws the
   `(1, N):(0, 1)` value strip. `make_copy_atom` uses it for its panes; `make_tiled_copy` /

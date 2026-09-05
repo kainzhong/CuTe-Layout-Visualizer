@@ -496,6 +496,60 @@ textarea:focus { outline: none; border-color: #3b82f6; }
    the side-by-side A and B. */
 .comp-viz-span { grid-column: 1 / -1; }
 
+/* ── MMA quadrant layout (the "Alternative View") ───────────────────
+   Off, a group is the ordinary two-column run: A and B side by side, C
+   spanning underneath. On, it becomes the picture a matrix multiply is
+   normally drawn as —
+
+       .        B (K x N)
+       A (M x K)  C (M x N)
+
+   — so A's K axis lines up with B's K axis, and B and C share a column so
+   their N axes line up. Only DOM order changes (via `order`), so the toggle
+   never re-generates markup and the collapse / fullscreen / zoom buttons keep
+   working on the same elements. The top-left cell is a genuinely empty grid
+   item, which is what puts B above C rather than beside A. */
+.mma-group {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.mma-group > .mma-q-spacer { display: none; }
+.mma-group > [data-q="c"] { grid-column: 1 / -1; }
+
+.mma-alt .mma-group > .mma-q-spacer { display: block; order: 1; }
+.mma-alt .mma-group > [data-q="b"] { order: 2; }
+.mma-alt .mma-group > [data-q="a"] { order: 3; }
+.mma-alt .mma-group > [data-q="c"] { order: 4; grid-column: auto; }
+
+/* ── make_tiled_mma group headings ──────────────────────────────────
+   The tab stacks two rows of three grids — the atom_layout stage above the
+   permuted TiledMMA below — so each row needs a full-width label to say which
+   is which. `.comp-viz-span` already provides the full-width cell; this only
+   styles the text. */
+.mtm-group-title {
+  color: #93c5fd;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 6px 2px 0;
+  border-bottom: 1px solid #1f2937;
+}
+
+/* A short explanatory note attached to a control, as opposed to `.hint`, which
+   is the tab-level essay at the bottom of the controls column. */
+.hint-inline {
+  color: #6b7280;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  margin-top: 5px;
+}
+.hint-inline code { color: #93c5fd; }
+.hint-inline b    { color: #9ca3af; }
+
 /* ── Collapsible visualizations ─────────────────────────────────────
    Any `.comp-viz-item` or `.visualization` can be folded by toggling the
    `.collapsed` class (done via the injected `.viz-collapse-btn` in each
@@ -711,3 +765,60 @@ textarea:focus { outline: none; border-color: #3b82f6; }
 .mode-btn:not(:first-child):not(:last-child) { border-radius: 0; }
 .mode-btn:hover { background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
 .mode-btn.active { background: #1e3a5f; color: #60a5fa; border-color: #3b82f6; font-weight: 600; }
+
+/* ── A prominent view switch ────────────────────────────────────────
+   For toggles that change what the diagrams MEAN, not just what a cell is
+   labelled with — those have to be findable at a glance rather than
+   discovered, so they get their own full-width control instead of a
+   `.mode-btn`. Amber to match the MMA scope accent. */
+.view-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #cbd5e1;
+  background: #111827;
+  border: 1px solid #475569;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.view-toggle:hover { border-color: #f59e0b; color: #fcd34d; }
+.view-toggle.active {
+  background: #78350f;
+  border-color: #f59e0b;
+  color: #fde68a;
+  box-shadow: inset 0 0 0 1px #f59e0b;
+}
+.view-toggle-icon { font-size: 1.05rem; line-height: 1; }
+
+/* ── A framed segmented control ─────────────────────────────────────
+   `.mode-btn-group` on its own is a bare row of small buttons, which is right
+   for the value / index / coord pickers sitting inside a viz header but too
+   quiet for a switch that changes every cell in the tab. The frame is what
+   makes it read as one control rather than two stray buttons. */
+.seg-control {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  background: #0b1220;
+  border: 1px solid #334155;
+  border-radius: 7px;
+}
+.seg-control .mode-btn,
+.seg-control .mode-btn:first-child,
+.seg-control .mode-btn:last-child,
+.seg-control .mode-btn:not(:first-child):not(:last-child) {
+  border-radius: 5px;
+  padding: 5px 12px;
+  font-size: 0.75rem;
+  border-color: transparent;
+  background: transparent;
+}
+.seg-control .mode-btn:hover { background: #1e293b; color: #93c5fd; }
+.seg-control .mode-btn.active { background: #1e3a5f; color: #60a5fa; border-color: #3b82f6; }

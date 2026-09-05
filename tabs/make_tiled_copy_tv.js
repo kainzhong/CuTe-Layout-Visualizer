@@ -138,7 +138,7 @@ function renderMakeTiledCopyTv(tabId) {
       `<div class="cuo-result-line" style="color:#9ca3af">Feed these two to the make_tiled_copy tab: ` +
       `layout_tv <b>${layoutTVStr}</b>, Tiler_MN <b>${tilerMNStr}</b></div>`;
 
-    const hl = mtcReadHighlight(tabId, 'mtv', thrSize);
+    const hl = readHighlightTid(tabId, 'mtv', thrSize);
     const warn = [atom.cpasyncWarn, hl.warn].filter(Boolean).join(' ');
     if (warn) showWarn(`${tabId}-mtv-warning`, warn);
 

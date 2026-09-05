@@ -51,6 +51,12 @@ tabs/
                         three TV grids over three DIFFERENT tiles — (M,K), (N,K), (M,N). A lookup
                         TABLE, not a derivation: CUTLASS defines these as hand-written MMA_Traits
                         specializations. Prefix `mma`.
+  make_tiled_mma.js     "make_tiled_mma" tab (MMA scope) — mirrors
+                        cute.make_tiled_mma(op_or_atom, atom_layout_mnk, permutation_mnk). Reuses
+                        make_mma_atom's section 1 (MMA_WARP_OPS / mmaWarpAtom / mmaSyncControls,
+                        which takes an id prefix for this reason) and adds the two tiling arguments.
+                        Draws SIX grids in two rows: atom_layout_mnk applied on top, the permuted
+                        TiledMMA below. A port of TiledMMA::thrfrg_A/B/C, not a table. Prefix `mtm`.
   tma_partition.js      "tma_partition" tab (COPY scope) — CuTe's "VectorCopy Partitioner"
                         (copy_traits_sm90_tma.hpp:1409). Splits mode 0 of every tensor into
                         (TMA, TMA_Iter) using the atom's NumValSrc for the chunk size and the SMEM
@@ -223,7 +229,7 @@ Atom-construction time. `ldmatrix` likewise has exactly one, SMEM→RMEM: the so
 - **Render shortcut**: `TAB_RENDER_FN` (inner-tab name -> render function name), `renderActiveInnerTab`, `attachRenderHints`, `renderShortcutLabel`, `isMacPlatform` — a single document-level keydown listener maps Cmd/Ctrl+Enter to the visible tab's Render
 - **Initial render**: `renderAllTabs(tabId, activeTab)` — called from `addOuterTab`, renders every tab once with its shipped defaults so switching to a tab shows a picture instead of an empty box. Relies on the "defaults and presets must render cleanly" rule. The active tab renders LAST so its `updateOuterTabLabel` wins, and each render is try/caught so one bad tab can't blank the rest.
 - **Tab framework**: `generateTabContent` (orchestrator — calls each tab's `generateXTabContent`), `addOuterTab`, `switchOuterTab`, `closeOuterTab`, `switchInnerTab` (its `modeIndex` maps tab names to DOM order)
-- **Shared helpers**: `showErr`, `showWarn`, `isHighRankLayout`, `collectHighRank`, `updateRankWarning`, `updateModeBtns`, `updateOuterTabLabel`, `downloadSVG`
+- **Shared helpers**: `showErr`, `showWarn`, `isHighRankLayout`, `collectHighRank`, `updateRankWarning`, `readHighlightTid`, `updateModeBtns`, `updateOuterTabLabel`, `downloadSVG`
 - **Input components**: `layoutInputField`, `statusDivs` — ALWAYS use these for layout inputs (see "Layout input convention" below)
 - **Element-type / swizzle helpers**: `DTYPE_BITS`, `dtypeOptions(selected)`, `applySwizzleOffset(x, sw)`, `parseSwizzleSpec(raw)` — shared by the TV, Copy_Atom, make_tiled_copy and TMA tabs. `parseSwizzleSpec` accepts `Sw<B,M,S>`, `Swizzle<B,M,S>` and a bare `B, M, S`; `applySwizzleOffset` swizzles an **element** index, which is NOT the unit CuTe prints a TMA swizzle in — see the TMA section below
 - **Layout-string utilities**: `stripTrivialTrailing`, `formatLayoutStr`
@@ -240,6 +246,14 @@ Each tab file holds everything specific to that feature:
 
 ### style.css
 All styling. Key sections: outer tab bar, inner tabs, controls panel, viz-box, composition 2x2 grid, mode-btn-group, error/warning message boxes.
+
+Two control styles sit beside `.mode-btn` and exist for the same reason — a `.mode-btn` is right for
+a picker inside a viz header, and too quiet for a switch that changes every cell in the tab:
+`.view-toggle` is the full-width amber toggle (the MMA tabs' **Alternative View**), and
+`.seg-control` frames a `.mode-btn` pair so it reads as one control rather than two stray buttons
+(**Show TVs / Show Warps**). Both are declared **after** `.mode-btn-group` on purpose: a
+`.seg-control` element must not also carry `.mode-btn-group`, or the two single-class rules tie on
+specificity and source order decides `gap`.
 
 ## Display modes
 
@@ -271,6 +285,8 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=swizzle-(8, 8):(8, 1)-3, 0, 3
 ?key=make_mma_atom-f16bf16-half_t-float-16   # op, ab_dtype, acc_dtype, K
 ?key=make_mma_atom-tf32-na-na-8             # 'na' where the Op takes no dtype
+?key=make_tiled_mma-f16bf16-half_t-float-16-(2, 2, 1)-(32, 32, 16)
+?key=make_tiled_mma-tf32-na-na-8-(2, 2, 1)-na   # 'na' is also "no permutation_mnk"
 ?key=make_tiled_tma_atom-half_t-(256, 128):(128, 1)-3,4,3-(64, 64):(64, 1)-(64, 64)
 ?key=tma_partition-1024-float-3,4,3-(8, 32):(32, 1)-(4, 2)
 ```
@@ -308,8 +324,8 @@ Layout:
 tests/cases.json        the shared corpus — inputs as CuTe layout STRINGS, so the
                         parser is exercised on the way in
                         Sections: layout_ops, basis_ops, make_layout_tv, make_tiled_copy,
-                        copy_atom, ldmatrix_atom, mma_atom, tma_atom, tma_partition,
-                        swizzle, local_tile
+                        copy_atom, ldmatrix_atom, mma_atom, tiled_mma, tma_atom,
+                        tma_partition, swizzle, local_tile
 tests/gen_reference.py  runs cases.json through CuTeDSL -> tests/reference.json
 tests/reference.json    committed golden output (never hand-edit)
 tests/harness.js        loads the browser globals into node
@@ -562,7 +578,7 @@ The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. E
   CuTeDSL is not the oracle for this one: its MLIR `crd2idx` cannot infer a result type for that
   coord/layout pair at all, so the case lives in `tests/unit.js`.
 - `copy` — the copy-construction pipeline: `make_copy_atom` (one instruction), then `make_tiled_copy` / `make_tiled_copy_tv` (replicate it over a tile), plus `make_tiled_tma_atom` and `tma_partition` (the TMA path, which bypasses threads entirely). Accent color: emerald (`#10b981`).
-- `mma` — the MMA side: `make_mma_atom`. Accent color: amber (`#f59e0b`). The natural next tabs are `make_tiled_mma` (the analogue of `make_tiled_copy`) and `make_tiled_copy_A/B`, which is where the copy and MMA scopes finally meet.
+- `mma` — the MMA side: `make_mma_atom`, then `make_tiled_mma`. Accent color: amber (`#f59e0b`). The natural next tabs are `make_tiled_copy_A/B/C`, which is where the copy and MMA scopes finally meet — a TiledMMA's `tv_layout_A` is literally the `layout_tv` they hand a copy.
 
 ### How scopes are wired
 
@@ -800,8 +816,8 @@ Two ways the sizes legitimately differ:
 
 ### Highlighting a thread
 
-All three tabs that draw a TV partition — `tv`, `make_tiled_copy`, `make_tiled_copy_tv` — take a
-**Highlight thread** id, live on `oninput`, and must dim the same way: a dimmed cell keeps its
+Every tab that draws a TV partition — `tv`, `make_tiled_copy`, `make_tiled_copy_tv` and
+`make_mma_atom` — takes a **Highlight thread** id, live on `oninput`, and must dim the same way: a dimmed cell keeps its
 `T`/`V` labels in `#bbb` on `#f0f0f0`, the palette `buildTVSVG` uses. Highlighting is a **focus, not
 a mask** — erasing the text instead (which `mtcRenderTileViz` used to do) made the rest of the tile
 unreadable the moment a thread was picked, so you could no longer see what the highlighted thread was
@@ -814,8 +830,16 @@ thread count is derived, so a stale id after an Op change is easy to hit); and `
 prints that thread's atom-by-atom `(m, n)` coordinates below the grid, which is where `FrgX > 1`
 becomes legible.
 
-`tests/dom_smoke.js` drives all three setters with an in-range id, an out-of-range one and a clear —
+`readHighlightTid(tabId, p, thrSize)` in **ui.js** is the one reader: empty means no highlight, and
+anything out of range **warns** and shows every thread rather than being ignored. It used to be
+`mtcReadHighlight` in `make_tiled_copy.js`, and moved when `make_mma_atom` became the third consumer
+— a consumer in a *different scope* is exactly the drift `SIMT_COPY_OPS` was moved to ui.js to stop.
+
+`tests/dom_smoke.js` drives all four setters with an in-range id, an out-of-range one and a clear —
 the fields ship empty, so nothing else in the suite reaches those handlers.
+
+**`make_tiled_mma` is deliberately NOT on this list.** Its focus box is one control whose unit
+follows the Show TVs / Show Warps toggle, and it *masks* rather than dims — see that tab's section.
 
 ### Validation that CuTe itself skips
 
@@ -1057,6 +1081,35 @@ rank > 2 tensors.
 
 ## The MMA scope
 
+### The "Alternative View" (both MMA tabs)
+
+A `.view-toggle` under each MMA tab's title, **off by default**, that re-lays the operand grids as
+the picture a matrix multiply is normally drawn as — `(M,K) x (K,N) = (M,N)`:
+
+```
+   .           B (K x N)
+   A (M x K)   C (M x N)
+```
+
+so A's K axis lines up with B's, and B and C share a column so their N axes line up. Three things
+worth knowing before touching it:
+
+- **It is DOM order and one tile argument, nothing else.** Each row of grids is wrapped in a
+  `.mma-group` (its own 2-column grid, `grid-column: 1 / -1` so it spans `.comp-results`), holding a
+  `.mma-q-spacer` plus the three `.comp-viz-item`s tagged `data-q="a|b|c"`. Toggling adds `.mma-alt`
+  to the results container; CSS then shows the spacer and sets `order` 1..4. No markup is
+  regenerated, so the collapse / fullscreen / zoom buttons keep working on the same elements. The
+  **empty top-left cell is load-bearing** — it is what puts B above C instead of beside A.
+- **B is only drawn transposed; the layout is untouched.** `make_mma_atom` hands `buildTVSVG` the
+  tile `(K, N):(N, 1)` instead of `(N, K):(1, N)`, which re-reads the same offsets with the axes
+  swapped; `make_tiled_mma` transposes the already-built grid (`mtmTransposeGrid`), so the cell
+  objects are literally the same ones. `tests/unit.js` compares the two drawings **cell for cell**
+  rather than trusting this.
+- **A transposed pane must pass its own `cellIndex`.** Both builders default the `value` overlay to
+  the col-major position of the grid they were handed, which after the swap is `k + n*K` where the
+  layout's output is `n + N*k`. This is the same trap the ldmatrix atom hit; `mtmBuildSVG` gained an
+  `opts.cellIndex` for it, matching `buildTVSVG`'s.
+
 ### make_mma_atom
 
 `cute.make_mma_atom(op)` — note it takes **only the op**. Unlike `make_copy_atom` there is no dtype
@@ -1137,11 +1190,132 @@ render reads `''` and `parseInt` gives `NaN` — which `renderAllTabs` hits imme
 template ships those selects empty. Same hazard and same shape of fix as `syncCopyMoves` and
 `mcaRenderOpParams`.
 
+**It takes a Highlight thread id**, same control and same convention as the `tv` / `make_tiled_copy` /
+`make_tiled_copy_tv` tabs (`readHighlightTid`, live on `oninput`, out-of-range warns). All three
+grids highlight together, which is the point: lane 5 owning 8 cells of A, 4 of B and 4 of C — the
+per-lane counts the result panel prints — is one fact spread over three tiles. `buildTVSVG` already
+took a `highlightTid`; the tab was passing `null`.
+
 **Where this meets the Copy scope.** `tv_layout_A` is exactly what `make_tiled_copy_A(atom, tiled_mma)`
 hands to a copy as its `layout_tv`, and since every ldmatrix trait sets `RefLayout = DstLayout`, the
 copy's destination *is* this fragment. So the ldmatrix story in `make_copy_atom` reads backwards from
 here: the MMA declares the fragment, and `right_inverse(Ref) o Src` solves for which lane must supply
 which address. The MMA atom is the fixed point.
+
+### make_tiled_mma
+
+`cute.make_tiled_mma(op_or_atom, atom_layout_mnk, permutation_mnk)` — the MMA counterpart of
+`make_tiled_copy`. Unlike `make_mma_atom` this is a **derivation, not a table**: a port of
+`TiledMMA::thrfrg_A/B/C` (`include/cute/atom/mma_atom.hpp`), so it has to be right for arbitrary
+inputs rather than for a fixed list. `mtmComputeTiledMma(atom, atomLayout, perm)` is the DOM-free
+whole of it; `renderMakeTiledMma` only parses and draws.
+
+**The two arguments do different things, which is why the tab draws two rows.**
+`atom_layout_mnk` says how many warps there are — the tile grows to `(16*aM, 8*aN, 16*aK)` and each
+warp covers one atom-sized area. `permutation_mnk` says what tile each mode is *really* over: bigger
+than the warps cover and the whole warp pattern **repeats**; a non-trivial layout and the rows the
+warps land on are **permuted**. The top row is the same derivation with `perm = (_, _, _)`, computed
+by the same function — showing it against a separately-written baseline would be a second
+implementation to keep honest rather than a comparison.
+
+**The pipeline, per operand, over its own two axes:**
+
+```
+T = (TileX, TileY):(1, TileX)             the tile, col-major
+T = logical_divide(T, (permX, permY))     the permutation
+T = zipped_divide(T, (AtomX, AtomY))      ((AtomX,AtomY),(RestX,RestY))
+T = composition(T, (AtomLayout_TV, _))    ((ThrV,FrgV),(RestX,RestY))
+T = zipped_divide(T, (_, (ThrX, ThrY)))   split Rest into thread + value
+```
+
+reassembled with the thread modes in **VMNK order**, matching `thrfrg_A` (`mma_atom.hpp:291`) step
+for step. The mode an operand does not depend on gets a **stride-0** entry, not an absent one — a
+layout is a total function over every thread of the TiledMMA — and that is exactly what makes A
+broadcast across the N warps, B across the M warps and C across the K warps. It is also literally
+what `get_layoutA_TV`'s `atile` does. `spec.pm` indexes `permutation_mnk` (0=M, 1=N, 2=K) while `spec.bcast` indexes
+the assembled VMNK tuple where 0 is V, so A broadcasts at **2**; getting that off by one swaps A's
+and B's tiling and is what the differential test caught first.
+
+**Then compose the thread mode with `left_inverse(thr_layout_vmnk)`** — which is exactly the C++
+expression, since `mma_atom.hpp` builds `right_inverse(make_layout(vmnk, complement(vmnk)))` and that
+is what `layout.js`'s `left_inverse` expands to. Without it the thread mode is indexed by the
+`(v,m,n,k)` coordinate rather than by thread *index*, which is the same thing only while
+`atom_layout_mnk` is plain column-major. `(2,2,1):(2,1,4)` reorders which warp is which and is the
+only reason that step exists. `thr_layout_vmnk` itself must be a **bijection** — a stride-0 mode
+would make two warps the same warp, `right_inverse` would return a *partial* inverse, and half the
+threads would silently vanish from the picture. CuTeDSL accepts it; this rejects it with the reason.
+
+**`mtmCompactStride` is not `prefix_product`.** `cute.make_layout(shape)` gives a size-1 mode stride
+**0**, not the running product, and that is why `(2,2,1)` reaches `thr_layout_vmnk` as
+`(32,2,2,1):(1,32,64,0)`. Unobservable in the map, but the tab prints the layout next to one a user
+may have copied out of CuTeDSL, so it should be the same string.
+
+**C is where CUTLASS contradicts itself, and the C++ names the cause.**
+`get_layoutA_TV` (`mma_atom.hpp:416`) and `get_layoutB_TV` (`:438`) each insert an `atile` / `btile`
+step — literally `make_layout((aM, aN), (1, 0))` and `(0, 1)` — that adds the VMNK mode their operand
+does not depend on as a **stride-0** entry. `get_layoutC_TV` (`:399`) has **no equivalent**: it
+composes `thrfrg_C`'s thread mode, size `32·aM·aN`, straight against a `thridx_2_thrid` of domain
+`32·aM·aN·aK`, and composing with a larger identity *extends the last mode* rather than adding one.
+So the K factor lands on ThrN's stride. It only shows when both `aN > 1` and `aK > 1`: `(2,2,2)`
+reports `((4,8,2,4),..):((64,1,16,256),..)`, sending the k=1 warps to a second copy of C outside the
+32x16 tile. `partition_C` on the same object disagrees and is what a kernel actually calls — thread
+128 gets exactly thread 0's cells, because the K warps hold **partial sums** of one accumulator. So
+this port gives C the same stride-0 treatment A and B get, the `tiled_mma` corpus uses
+`partition_A/B/C` as its oracle throughout, and `run.js` compares the C *string* only where
+`aN === 1 || aK === 1` — pinning the divergence as a known boundary rather than exempting C.
+
+**The viz is its own builder (`mtmBuildSVG`), not `buildTVSVG`**, because it needs three things that
+builder does not have: whole-warp labels (`W0`, `W0,W2`, `ΣW0..W1`), dimming by **warp** rather than
+by tid, and red lines on the Rest boundaries. `mtmOperandGrid` is the data model — per cell, the
+`(t, v, w)` entries that own it plus the `rest` index, which every entry of a cell shares because the
+rest modes live on the value side.
+
+- **Show TVs / Show Warps** is one toggle over both rows. TVs is make_mma_atom's picture; Warps drops
+  `TxVx` and names warps instead.
+- **One focus box, whose UNIT follows the toggle.** It is `Warp id` in Warps mode and `Thread ID` in
+  TVs mode; `MTM_FOCUS[mode]` carries the label, placeholder, hint and the noun the error messages
+  use, and `mtmSyncFocusField` moves them with the toggle. The question is always "which unit am I
+  looking at" — only the unit changes — so a second box would be two controls for one idea, and one
+  whose label lied half the time would be worse.
+- **The filter is the same in both modes and drives all six grids**: only the cells that unit touches
+  stay coloured, in `colorTV(focus)` so its region is the same hue in A, B and C. Everything else goes
+  flat grey **and loses its label** — once you have picked a warp, every other name on screen is
+  noise. (This reverses the `mtcRenderTileViz` "focus, not a mask" rule *for this tab only*, and
+  deliberately: there a dimmed cell still had to say which thread owned it, here the grid you are
+  reading is the shape of one unit's region.)
+- **`mtmBuildSVG` has four cell states and their ordering is the design.** Not touched → grey and
+  blank. Touched but in a Rest copy → the same hue at `fill-opacity: 0.35`, because the warp pattern
+  really does repeat across the permuted tile and greying it would say otherwise. A Rest copy with
+  nothing focused → grey but still labelled, which is the bottom row's own question. Otherwise full
+  colour. So `dimRest` **softens** under a focus rather than overriding it.
+- **Blank is a real setting, and the default.** `mtmWarpLines` then stacks every warp that touches a
+  cell, one per line, exactly as `mtmTvLines` lists its `T/V` entries — which is how a broadcast (A
+  across the N warps) and a reduction (C across the K warps) become visible as several names in one
+  cell. Past `MTM_MAX_WARP_LINES` (4) it collapses to `mtmWarpLabel`'s single compact line, because
+  more lines than that stops being read and starts being decoration. With a focus set, a TV cell
+  shows only that thread's slot, so you read *which value* landed there.
+- **Only C gets `Σ`.** `mtmWarpLabel`'s `sum` flag is set from `side === 'c'` and controls both the
+  prefix and the `+` vs `,` separator. Nothing accumulates into A or B — several warps on an A cell
+  are *readers* of one value — so their collapsed form is `W0..W7` / `W0,W2,W4`, never `ΣW…`. Pinned
+  in `tests/unit.js`.
+- **An illegal focus id is an ERROR, not a warning**, and the box is a plain `type="text"` (no
+  spinner), so `mtmReadFocus` has to reject non-numeric input as well as out-of-range. The count is
+  derived from `atom_layout_mnk`, so a stale id after changing it is easy to hit, and silently
+  ignoring the value would leave the wrong picture up with no explanation. It still **draws
+  unfocused** rather than blanking: the field re-reads on every keystroke, and typing `12` passes
+  through `1`.
+- **The three view controls re-enter `renderMakeTiledMma`** rather than calling `mtmRenderViz`.
+  Redrawing six grids dominates the cost either way, and going through the full path means a toggle
+  can never repaint from a state the last Render failed to replace.
+
+**The rank warning does not apply here** and the tab deliberately does not call `updateRankWarning`.
+`atom_layout_mnk` is *required* to be rank 3 and `permutation_mnk` is a rank-3 Tiler; neither is
+drawn as a 2-D grid, so the warning would fire on every render and say nothing. `${id}-mtm-warning`
+carries real diagnostics instead — an out-of-range warp id, and a coverage check asserting
+every operand covers its whole tile (a hole would mean `mtmOperandGrid` dropped an out-of-range
+offset and the picture is quietly incomplete). Both go through **one writer** at the end of
+`mtmRenderViz`; `mtmReadHighlight` returns its message rather than writing it, because two functions
+racing for one element is how a warning goes missing.
 
 ## Layout input convention (rank warnings)
 

@@ -165,8 +165,8 @@ function generateMakeMmaAtomTabContent(id) {
   // provides; C spans both, directly underneath, because it is the operand
   // over a different pair of axes (M x N, not M/N x K) and is what the
   // epilogue actually has to deal with.
-  const vizItem = (side, label, cls) => `
-        <div class="comp-viz-item${cls ? ' ' + cls : ''}">
+  const vizItem = (side, label) => `
+        <div class="comp-viz-item" data-q="${side}">
           <div class="comp-viz-header">
             <span class="comp-viz-label" id="${id}-mma-${side}-title">${label}</span>
             <span style="display:flex;align-items:center;gap:4px">
@@ -182,6 +182,12 @@ function generateMakeMmaAtomTabContent(id) {
     <div id="${id}-tab-make_mma_atom" class="panel">
       <div class="controls">
         <h2>make_mma_atom</h2>
+
+        <div class="form-group">
+          <button class="view-toggle" id="${id}-mma-alt-btn" onclick="toggleMmaAltView('${id}')">
+            <span class="view-toggle-icon">&#8862;</span>Alternative View
+          </button>
+        </div>
 
         <details class="cuo-section" open>
           <summary>1. The MMA Op</summary>
@@ -216,6 +222,11 @@ function generateMakeMmaAtomTabContent(id) {
             <div id="${id}-mma-atom-result" class="cuo-result"></div>
           </div>
         </details>
+
+        <div class="form-group">
+          <label>Highlight thread (empty = show all threads)</label>
+          <input type="text" id="${id}-mma-highlight-tid" value="" placeholder="e.g. 5" oninput="setMmaHighlight('${id}')">
+        </div>
 
         ${statusDivs(`${id}-mma`)}
         <button class="btn btn-render" onclick="renderMakeMmaAtom('${id}')">Render</button>
@@ -287,10 +298,13 @@ function generateMakeMmaAtomTabContent(id) {
         </div>
       </div>
 
-      <div class="comp-results">
+      <div class="comp-results" id="${id}-mma-results">
+        <div class="mma-group">
+          <div class="mma-q-spacer"></div>
 ${vizItem('a', 'A')}
 ${vizItem('b', 'B')}
-${vizItem('c', 'C', 'comp-viz-span')}
+${vizItem('c', 'C')}
+        </div>
       </div>
     </div>`;
 }
@@ -318,7 +332,14 @@ function renderMakeMmaAtom(tabId) {
 
     const a = mmaWarpAtom(opKey, k);
     const prev = mmaState[tabId] || {};
-    mmaState[tabId] = { ...a, abDtype, accDtype, showValue: !!prev.showValue };
+    // Same control, same convention as the tv / make_tiled_copy /
+    // make_tiled_copy_tv tabs: live on `oninput`, an out-of-range id WARNS and
+    // shows everything rather than being ignored, and buildTVSVG does the
+    // dimming so a dimmed cell keeps its T/V labels instead of going blank.
+    const hl = readHighlightTid(tabId, 'mma', product(a.thrId.shape));
+    showWarn(`${tabId}-mma-warning`, hl.warn);
+    mmaState[tabId] = { ...a, abDtype, accDtype, showValue: !!prev.showValue,
+                        altView: !!prev.altView, highlightTid: hl.tid };
 
     mmaRenderOpParams(tabId, op, k, abDtype, accDtype);
     mmaRenderResult(tabId);
@@ -339,8 +360,13 @@ function renderMakeMmaAtom(tabId) {
  *  value is assigned — `sel.value = 'x'` on a select still holding the previous
  *  Op's options is a silent no-op and the render then runs on a stale
  *  parameter. `setMMA` and `applyKeyParam` both call this first, for the same
- *  reason `mcaRenderOpParams` exists on the copy side. */
-function mmaSyncControls(tabId, opKey) {
+ *  reason `mcaRenderOpParams` exists on the copy side.
+ *
+ *  `p` is the id prefix, defaulting to this tab's own `mma`. make_tiled_mma
+ *  reuses section 1 verbatim under `mtm`, and one implementation of the
+ *  repopulate-then-assign order is easier to keep right than two. */
+function mmaSyncControls(tabId, opKey, p) {
+  p = p || 'mma';
   const op = MMA_WARP_OPS[opKey] || MMA_WARP_OPS.f16bf16;
   const fill = (sel, values, labelFn) => {
     if (!sel || !values.length) return;
@@ -358,12 +384,12 @@ function mmaSyncControls(tabId, opKey) {
     if (g) g.style.display = on ? '' : 'none';
   };
 
-  fill(document.getElementById(`${tabId}-mma-ab-input`), op.ab || []);
-  fill(document.getElementById(`${tabId}-mma-acc-input`), op.acc || []);
-  fill(document.getElementById(`${tabId}-mma-k-input`), op.kDomain,
+  fill(document.getElementById(`${tabId}-${p}-ab-input`), op.ab || []);
+  fill(document.getElementById(`${tabId}-${p}-acc-input`), op.acc || []);
+  fill(document.getElementById(`${tabId}-${p}-k-input`), op.kDomain,
        v => `(16, 8, ${v})   —   m16n8k${v}`);
-  show(`${tabId}-mma-ab-group`, !!op.ab);
-  show(`${tabId}-mma-acc-group`, !!op.acc);
+  show(`${tabId}-${p}-ab-group`, !!op.ab);
+  show(`${tabId}-${p}-acc-group`, !!op.acc);
 }
 
 function setMmaOp(tabId) {
@@ -371,8 +397,8 @@ function setMmaOp(tabId) {
   renderMakeMmaAtom(tabId);
 }
 
-function mmaRenderOpParams(tabId, op, k, abDtype, accDtype) {
-  const host = document.getElementById(`${tabId}-mma-op-params`);
+function mmaRenderOpParams(tabId, op, k, abDtype, accDtype, p) {
+  const host = document.getElementById(`${tabId}-${p || 'mma'}-op-params`);
   if (!host) return;
   const args = [];
   if (op.ab)  args.push(abDtype);
@@ -413,6 +439,16 @@ function mmaRenderResult(tabId) {
     `(<code>size == cosize</code>) &mdash; every cell owned by exactly one lane, no broadcast.</div>`;
 }
 
+/** The quadrant-layout toggle. Only the CSS class and B's tile change; the
+ *  layouts themselves are untouched, which is the point — B really is the same
+ *  fragment, just drawn with its axes the other way round. */
+function toggleMmaAltView(tabId) {
+  const s = mmaState[tabId];
+  if (!s) return;
+  s.altView = !s.altView;
+  mmaRenderViz(tabId);
+}
+
 /** The `value` toggle, shared by all three grids. */
 function toggleMmaValue(tabId) {
   const s = mmaState[tabId];
@@ -440,17 +476,42 @@ function mmaRenderViz(tabId) {
      'The accumulator. This is the layout your epilogue has to deal with, and the one ' +
      '<code>make_fragment_C</code> allocates.'],
   ];
+  const host = document.getElementById(`${tabId}-mma-results`);
+  if (host) host.classList.toggle('mma-alt', !!s.altView);
+  const altBtn = document.getElementById(`${tabId}-mma-alt-btn`);
+  if (altBtn) altBtn.classList.toggle('active', !!s.altView);
+
   for (const [side, name, L, rows, cols, dims, dtype, desc] of panes) {
     const btn = document.getElementById(`${tabId}-mma-${side}-val-btn`);
     if (btn) btn.classList.toggle('active', !!s.showValue);
+    // In the quadrant view B is drawn K x N so its K axis meets A's and its N
+    // axis meets C's. The LAYOUT is untouched: handing buildTVSVG the tile
+    // (K, N):(N, 1) instead of (N, K):(1, N) re-reads the same offsets with the
+    // axes swapped. The `value` overlay then needs its own cellIndex, since
+    // buildTVSVG's default assumes the tile is col-major in its own codomain
+    // and would print k + n*K where the layout's output is n + N*k.
+    const rot = !!s.altView && side === 'b';
+    const tileShape  = rot ? [cols, rows] : L.tile.shape;
+    const tileStride = rot ? [rows, 1] : L.tile.stride;
+    const opts = rot ? { cellIndex: (m, n) => n + rows * m } : undefined;
+
     document.getElementById(`${tabId}-mma-${side}-title`).textContent =
-      `${name} — ${rows}×${cols} ${dtype} (${dims.replace('&times;', '×')}), ${L.numVal} per lane`;
+      `${name} — ${tileShape[0]}×${tileShape[1]} ${dtype} ` +
+      `(${(rot ? 'K&times;N' : dims).replace('&times;', '×')}), ${L.numVal} per lane`;
     document.getElementById(`${tabId}-mma-${side}-desc`).innerHTML =
-      `${desc} <code>tv_layout_${name} = ${L.str}</code>`;
+      `${desc}${rot ? ' Shown transposed, as K&times;N.' : ''} ` +
+      `<code>tv_layout_${name} = ${L.str}</code>`;
     document.getElementById(`${tabId}-mma-${side}-svg`).innerHTML =
-      buildTVSVG(L.shape, L.stride, L.tile.shape, L.tile.stride, false, 'col', null, labelMode);
+      buildTVSVG(L.shape, L.stride, tileShape, tileStride, false, 'col',
+                 s.highlightTid === undefined ? null : s.highlightTid, labelMode, opts);
     applyZoomState(`${tabId}-mma-${side}-svg`);
   }
+}
+
+/** Re-render for the highlight field. Goes through the full render, exactly as
+ *  setMtcHighlight does, so the out-of-range warning is recomputed with it. */
+function setMmaHighlight(tabId) {
+  renderMakeMmaAtom(tabId);
 }
 
 function setMMA(tabId, opKey, ab, acc, k) {

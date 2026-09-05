@@ -323,6 +323,75 @@ if (section('mma_atom')) {
 }
 
 // ═══════════════════════════════════════════════════════
+//  4d. make_tiled_mma(atom, atom_layout_mnk, permutation_mnk)
+//      (mtmComputeTiledMma)
+// ═══════════════════════════════════════════════════════
+
+/** The (thread, value) -> tile map of one operand, in the same form
+ *  gen_reference.py reads off `partition_X`: one comma-joined list of flat
+ *  col-major tile offsets per thread, threads joined by ';'.
+ *
+ *  This is the whole content of the tab -- the grids are just this map drawn --
+ *  so it is the thing worth diffing, rather than a printed layout string that
+ *  two different maps could share. */
+function mtmFragString(opnd) {
+  const nT = V.product(opnd.thr.shape), nV = V.product(opnd.val.shape);
+  const rows = [];
+  for (let t = 0; t < nT; t++) {
+    const base = opnd.thr.call(t);
+    const vals = [];
+    for (let v = 0; v < nV; v++) vals.push(base + opnd.val.call(v));
+    rows.push(vals.join(','));
+  }
+  return rows.join(';');
+}
+
+if (section('tiled_mma')) {
+  for (const c of CASES.tiled_mma) {
+    const ref = refFor('tiled_mma', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const atom = V.mmaWarpAtom(c.op, c.k);
+      const atomLayout = V.mtmParseAtomLayout(c.atom_layout);
+      const perm = V.mtmParsePerm(c.perm === null ? '' : c.perm);
+      const r = V.mtmComputeTiledMma(atom, atomLayout, perm);
+
+      check(c.id, 'thr_layout_vmnk', fmt(V, r.thrVmnk), ref.thr_layout_vmnk);
+      check(c.id, 'tile_mnk', `[${r.tileMNK.join(',')}]`, `[${ref.tile_mnk.join(',')}]`);
+      // The tile each operand is drawn over must be the (M,K)/(N,K)/(M,N) slice
+      // of tile_mnk -- a grid of the wrong shape is exactly the failure a
+      // layout string alone would not reveal.
+      const [tm, tn, tk] = ref.tile_mnk;
+      check(c.id, 'A tile', `${r.A.tile[0]}x${r.A.tile[1]}`, `${tm}x${tk}`);
+      check(c.id, 'B tile', `${r.B.tile[0]}x${r.B.tile[1]}`, `${tn}x${tk}`);
+      check(c.id, 'C tile', `${r.C.tile[0]}x${r.C.tile[1]}`, `${tm}x${tn}`);
+
+      // The pointwise check, against partition_A/B/C.
+      for (const name of ['A', 'B', 'C'])
+        check(`${c.id}/${name}`, 'fragment (partition_' + name + ')',
+              mtmFragString(r[name]), ref['frag_' + name]);
+
+      // A and B additionally agree with the DSL's own tiled accessors,
+      // character for character. C does too EXCEPT when atom_layout_mnk has
+      // both aN > 1 and aK > 1: `get_layoutC_TV` (mma_atom.hpp:399) lacks the
+      // stride-0 `atile` step its A and B siblings have, so the K factor
+      // extends ThrN's mode instead of becoming a mode of its own, and the
+      // result contradicts its own partition_C. Pinning the condition rather
+      // than skipping C outright is what keeps the divergence a known boundary
+      // instead of a blanket exemption.
+      check(c.id, 'tv_layout_A_tiled', fmt(V, r.A.tv), ref.tv_A);
+      check(c.id, 'tv_layout_B_tiled', fmt(V, r.B.tv), ref.tv_B);
+      const [, aN, aK] = r.atomLayoutMNK;
+      if (aN === 1 || aK === 1)
+        check(c.id, 'tv_layout_C_tiled', fmt(V, r.C.tv), ref.tv_C);
+      else
+        check(c.id, 'tv_layout_C_tiled diverges from the DSL accessor',
+              fmt(V, r.C.tv) !== ref.tv_C, true);
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
 //  5. make_tiled_tma_atom  (tmaComputeAtom)
 // ═══════════════════════════════════════════════════════
 

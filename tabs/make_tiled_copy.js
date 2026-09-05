@@ -544,16 +544,6 @@ function mtcClearPanes(tabId, p) {
   }
 }
 
-/** Read + validate the highlight-thread input, warning (not failing) when the
- *  id is out of range. */
-function mtcReadHighlight(tabId, p, thrSize) {
-  const raw = (document.getElementById(`${tabId}-${p}-highlight-tid`).value || '').trim();
-  if (raw === '') return { tid: null, warn: '' };
-  const parsed = parseInt(raw, 10);
-  if (Number.isFinite(parsed) && parsed >= 0 && parsed < thrSize) return { tid: parsed, warn: '' };
-  return { tid: null, warn: `Highlight thread id "${raw}" is out of range [0, ${thrSize}) — showing all threads.` };
-}
-
 /** Shared mode toggle — `p` picks which tab's state to mutate. */
 function setMtcMode(tabId, p, mode) {
   const s = (p === 'mtc' ? mtcState : mtvState)[tabId];
@@ -715,7 +705,7 @@ function renderMakeTiledCopy(tabId) {
         : '') +
       mtcFormatVecCheck(vecCheck, atom.atomNumVal);
 
-    const hl = mtcReadHighlight(tabId, 'mtc', thrSize);
+    const hl = readHighlightTid(tabId, 'mtc', thrSize);
     const tilerNote = tilerP.hadStride
       ? `Tiler_MN modes carry strides (${tilerP.strides.map((x, i) => x === null ? `${tiler_mn[i]}` : `${tiler_mn[i]}:${x}`).join(', ')}). ` +
         `They are accepted and do not change this view — a tiler's strides say where the tile's ` +

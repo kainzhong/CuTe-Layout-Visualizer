@@ -538,6 +538,283 @@ function runUnitTests(V, T) {
     check('viz-filename', 'local_tile pane', V.vizFilename('ot1-lt-a-svg'), 'cute-lt-a.svg');
   });
 
+  // ── make_tiled_mma: text inputs and the guards CuTe does not raise ─────────
+  //  cases.json diffs the derivation against CuTeDSL. It cannot reach any of
+  //  this: the DSL takes a `cute.Layout` and a `Tiler`, never a string, and it
+  //  never sees a permutation whose size does not divide.
+  setSection('unit/make_tiled_mma');
+  const AL = (s) => { const L = V.mtmParseAtomLayout(s); return fmt(V, L); };
+  guard('atom-layout-parse', () => {
+    // A bare shape gets cute.make_layout's COMPACT stride, which differs from a
+    // plain prefix product in one place: a size-1 mode gets 0. That is exactly
+    // what makes (2,2,1) print as thr_layout_vmnk (32,2,2,1):(1,32,64,0).
+    check('atom-layout-parse', 'shape only', AL('(2,2,1)'), '(2,2,1):(1,2,0)');
+    check('atom-layout-parse', 'size-1 first', AL('(1,1,2)'), '(1,1,2):(0,0,1)');
+    check('atom-layout-parse', 'explicit stride kept', AL('(2,2,1):(2,1,4)'), '(2,2,1):(2,1,4)');
+    check('atom-layout-parse', 'whitespace', AL(' (2, 2, 1) '), '(2,2,1):(1,2,0)');
+  });
+  guard('atom-layout-refusals', () => {
+    const why = (s) => { try { V.mtmParseAtomLayout(s); return null; } catch (e) { return e.message; } };
+    // parseLayout would pad "(2,2)" out to rank 2 and silently invent a mode;
+    // rank 3 is what CuTeDSL requires ("expects rank-3 MNK atom layout").
+    check('atom-layout-refusals', 'rank 2 rejected', /must be rank 3/.test(why('(2,2)')), true);
+    check('atom-layout-refusals', 'rank 4 rejected', /must be rank 3/.test(why('(2,2,1,1)')), true);
+    check('atom-layout-refusals', 'empty rejected', /empty/.test(why('  ')), true);
+    check('atom-layout-refusals', 'stride rank mismatch',
+          /stride must be rank 3/.test(why('(2,2,1):(1,2)')), true);
+  });
+  guard('perm-parse', () => {
+    const PM = (s) => V.mtmParsePerm(s).map(x => (x === null ? '_' : fmt(V, x))).join('|');
+    check('perm-parse', 'blank is all-None', PM(''), '_|_|_');
+    check('perm-parse', 'plain extents', PM('(32, 32, 16)'), '32:1|32:1|16:1');
+    check('perm-parse', 'underscores', PM('(_, x, None)'), '_|_|_');
+    // A mode may itself be a layout, and its commas must not be read as mode
+    // separators — this is why the split is depth-aware.
+    check('perm-parse', 'nested layout mode',
+          PM('((2,16):(16,1), 32, 16)'), '(2,16):(16,1)|32:1|16:1');
+    check('perm-parse', 'unwrapped mode list', PM('32, _, 16'), '32:1|_|16:1');
+  });
+  guard('perm-refusals', () => {
+    const why = (s) => { try { V.mtmParsePerm(s); return null; } catch (e) { return e.message; } };
+    check('perm-refusals', 'wrong arity', /exactly 3 modes/.test(why('(32, 32)')), true);
+    // Int<32> and Tile<...> are the two things that get pasted straight out of a
+    // CUTLASS kernel; naming them beats "cannot read mode".
+    check('perm-refusals', 'Int<> syntax named', /integral-constant/.test(why('(_32, 32, 16)')), true);
+    check('perm-refusals', 'Tile<> syntax named',
+          /C\+\+ template syntax/.test(why('Tile<_32,_32,_16>')), true);
+  });
+  guard('perm-must-divide', () => {
+    // CuTe's zipped_divide needs the permutation to divide what the warps
+    // cover. It is a static_assert in C++ and invisible from the DSL, so an
+    // indivisible size would otherwise come back as a silently wrong grid.
+    const atom = V.mmaWarpAtom('f16bf16', 16);
+    const run = (perm) => {
+      try {
+        V.mtmComputeTiledMma(atom, V.mtmParseAtomLayout('(2,2,1)'), V.mtmParsePerm(perm));
+        return null;
+      } catch (e) { return e.message; }
+    };
+    check('perm-must-divide', 'M too small', /M mode has size 16/.test(run('(16, 32, 16)')), true);
+    check('perm-must-divide', 'M indivisible', /not a multiple/.test(run('(48, 32, 16)')), true);
+    check('perm-must-divide', 'K indivisible', /K mode has size 24/.test(run('(32, 32, 24)')), true);
+    check('perm-must-divide', 'exact multiple accepted', run('(64, 32, 32)'), null);
+  });
+  guard('warp-must-be-distinct', () => {
+    // A stride-0 mode in atom_layout_mnk would make two warps the same warp.
+    // CuTeDSL accepts the layout; right_inverse would then be a PARTIAL inverse
+    // and half the threads would silently vanish from the picture.
+    const atom = V.mmaWarpAtom('f16bf16', 16);
+    let msg = null;
+    try { V.mtmComputeTiledMma(atom, V.mtmParseAtomLayout('(2,2,1):(1,0,0)'), [null, null, null]); }
+    catch (e) { msg = e.message; }
+    check('warp-must-be-distinct', 'stride-0 atom layout rejected', /not a bijection/.test(msg || ''), true);
+  });
+  guard('warp-lines', () => {
+    // What a warp-mode cell actually says. With a warp id it names only that
+    // warp; without one it stacks every warp that touches the cell, one per
+    // line like TV mode — until there are more than four, which is where a cell
+    // stops being readable and it collapses to the compact single line.
+    const L = (warps, sum, focus) => V.mtmWarpLines(warps, sum, focus).join('|');
+    check('warp-lines', 'single warp', L([3], false, null), 'W3');
+    check('warp-lines', 'A broadcast lists both', L([0, 2], false, null), 'W0|W2');
+    check('warp-lines', 'C reduction lists both', L([0, 4], true, null), 'W0|W4');
+    check('warp-lines', 'four is still four lines',
+          L([0, 1, 2, 3], true, null), 'W0|W1|W2|W3');
+    check('warp-lines', 'five collapses', L([0, 1, 2, 3, 4], true, null), '\u03a3W0..W4');
+    // A and B are never accumulated into, so the collapsed form must NOT carry
+    // the sum sign — several warps on an A cell are readers of one value.
+    check('warp-lines', 'five collapses (broadcast, no sigma)',
+          L([0, 2, 4, 6, 8], false, null), 'W0,W2,W4,W6,W8');
+    check('warp-lines', 'contiguous broadcast, no sigma',
+          L([0, 1, 2, 3, 4, 5, 6, 7], false, null), 'W0..W7');
+    check('warp-lines', 'sigma is C-only',
+          [[0, 1, 2, 3, 4], [0, 2, 4, 6, 8], [0, 1, 2, 3, 4, 5, 6, 7]]
+            .some(w => L(w, false, null).includes('\u03a3')), false);
+    check('warp-lines', 'focused cell names only that warp', L([0, 2], false, 2), 'W2');
+    check('warp-lines', 'unsorted, deduped', L([2, 0, 2], false, null), 'W0|W2');
+  });
+  guard('tv-lines', () => {
+    // The TV-mode counterpart. A focused thread's cell shows only ITS slot, so
+    // you read which value of that thread landed there rather than picking it
+    // out of the threads broadcasting onto the same cell.
+    const e = (...ts) => ts.map(([t, v]) => ({ t, v, w: Math.floor(t / 32) }));
+    const L = (entries, focus) => V.mtmTvLines(entries, focus).join('|');
+    check('tv-lines', 'one owner', L(e([5, 3]), null), 'T5|V3');
+    check('tv-lines', 'broadcast lists both', L(e([0, 1], [64, 1]), null), 'T0/V1|T64/V1');
+    check('tv-lines', 'focused shows only its slot', L(e([0, 1], [64, 1]), 64), 'T64|V1');
+  });
+  /** Cell census off the rendered markup — the thing the eye actually reads. */
+  const mtmCensus = (V_, opnd, opts) => {
+    const svg = V_.mtmBuildSVG(V_.mtmOperandGrid(opnd), opnd.tile[0], opnd.tile[1], opts);
+    const rects = [...svg.matchAll(/<rect[^>]*fill="([^"]*)"\s*\n?\s*fill-opacity="([^"]*)"/g)];
+    return {
+      grey: rects.filter(m => m[1] === '#f0f0f0').length,
+      full: rects.filter(m => m[1] !== '#f0f0f0' && m[2] === '1').length,
+      dim: rects.filter(m => m[1] !== '#f0f0f0' && m[2] !== '1').length,
+      total: rects.length,
+      // One <text> per LINE, axis rulers included: an M x N grid contributes
+      // M + N of them before any cell speaks.
+      labelLines: (svg.match(/font-family="monospace"/g) || []).length,
+    };
+  };
+  guard('focus-colours-one-region', () => {
+    // The load-bearing claim of the focus box: ONLY the picked unit's cells stay
+    // coloured, and the others lose their labels as well as their colour.
+    const atom = V.mmaWarpAtom('f16bf16', 16);
+    const r = V.mtmComputeTiledMma(atom, V.mtmParseAtomLayout('(2,2,2)'), [null, null, null]);
+    // A is 32x32; 8 warps, and A does not depend on N, so one warp owns an
+    // atom-sized 16x16 = 256 of the 1024 cells.
+    const w = mtmCensus(V, r.A, { mode: 'warp', focus: 2, sum: false });
+    check('focus-colours-one-region', 'one warp coloured', w.full, 256);
+    check('focus-colours-one-region', 'the rest grey', w.grey, 1024 - 256);
+    // 32 + 32 axis labels, then one line per focused cell.
+    check('focus-colours-one-region', 'only focused cells are labelled',
+          w.labelLines, (32 + 32) + 256 * 1);
+    const all = mtmCensus(V, r.A, { mode: 'warp', focus: null, sum: false });
+    check('focus-colours-one-region', 'no id -> nothing grey', all.grey, 0);
+    check('focus-colours-one-region', 'no id -> all coloured', all.full, 1024);
+    // TV mode filters identically, just by thread. Thread 34 is warp 1, and one
+    // thread of an m16n8k16 A fragment owns 8 elements.
+    const t = mtmCensus(V, r.A, { mode: 'tv', focus: 34, sum: false });
+    check('focus-colours-one-region', 'tv mode greys too', t.grey, 1024 - 8);
+    check('focus-colours-one-region', 'one thread coloured', t.full, 8);
+    check('focus-colours-one-region', 'tv focused cells carry T and V',
+          t.labelLines, (32 + 32) + 8 * 2);
+  });
+  guard('focus-dims-the-repetitions', () => {
+    // The bottom row: the warp pattern REPEATS across the permuted tile, so the
+    // copies the focused unit also lands in are drawn in its hue at reduced
+    // opacity. Greying them would say it does not go there, which is false.
+    const atom = V.mmaWarpAtom('f16bf16', 16);
+    const r = V.mtmComputeTiledMma(atom, V.mtmParseAtomLayout('(2,2,1)'),
+                                   V.mtmParsePerm('(64, 32, 16)'));
+    // A is 64x16 = 1024 with Rest (2,1); warp 1 owns 16x16 in each copy.
+    const f = mtmCensus(V, r.A, { mode: 'warp', focus: 1, sum: false, dimRest: true });
+    check('focus-dims-the-repetitions', 'first copy at full colour', f.full, 256);
+    check('focus-dims-the-repetitions', 'the other copy dimmed, not greyed', f.dim, 256);
+    check('focus-dims-the-repetitions', 'everything else grey', f.grey, 1024 - 512);
+    check('focus-dims-the-repetitions', 'both copies keep labels',
+          f.labelLines, (64 + 16) + 512 * 1);
+    // Without a focus the bottom row is unchanged: Rest 0 coloured, the copies
+    // flat grey but still labelled.
+    const n = mtmCensus(V, r.A, { mode: 'warp', focus: null, sum: false, dimRest: true });
+    check('focus-dims-the-repetitions', 'no focus -> nothing dimmed', n.dim, 0);
+    check('focus-dims-the-repetitions', 'no focus -> half grey', n.grey, 512);
+    // Unfocused, every cell names BOTH N-warps that read it, so two lines each.
+    check('focus-dims-the-repetitions', 'no focus -> every cell labelled',
+          n.labelLines, (64 + 16) + 1024 * 2);
+  });
+  guard('warp-label', () => {
+    // A contiguous run collapses; a strided set does not. C is a REDUCTION, so
+    // it gets the sum sign and a "+"; A and B are broadcast reads, so a comma.
+    check('warp-label', 'single', V.mtmWarpLabel([3], false), 'W3');
+    check('warp-label', 'contiguous read', V.mtmWarpLabel([0, 1], false), 'W0..W1');
+    check('warp-label', 'strided read', V.mtmWarpLabel([0, 2], false), 'W0,W2');
+    check('warp-label', 'contiguous sum', V.mtmWarpLabel([0, 1], true), '\u03a3W0..W1');
+    check('warp-label', 'strided sum', V.mtmWarpLabel([0, 4], true), '\u03a3W0+W4');
+    check('warp-label', 'unsorted, deduped', V.mtmWarpLabel([2, 0, 2, 1], false), 'W0..W2');
+  });
+  guard('rest-region-marks-the-repetition', () => {
+    // The bottom row colours Rest == 0 and greys the copies. Without a
+    // permutation nothing repeats, so every cell must be Rest 0 -- a stray
+    // non-zero there would grey out half a picture that has no repetition.
+    const atom = V.mmaWarpAtom('f16bf16', 16);
+    const plain = V.mtmComputeTiledMma(atom, V.mtmParseAtomLayout('(2,2,1)'), [null, null, null]);
+    const gp = V.mtmOperandGrid(plain.A);
+    check('rest-region-marks-the-repetition', 'no perm -> Rest (1,1)',
+          plain.A.restShape.join(','), '1,1');
+    check('rest-region-marks-the-repetition', 'no perm -> every cell Rest 0',
+          gp.every(row => row.every(c => c.rest === 0 && c.entries.length)), true);
+    // Doubling M doubles the tile and puts exactly half the cells in Rest 1.
+    const wide = V.mtmComputeTiledMma(atom, V.mtmParseAtomLayout('(2,2,1)'),
+                                      V.mtmParsePerm('(64, 32, 16)'));
+    const gw = V.mtmOperandGrid(wide.A);
+    const flat = gw.flat();
+    check('rest-region-marks-the-repetition', 'perm -> Rest (2,1)', wide.A.restShape.join(','), '2,1');
+    check('rest-region-marks-the-repetition', 'half the cells are the copy',
+          flat.filter(c => c.rest === 0).length, flat.length / 2);
+    check('rest-region-marks-the-repetition', 'every cell still owned',
+          flat.every(c => c.entries.length > 0), true);
+  });
+
+  // ── The MMA "Alternative View" rotates B and NOTHING else ─────────────────
+  //  The quadrant layout draws B as K x N so its K axis meets A's and its N
+  //  axis meets C's. The whole claim is that this is a change of ORIENTATION,
+  //  not of mapping — so it is checked by comparing the two drawings cell for
+  //  cell rather than by inspecting the code that produces them.
+  setSection('unit/mma-alt-view');
+  /** Cell labels out of a buildTVSVG grid, row-major, one array per cell.
+   *  The axis rulers come first (N column labels, then M row labels). */
+  const tvCells = (svg, M, N, perCell) => {
+    const txt = [...svg.matchAll(/font-family="monospace">([^<]*)</g)].map(m => m[1]);
+    const body = txt.slice(N + M);
+    const out = [];
+    for (let m = 0; m < M; m++) {
+      out.push([]);
+      for (let n = 0; n < N; n++) out[m].push(body.slice((m * N + n) * perCell, (m * N + n + 1) * perCell));
+    }
+    return out;
+  };
+  guard('rotated-B-is-the-same-map', () => {
+    const a = V.mmaWarpAtom('f16bf16', 16);
+    const B = a.B, N = 8, K = 16;
+    // Every cell of an MMA atom has exactly one owner, so 3 labels each: T, V,
+    // and the `value` overlay.
+    const normal = tvCells(
+      V.buildTVSVG(B.shape, B.stride, B.tile.shape, B.tile.stride, false, 'col', null, 'value'),
+      N, K, 3);
+    const rotated = tvCells(
+      V.buildTVSVG(B.shape, B.stride, [K, N], [N, 1], false, 'col', null, 'value',
+                   { cellIndex: (m, n) => n + N * m }),
+      K, N, 3);
+    let mismatched = 0;
+    for (let n = 0; n < N; n++)
+      for (let k = 0; k < K; k++)
+        if (normal[n][k].join('|') !== rotated[k][n].join('|')) mismatched++;
+    check('rotated-B-is-the-same-map', 'cells that disagree under transpose', mismatched, 0);
+    // ... and the `value` overlay must still be the LAYOUT's output, not the
+    // rotated grid's col-major position. Without the cellIndex override
+    // buildTVSVG would print k + n*K here.
+    let wrongValue = 0;
+    for (let k = 0; k < K; k++)
+      for (let n = 0; n < N; n++)
+        if (rotated[k][n][2] !== String(n + N * k)) wrongValue++;
+    check('rotated-B-is-the-same-map', 'value overlay stays the layout output', wrongValue, 0);
+    check('rotated-B-is-the-same-map', 'rotated grid is K rows', rotated.length, K);
+    check('rotated-B-is-the-same-map', 'rotated grid is N cols', rotated[0].length, N);
+  });
+  guard('transpose-grid-is-exact', () => {
+    // make_tiled_mma rotates by transposing the GRID, so the cell objects must
+    // survive identically — same entries, same Rest index, just re-indexed.
+    const atom = V.mmaWarpAtom('f16bf16', 16);
+    const r = V.mtmComputeTiledMma(atom, V.mtmParseAtomLayout('(2,2,1)'), [null, null, null]);
+    const g = V.mtmOperandGrid(r.B);
+    const t = V.mtmTransposeGrid(g);
+    check('transpose-grid-is-exact', 'rows become cols', `${t.length}x${t[0].length}`,
+          `${g[0].length}x${g.length}`);
+    let moved = 0;
+    for (let m = 0; m < g.length; m++)
+      for (let n = 0; n < g[0].length; n++) if (g[m][n] !== t[n][m]) moved++;
+    check('transpose-grid-is-exact', 'every cell is the same object', moved, 0);
+    // The value overlay again: mtmBuildSVG's default would be col-major over
+    // the TRANSPOSED shape, which is not the layout's output.
+    const Nb = r.B.tile[0];
+    const svg = V.mtmBuildSVG(t, t.length, t[0].length,
+                              { mode: 'warp', focus: null, sum: false, showValue: true,
+                                cellIndex: (m, n) => n + Nb * m });
+    const nT = V.product(r.B.thr.shape), nV = V.product(r.B.val.shape);
+    const real = new Set();
+    for (let th = 0; th < nT; th++) {
+      const base = r.B.thr.call(th);
+      for (let v = 0; v < nV; v++) real.add(base + r.B.val.call(v));
+    }
+    let offGrid = 0;
+    for (let k = 0; k < t.length; k++)
+      for (let n = 0; n < t[0].length; n++) if (!real.has(n + Nb * k)) offGrid++;
+    check('transpose-grid-is-exact', 'every drawn cell is a real offset', offGrid, 0);
+    check('transpose-grid-is-exact', 'it rendered', /<svg/.test(svg), true);
+  });
+
   // ── The load-order hazard CLAUDE.md warns about ────────────────────────────
   setSection('unit/load-order');
   guard('layout-js-wins', () => {

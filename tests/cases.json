@@ -1380,6 +1380,201 @@
    "acc_dtype": "float"
   }
  ],
+ "_comment_tiled_mma": [
+  "make_tiled_mma(op, atom_layout_mnk, permutation_mnk) -- the MMA counterpart of",
+  "make_tiled_copy: one warp-level Atom replicated across warps, over a tile the",
+  "permutation Tiler decides. Ported by tabs/make_tiled_mma.js:mtmComputeTiledMma,",
+  "a port of CUTLASS's TiledMMA::thrfrg_A/B/C (include/cute/atom/mma_atom.hpp:291)",
+  "plus the get_layoutA_TV (:416) reassembly.",
+  "",
+  "THE ORACLE IS partition_A/B/C, NOT tv_layout_X_tiled. partition_X is what a",
+  "kernel actually calls, and it is unambiguous: for each thread it hands back the",
+  "tile coordinates of that thread's fragment, in value order. So frag_X here is",
+  "one string per thread -- the flat col-major offsets it owns -- i.e. the",
+  "(thread, value) -> tile map in full, which is exactly what the tab draws.",
+  "",
+  "tv_layout_A_tiled / tv_layout_B_tiled agree with the port character-for-",
+  "character and are compared as strings. tv_layout_C_tiled does NOT, whenever",
+  "atom_layout_mnk has both aN > 1 and aK > 1, and the C++ says why:",
+  "get_layoutA_TV and get_layoutB_TV each insert a stride-0 'atile' / 'btile' for",
+  "the VMNK mode their operand does not depend on, but get_layoutC_TV (:399) has",
+  "no equivalent -- it composes thrfrg_C's size-32*aM*aN thread mode straight",
+  "against a size-32*aM*aN*aK identity, and composing with a larger identity",
+  "EXTENDS the last mode instead. So for (2,2,2) it reports",
+  "((4,8,2,4),..):((64,1,16,256),..), N and K fused into one 4:256, sending the",
+  "k=1 warps to a second copy of C outside the 32x16 tile. partition_C on the same",
+  "object puts thread 128 on exactly thread 0's cells, because the K warps hold",
+  "PARTIAL SUMS of one accumulator. The port gives C the same stride-0 treatment A",
+  "and B get, and run.js compares the C string only where aN == 1 or aK == 1 --",
+  "which is what pins where the divergence starts rather than exempting C.",
+  "",
+  "Covered: the plain warp tilings, an M-only and a K-split one, both broadcast",
+  "and reduction together (2,2,2), a non-column-major atom_layout stride (which",
+  "reorders which warp is which and is the only thing the left_inverse step in",
+  "the port is for), permutations that merely repeat the pattern, permutations",
+  "that genuinely permute ((2,16):(16,1)), a partially-applied permutation, and",
+  "one of each Op family."
+ ],
+ "tiled_mma": [
+  {
+   "id": "tmma-a111",
+   "op": "f16bf16",
+   "ab_dtype": "half_t",
+   "acc_dtype": "float",
+   "k": 16,
+   "atom_layout": "(1,1,1)",
+   "perm": null
+  },
+  {
+   "id": "tmma-a221",
+   "op": "f16bf16",
+   "ab_dtype": "half_t",
+   "acc_dtype": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": null
+  },
+  {
+   "id": "tmma-a411",
+   "op": "f16bf16",
+   "ab_dtype": "half_t",
+   "acc_dtype": "float",
+   "k": 16,
+   "atom_layout": "(4,1,1)",
+   "perm": null
+  },
+  {
+   "id": "tmma-a112-ksplit",
+   "op": "f16bf16",
+   "ab_dtype": "half_t",
+   "acc_dtype": "float",
+   "k": 16,
+   "atom_layout": "(1,1,2)",
+   "perm": null
+  },
+  {
+   "id": "tmma-a222-bcast-plus-reduce",
+   "op": "f16bf16",
+   "ab_dtype": "half_t",
+   "acc_dtype": "float",
+   "k": 16,
+   "atom_layout": "(2,2,2)",
+   "perm": null
+  },
+  {
+   "id": "tmma-a221-stride-swap",
+   "op": "f16bf16",
+   "ab_dtype": "half_t",
+   "acc_dtype": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1):(2,1,4)",
+   "perm": null
+  },
+  {
+   "id": "tmma-a221-perm-n2",
+   "op": "f16bf16",
+   "ab_dtype": "half_t",
+   "acc_dtype": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": "(32,32,16)"
+  },
+  {
+   "id": "tmma-a221-perm-m2n2",
+   "op": "f16bf16",
+   "ab_dtype": "half_t",
+   "acc_dtype": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": "(64,32,16)"
+  },
+  {
+   "id": "tmma-a221-perm-k2",
+   "op": "f16bf16",
+   "ab_dtype": "half_t",
+   "acc_dtype": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": "(32,16,32)"
+  },
+  {
+   "id": "tmma-a221-perm-m-layout",
+   "op": "f16bf16",
+   "ab_dtype": "half_t",
+   "acc_dtype": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": "((2,16):(16,1),32,16)"
+  },
+  {
+   "id": "tmma-a221-perm-n-layout",
+   "op": "f16bf16",
+   "ab_dtype": "half_t",
+   "acc_dtype": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": "(32,(2,16):(16,1),16)"
+  },
+  {
+   "id": "tmma-a111-perm-partial",
+   "op": "f16bf16",
+   "ab_dtype": "half_t",
+   "acc_dtype": "float",
+   "k": 16,
+   "atom_layout": "(1,1,1)",
+   "perm": "(32,_,16)"
+  },
+  {
+   "id": "tmma-a221-k8",
+   "op": "f16bf16",
+   "ab_dtype": "half_t",
+   "acc_dtype": "half_t",
+   "k": 8,
+   "atom_layout": "(2,2,1)",
+   "perm": null
+  },
+  {
+   "id": "tmma-a221-bf16",
+   "op": "f16bf16",
+   "ab_dtype": "bfloat16_t",
+   "acc_dtype": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": null
+  },
+  {
+   "id": "tmma-tf32-a221-k8",
+   "op": "tf32",
+   "k": 8,
+   "atom_layout": "(2,2,1)",
+   "perm": null
+  },
+  {
+   "id": "tmma-tf32-a121-k4",
+   "op": "tf32",
+   "k": 4,
+   "atom_layout": "(1,2,1)",
+   "perm": null
+  },
+  {
+   "id": "tmma-fp8-a221-k32",
+   "op": "fp8",
+   "ab_dtype": "float_e4m3_t",
+   "acc_dtype": "float",
+   "k": 32,
+   "atom_layout": "(2,2,1)",
+   "perm": null
+  },
+  {
+   "id": "tmma-fp8-a221-k16-perm",
+   "op": "fp8",
+   "ab_dtype": "float_e5m2_t",
+   "acc_dtype": "half_t",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": "(32,32,32)"
+  }
+ ],
  "_comment_tma": [
   "make_tiled_tma_atom for cpasync.CopyBulkTensorTileG2SOp. The reference records",
   "the atom's NumValSrc (== the inferred box size) and the returned TMA coordinate",

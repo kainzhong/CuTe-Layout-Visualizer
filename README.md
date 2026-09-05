@@ -70,7 +70,11 @@ Every operation tab shows the inputs and the result as linked visualizations, no
 
     The two tiled tabs draw how the TiledCopy covers one tile — color per thread, brightness per atom invocation — and run the checks CuTe *documents but never enforces*: that `layout_tv` fills its tiler, that thr/val layouts are compact, and that the atom's values land on a stride-1 run of one tile axis. A stride-0 mode in `layout_tv` is recognised as deliberate broadcast (several threads reading one element, as `make_tiled_copy_A` produces) rather than flagged as overlap.
 
-  Click a scope at the top of the nav card to swap in its tabs. The active scope has a color accent (left stripe + active-tab highlight) so you always know which section you're in. Deep-link URLs auto-flip to the right scope. Scopes are designed to be extended — future groups like **MMA** can be added without cluttering the existing ones.
+  - **MMA** (amber) — the matrix-multiply side, mirroring the same atom-then-tile layering as Copy.
+    - **make_mma_atom** — build one warp-level MMA Atom (`cute.nvgpu.warp.MmaF16BF16Op` / `MmaTF32Op` / `MmaFP8Op`) and draw its three operand fragments. This is the one structural difference from a Copy Atom: two TV layouts over *one* tile become three over *three* — `A` over `(M,K)`, `B` over `(N,K)`, `C` over `(M,N)` — so A and B sit side by side sharing the K axis while C spans the width below them. All three are bijections, so every cell is owned by exactly one lane. The tab is a lookup table rather than a derivation, because CUTLASS defines these as hand-written `MMA_Traits` specializations: an MMA atom is the PTX register signature transcribed into layout form. Every entry is diffed against CuTeDSL, and the corpus is exhaustive over the parameter domains — which is what pins the tab's claim that the layouts depend only on the Op family and K, never on `ab_dtype` or `acc_dtype`. A **Highlight thread** box dims all three grids at once, so one lane's 8 cells of A, 4 of B and 4 of C read as the single fact they are. An **Alternative View** toggle (shared with `make_tiled_mma`) re-lays the grids as the picture a matrix multiply is normally drawn as — empty top-left, A bottom-left, B *rotated* to `K×N` top-right, C bottom-right — so A's K axis lines up with B's and B and C share their N axis. B is only shown transposed; the TV mapping is the same one, checked cell for cell in the tests.
+    - **make_tiled_mma** — replicate that atom across warps. Two rows of grids, because the two arguments do genuinely different things: `atom_layout_mnk` says how many warps there are along M, N and K (top row, one atom-sized area each), and `permutation_mnk` says what tile each mode is *really* over (bottom row, where only the first copy of the warp pattern is coloured and red lines mark where the copies meet). A **Show TVs / Show Warps** toggle switches the cells between make_mma_atom's `T`/`V` labels and warp names, and one focus box below it drives all six grids — labelled **Warp id** or **Thread ID** to match the toggle, since the question is always "which unit am I looking at" and only the unit changes. Leave it blank and every warp (or thread) that touches a cell is stacked in it, one per line; type an id and only that unit's region stays coloured — same hue in A, B and C — with everything else greyed and unlabelled. In the bottom row the copies that unit *also* lands in are drawn in its hue at reduced brightness rather than greyed, because the warp pattern really does repeat there. An id that isn't a whole number, or one past the last warp/thread, is reported as an error rather than ignored. The warp view is where the tiling's asymmetry becomes visible: an A cell carries `W0` and `W2` because A does not depend on N and both N-warps read it, a B cell carries `W0`/`W1` for the mirror reason, and a C cell carries the K-warps because they are not readers at all — each holds a partial sum of the same accumulator, which a K-split TiledMMA must reduce afterwards. Past four warps a cell collapses to one compact line (`ΣW0..W7` for C, plain `W0..W7` for A and B, since nothing accumulates into those).
+
+  Click a scope at the top of the nav card to swap in its tabs. The active scope has a color accent (left stripe + active-tab highlight) so you always know which section you're in. Deep-link URLs auto-flip to the right scope. Scopes are designed to be extended — **MMA** was added this way, and further groups can be too without cluttering the existing ones.
 - **Cmd+Enter to render** — `⌘↵` on macOS, `Ctrl+↵` elsewhere, renders whichever tab is visible without scrolling down to the button. Works from inside any input, including the multi-line tiler boxes. The hint under each Render button shows the right key for your platform.
 - **Multiple tabs** — Open several independent workspaces side by side. Each tab is fully self-contained.
 - **Shareable URLs** — Every operation has an "Export URL" button that copies a deep link to the current visualization. Paste it into chat or a doc and the recipient lands on the same view.
@@ -111,6 +115,8 @@ The `?key=...` query parameter deep-links to a specific visualization:
 ?key=zipped_product-(2,2):(1,2)-(2,2):(1,2)
 ?key=blocked_product-(2,2):(1,2)-(3,3):(1,3)
 ?key=raked_product-(2,2):(1,2)-(3,3):(1,3)
+?key=make_mma_atom-f16bf16-half_t-float-16
+?key=make_tiled_mma-f16bf16-half_t-float-16-(2, 2, 1)-(32, 32, 16)
 ```
 
 ## Local development
@@ -158,4 +164,17 @@ See `CLAUDE.md` for architecture notes (file layout, adding a new tab, input con
 
 ### MMA Atoms
 
-TBD.
+`make_mma_atom` and `make_tiled_mma` cover the three dense `cute.nvgpu.warp` `WarpMmaOp`
+subclasses. What is left, roughly in order:
+
+1. **`make_tiled_copy_A` / `_B` / `_C`** — where the two scopes finally meet: a TiledMMA's
+   `tv_layout_A` is exactly what these hand a copy as its `layout_tv`, and the broadcast
+   `make_tiled_mma` draws is what makes `size(layout_tv)` a multiple of `size(Tiler_MN)` there.
+2. **`MmaF16BF16SparseOp`** — traces fine, but `MmaAtom` exposes no metadata (E) layout and its
+   A layout is over the *logical* `(M,K)` tile, so the 2:4 compression that makes it sparse would
+   be invisible in the only thing the tab draws. Needs a metadata view first.
+3. **Hopper `wgmma` / Blackwell `tcgen05`** — a different shape of problem, not a bigger version
+   of this one: `wgmma` reads A/B from SMEM through descriptors and `tcgen05` accumulates in TMEM,
+   which is not thread-addressable, so the "three register fragments" reading stops holding.
+4. **The block-scaled Ops** (`MmaMXF4Op`, `MmaMXF8Op`, `MmaMXF4NVF4Op`, `MmaMXF8F6F4Op`) subclass
+   `MmaOp` directly rather than `WarpMmaOp` and are sm_120-only — absent rather than untested.

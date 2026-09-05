@@ -409,6 +409,76 @@ def run_mma_atom(c):
     }
 
 
+def parse_tiled_mma_perm(spec):
+    """permutation_mnk: None, or a 3-mode Tiler string. `_` is CuTe's no-op."""
+    if spec is None:
+        return None
+    body = spec.strip()
+    if body.startswith("(") and body.endswith(")"):
+        # Strip the wrapping parens only, keeping any nested mode intact.
+        depth = 0
+        for i, c in enumerate(body):
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+                if depth == 0:
+                    if i == len(body) - 1:
+                        body = body[1:-1]
+                    break
+    modes, depth, start = [], 0, 0
+    for i, c in enumerate(body):
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif c == "," and depth == 0:
+            modes.append(body[start:i])
+            start = i + 1
+    modes.append(body[start:])
+    assert len(modes) == 3, "permutation_mnk must have 3 modes: %r" % spec
+    return tuple(None if m.strip() in ("", "_", "x", "X", "None")
+                 else parse_layout(m) for m in modes)
+
+
+def _tiled_mma_frag(tmma, operand, tile):
+    """The (thread, value) -> tile map, read off partition_A/B/C.
+
+    This is the oracle rather than `tv_layout_X_tiled` because it is what a
+    kernel actually calls, and because the DSL's C accessor fuses the N and K
+    thread modes when both exceed 1 (see the section comment in cases.json).
+    One string per thread: the flat col-major offsets of its fragment, in value
+    order, which is the same order the port's (FrgV, (RestX, RestY)) value mode
+    enumerates."""
+    ident = cute.make_identity_tensor(tile)
+    rows = tile[0]
+    out = []
+    for thr in range(int(cute.size(tmma.thr_layout_vmnk))):
+        frag = getattr(tmma.get_slice(thr), "partition_" + operand)(ident)
+        n = int(cute.size(frag.layout))
+        out.append(",".join(str(frag[i][0] + rows * frag[i][1]) for i in range(n)))
+    return ";".join(out)
+
+
+def run_tiled_mma(c):
+    tmma = cute.make_tiled_mma(
+        cute.make_mma_atom(MMA_OPS[c["op"]](c)),
+        parse_layout(c["atom_layout"]),
+        parse_tiled_mma_perm(c["perm"]),
+    )
+    tile = [int(tmma.get_tile_size(i)) for i in range(3)]
+    return {
+        "thr_layout_vmnk": canon(tmma.thr_layout_vmnk),
+        "tile_mnk": tile,
+        "tv_A": canon(tmma.tv_layout_A_tiled),
+        "tv_B": canon(tmma.tv_layout_B_tiled),
+        "tv_C": canon(tmma.tv_layout_C_tiled),
+        "frag_A": _tiled_mma_frag(tmma, "A", (tile[0], tile[2])),
+        "frag_B": _tiled_mma_frag(tmma, "B", (tile[1], tile[2])),
+        "frag_C": _tiled_mma_frag(tmma, "C", (tile[0], tile[1])),
+    }
+
+
 def _smem_layout(spec, sw):
     base = parse_layout(spec)
     if sw is None:
@@ -485,6 +555,7 @@ SECTIONS = [
     ("copy_atom", run_copy_atom),
     ("ldmatrix_atom", run_ldmatrix_atom),
     ("mma_atom", run_mma_atom),
+    ("tiled_mma", run_tiled_mma),
     ("tma_atom", run_tma_atom),
     ("tma_partition", run_tma_partition),
     ("local_tile", run_local_tile),

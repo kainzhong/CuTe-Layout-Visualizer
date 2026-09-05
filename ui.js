@@ -717,6 +717,7 @@ const TAB_RENDER_FN = {
   make_tiled_tma_atom: 'renderMakeTiledTmaAtom',
   tma_partition:      'renderTmaPartition',
   make_mma_atom:      'renderMakeMmaAtom',
+  make_tiled_mma:     'renderMakeTiledMma',
 };
 
 /** True on Apple platforms, where the modifier is ⌘ rather than Ctrl. */
@@ -797,7 +798,7 @@ function generateTabContent(id) {
         </div>
         <div class="tab-scope-btn" data-scope="mma" onclick="switchTabGroup('${id}', 'mma')">
           <span class="tab-scope-icon">\u2B21</span>MMA
-          <span class="tab-scope-count">1</span>
+          <span class="tab-scope-count">2</span>
         </div>
       </div>
     <div class="tab-bar" data-scope="basics">
@@ -819,6 +820,7 @@ function generateTabContent(id) {
       <div data-tab="make_tiled_tma_atom" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_tma_atom')">make_tiled_tma_atom</div>
       <div data-tab="tma_partition" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'tma_partition')">tma_partition</div>
       <div data-tab="make_mma_atom" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_mma_atom')">make_mma_atom</div>
+      <div data-tab="make_tiled_mma" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_tiled_mma')">make_tiled_mma</div>
     </div>
     </div>
     ${generateLayoutTabContent(id)}
@@ -839,6 +841,7 @@ function generateTabContent(id) {
     ${generateMakeTiledTmaAtomTabContent(id)}
     ${generateTmaPartitionTabContent(id)}
     ${generateMakeMmaAtomTabContent(id)}
+    ${generateMakeTiledMmaTabContent(id)}
   </div>`;
 }
 
@@ -1067,7 +1070,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_tma_atom: 15, tma_partition: 16, make_mma_atom: 17 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_tma_atom: 15, tma_partition: 16, make_mma_atom: 17, make_tiled_mma: 18 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1174,6 +1177,26 @@ function layoutInputField(opts) {
 function statusDivs(prefix) {
   return `<div id="${prefix}-error" class="error-msg"></div>
     <div id="${prefix}-warning" class="warning-msg"></div>`;
+}
+
+/** Read + validate a tab's `${tabId}-${p}-highlight-tid` box, warning (not
+ *  failing) when the id is out of range — the thread count is derived, so a
+ *  stale id after changing an input is easy to hit and silently ignoring the
+ *  value would leave the wrong picture up with no explanation.
+ *
+ *  Shared by every tab that draws a TV partition: `tv`, `make_tiled_copy`,
+ *  `make_tiled_copy_tv` and `make_mma_atom`. It lives here rather than under
+ *  its old `mtc` prefix because the third consumer is in a different SCOPE, and
+ *  a highlight that behaved differently per tab is exactly the drift
+ *  SIMT_COPY_OPS was moved here to stop. See "Highlighting a thread" in
+ *  CLAUDE.md for the rule the callers have to keep: a dimmed cell keeps its
+ *  T/V labels, because highlighting is a focus, not a mask. */
+function readHighlightTid(tabId, p, thrSize) {
+  const raw = (document.getElementById(`${tabId}-${p}-highlight-tid`).value || '').trim();
+  if (raw === '') return { tid: null, warn: '' };
+  const parsed = parseInt(raw, 10);
+  if (Number.isFinite(parsed) && parsed >= 0 && parsed < thrSize) return { tid: parsed, warn: '' };
+  return { tid: null, warn: `Highlight thread id "${raw}" is out of range [0, ${thrSize}) — showing all threads.` };
 }
 
 /** Show the rank-warning for a tab if any inputs have rank > 2. */
@@ -1687,6 +1710,7 @@ const FEATURE_SPEC = {
   tma_partition:       { inputs: 5 },  // values, dtype, swizzle, smem, rest
   swizzle:         { inputs: 2 },
   make_mma_atom:   { inputs: 4 },  // op, ab_dtype, acc_dtype, K
+  make_tiled_mma:  { inputs: 6 },  // op, ab_dtype, acc_dtype, K, atom_layout_mnk, permutation_mnk
 };
 
 function parseKeyParam() {
@@ -1843,6 +1867,21 @@ function applyKeyParam(tabId) {
       document.getElementById(`${tabId}-mma-k-input`).value = inputs[3];
       switchInnerTab(tabId, 'make_mma_atom');
       renderMakeMmaAtom(tabId);
+      break;
+    }
+    case 'make_tiled_mma': {
+      document.getElementById(`${tabId}-mtm-op-input`).value = inputs[0];
+      // Rebuild the per-Op options BEFORE assigning into them — see mmaSyncControls.
+      mmaSyncControls(tabId, inputs[0], 'mtm');
+      if (inputs[1] !== 'na') document.getElementById(`${tabId}-mtm-ab-input`).value  = inputs[1];
+      if (inputs[2] !== 'na') document.getElementById(`${tabId}-mtm-acc-input`).value = inputs[2];
+      document.getElementById(`${tabId}-mtm-k-input`).value = inputs[3];
+      document.getElementById(`${tabId}-mtm-atomlayout-input`).value = inputs[4];
+      // `na` is how exportMTM spells "no permutation" — the key is split on
+      // `-`, so an empty field cannot travel as an empty part.
+      document.getElementById(`${tabId}-mtm-perm-input`).value = inputs[5] === 'na' ? '' : inputs[5];
+      switchInnerTab(tabId, 'make_tiled_mma');
+      renderMakeTiledMma(tabId);
       break;
     }
     case 'make_tiled_copy':

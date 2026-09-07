@@ -52,9 +52,9 @@ function generateLocalTileTabContent(id) {
         ${layoutInputField({ id: `${id}-lt-coord-input`, label: 'Coord &mdash; index to pick the local tile', value: '(1, 2)', hint: 'for masked <code>proj</code> dimensions its index is ignored;<br><code>_</code> keeps that mode instead of picking one; blank keeps all' })}
         ${layoutInputField({ id: `${id}-lt-proj-input`, label: 'Proj &mdash; projection onto tiling modes (optional)', value: '', placeholder: 'blank = no projection', hint: 'any number selects that dimension;<br><code>x</code> / <code>_</code> / <code>None</code> masks that dimension out' })}
         ${statusDivs(`${id}-lt`)}
-        <div id="${id}-lt-result" class="comp-result-box"></div>
         <button class="btn btn-render" onclick="renderLocalTile('${id}')">Render</button>
         <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-lt-export" onclick="exportLT('${id}')">Export URL</button>
+        <div id="${id}-lt-result" class="comp-result-box"></div>
 
         <div class="presets">
           <h3>Presets</h3>
@@ -522,29 +522,17 @@ function renderLocalTile(tabId) {
     }
     updateRankWarning(`${tabId}-lt-warning`, r.warnPairs);
 
-    const nKept = r.restCrd.filter(c => c === null).length;
-    const keptStr = r.kept.map(k => `(${k.rcArr.join(',')})`).join(' ');
     const resultStr = formatLayoutStr(r.resultLayout.shape, r.resultLayout.stride);
-    document.getElementById(`${tabId}-lt-result`).innerHTML =
-      (r.projKeep
-        ? `<div class="cuo-result-line">dice(proj, &hellip;) &mdash; tiler ` +
-          `<b>${r.tilerFullStr}</b> &rarr; <b>${ltTilerStr(r.tilerArg)}</b>, coord ` +
-          `<b>${ltCoordStr(r.coordFull)}</b> &rarr; <b>${ltCoordStr(r.restCrd)}</b></div>`
-        : '') +
-      `<div class="cuo-result-line">zipped_divide(A, tiler) = <b>${formatLayoutStr(r.Z.shape, r.Z.stride)}</b> ` +
-      `&mdash; ${r.tileSize}-element tiles, ${r.restSize} of them</div>` +
-      `<div class="cuo-result-line">slice = (repeat&lt;${r.R0}&gt;(_), ` +
-      `(${r.restCrd.map(c => c === null ? '_' : c).join(',')}))</div>` +
+    const resultEl = document.getElementById(`${tabId}-lt-result`);
+    // Just the returned layout. The derivation (zipped_divide, the slice, the
+    // diced tiler/coord) is in the hint below and in the two grids; a result box
+    // that restates it is a wall nobody reads.
+    resultEl.innerHTML =
       `<div class="cuo-result-line">local_tile(...) = <b>${resultStr}</b>` +
       (r.aParsed.basis
         ? ` &nbsp;at origin <b>(${r.originCrd.join(',')})</b>`
-        : ` &nbsp;+ offset <b>${r.baseOffset || 0}</b>`) + `</div>` +
-      `<div class="cuo-result-line" style="color:#9ca3af">Result rank ${r.resultLayout.rank()} = ` +
-      `${r.R0} tile mode${r.R0 === 1 ? '' : 's'} (mode 0 unpacked one level, sub-modes keep their nesting)` +
-      (nKept
-        ? ` + ${nKept} kept tile-index mode${nKept === 1 ? '' : 's'}`
-        : ` (coord was fully concrete, so no tile-index modes survive)`) +
-      `. Selected ${r.kept.length} of ${r.restSize} tiles: ${keptStr}</div>`;
+        : ` &nbsp;+ offset <b>${r.baseOffset || 0}</b>`) + `</div>`;
+    resultEl.classList.add('visible');
 
     ltState[tabId] = Object.assign({}, r, {
       aMode: (ltState[tabId] && ltState[tabId].aMode) || 'value',
@@ -555,6 +543,8 @@ function renderLocalTile(tabId) {
     updateOuterTabLabel(tabId, `LocalTile:${resultStr}`);
   } catch (e) {
     showErr(`${tabId}-lt-error`, e.message);
+    const resultEl = document.getElementById(`${tabId}-lt-result`);
+    if (resultEl) resultEl.classList.remove('visible');
     for (const k of ['a', 'tile']) {
       const el = document.getElementById(`${tabId}-lt-${k}-svg`);
       if (el) el.innerHTML = '';

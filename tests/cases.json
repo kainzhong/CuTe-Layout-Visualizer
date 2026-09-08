@@ -1,1964 +1,2068 @@
 {
- "_comment": [
-  "Shared test corpus: read by tests/gen_reference.py (which runs each case through",
-  "CuTeDSL to produce tests/reference.json) and by tests/run.js (which runs the same",
-  "case through the JS port and compares). Inputs are CuTe layout STRINGS so the",
-  "parser is exercised on the way in.",
-  "A tiler argument may be a string (a single layout tiler) or an array of strings",
-  "(a by-mode Tiler, i.e. a tuple of layouts)."
- ],
- "layout_ops": [
-  {
-   "id": "coalesce-basic",
-   "op": "coalesce",
-   "a": "(2,(1,6)):(1,(6,2))"
-  },
-  {
-   "id": "coalesce-zero",
-   "op": "coalesce",
-   "a": "(4,1,2):(1,0,4)"
-  },
-  {
-   "id": "coalesce-nested",
-   "op": "coalesce",
-   "a": "((2,2),(2,2)):((1,2),(4,8))"
-  },
-  {
-   "id": "coalesce-noop",
-   "op": "coalesce",
-   "a": "(4,4):(4,1)"
-  },
-  {
-   "id": "coalesce-stride0",
-   "op": "coalesce",
-   "a": "(8,4):(1,0)"
-  },
-  {
-   "id": "coalesce-prof-1",
-   "op": "coalesce",
-   "a": "((4,2),(3,1)):((1,4),(8,0))",
-   "profile": [
-    1
-   ]
-  },
-  {
-   "id": "coalesce-prof-11",
-   "op": "coalesce",
-   "a": "((4,2),(3,1)):((1,4),(8,0))",
-   "profile": [
-    1,
-    1
-   ]
-  },
-  {
-   "id": "coalesce-prof-tp",
-   "op": "coalesce",
-   "a": "((512,1),(32,2)):((1,0),(8,64))",
-   "profile": [
-    1,
-    1
-   ]
-  },
-  {
-   "id": "filter-zero",
-   "op": "filter",
-   "a": "(4,1,2):(1,0,4)"
-  },
-  {
-   "id": "filter-broadcast",
-   "op": "filter",
-   "a": "(2,4,3):(0,1,0)"
-  },
-  {
-   "id": "filter-nested",
-   "op": "filter",
-   "a": "((2,3),(1,4)):((4,1),(0,8))"
-  },
-  {
-   "id": "comp-rowmajor",
-   "op": "composition",
-   "a": "(4,4):(4,1)",
-   "b": "(2,2):(1,2)"
-  },
-  {
-   "id": "comp-colmajor",
-   "op": "composition",
-   "a": "(6,2):(8,2)",
-   "b": "(4,3):(3,1)"
-  },
-  {
-   "id": "comp-int",
-   "op": "composition",
-   "a": "(12,32):(32,1)",
-   "b": "8:1"
-  },
-  {
-   "id": "comp-stride0",
-   "op": "composition",
-   "a": "(8,8):(8,1)",
-   "b": "(4,4):(0,1)"
-  },
-  {
-   "id": "comp-nested-b",
-   "op": "composition",
-   "a": "(24):(2)",
-   "b": "((2,3),4):((1,8),2)"
-  },
-  {
-   "id": "comp-bymode",
-   "op": "composition",
-   "a": "(12,32):(32,1)",
-   "b": [
-    "3:1",
-    "8:2"
-   ]
-  },
-  {
-   "id": "comp-swap",
-   "op": "composition",
-   "a": "(4,8):(8,1)",
-   "b": "(8,4):(4,1)"
-  },
-  {
-   "id": "comp-nonsurj",
-   "op": "composition",
-   "a": "(10,2):(16,4)",
-   "b": "(5,4):(1,5)"
-  },
-  {
-   "id": "compl-1",
-   "op": "complement",
-   "a": "(2,2):(1,2)",
-   "n": 16
-  },
-  {
-   "id": "compl-2",
-   "op": "complement",
-   "a": "4:1",
-   "n": 16
-  },
-  {
-   "id": "compl-3",
-   "op": "complement",
-   "a": "4:2",
-   "n": 16
-  },
-  {
-   "id": "compl-4",
-   "op": "complement",
-   "a": "(2,4):(1,4)",
-   "n": 32
-  },
-  {
-   "id": "compl-5",
-   "op": "complement",
-   "a": "(4,2):(1,16)",
-   "n": 128
-  },
-  {
-   "id": "compl-6",
-   "op": "complement",
-   "a": "6:4",
-   "n": 24
-  },
-  {
-   "id": "compl-exact",
-   "op": "complement",
-   "a": "(2,2):(1,2)",
-   "n": 4
-  },
-  {
-   "id": "rinv-1",
-   "op": "right_inverse",
-   "a": "(4,4):(4,1)"
-  },
-  {
-   "id": "rinv-2",
-   "op": "right_inverse",
-   "a": "(8,4):(1,8)"
-  },
-  {
-   "id": "rinv-3",
-   "op": "right_inverse",
-   "a": "((2,4),(3,2)):((24,1),(8,4))"
-  },
-  {
-   "id": "rinv-4",
-   "op": "right_inverse",
-   "a": "(4,2):(1,16)"
-  },
-  {
-   "id": "linv-1",
-   "op": "left_inverse",
-   "a": "(8,8):(8,1)"
-  },
-  {
-   "id": "linv-2",
-   "op": "left_inverse",
-   "a": "(4,2):(2,1)"
-  },
-  {
-   "id": "linv-3",
-   "op": "left_inverse",
-   "a": "((2,2),2):((4,1),2)"
-  },
-  {
-   "id": "ld-1",
-   "op": "logical_divide",
-   "a": "(4,8):(8,1)",
-   "b": "(2,2):(1,2)"
-  },
-  {
-   "id": "ld-2",
-   "op": "logical_divide",
-   "a": "(12,32):(32,1)",
-   "b": [
-    "3:1",
-    "8:1"
-   ]
-  },
-  {
-   "id": "ld-3",
-   "op": "logical_divide",
-   "a": "(9,32):(32,1)",
-   "b": [
-    "3:3",
-    "8:1"
-   ]
-  },
-  {
-   "id": "ld-4",
-   "op": "logical_divide",
-   "a": "24:2",
-   "b": "4:1"
-  },
-  {
-   "id": "ld-5",
-   "op": "logical_divide",
-   "a": "(8,8):(1,8)",
-   "b": [
-    "4:2",
-    "2:1"
-   ]
-  },
-  {
-   "id": "zd-1",
-   "op": "zipped_divide",
-   "a": "(12,32):(32,1)",
-   "b": [
-    "3:1",
-    "8:1"
-   ]
-  },
-  {
-   "id": "zd-2",
-   "op": "zipped_divide",
-   "a": "(16,16):(16,1)",
-   "b": [
-    "4:1",
-    "4:1"
-   ]
-  },
-  {
-   "id": "zd-3",
-   "op": "zipped_divide",
-   "a": "(4,8):(8,1)",
-   "b": "(2,2):(1,2)"
-  },
-  {
-   "id": "td-1",
-   "op": "tiled_divide",
-   "a": "(12,32):(32,1)",
-   "b": [
-    "3:1",
-    "8:1"
-   ]
-  },
-  {
-   "id": "td-2",
-   "op": "tiled_divide",
-   "a": "(16,16):(16,1)",
-   "b": [
-    "4:1",
-    "4:1"
-   ]
-  },
-  {
-   "id": "fd-1",
-   "op": "flat_divide",
-   "a": "(12,32):(32,1)",
-   "b": [
-    "3:1",
-    "8:1"
-   ]
-  },
-  {
-   "id": "fd-2",
-   "op": "flat_divide",
-   "a": "(16,16):(16,1)",
-   "b": [
-    "4:1",
-    "4:1"
-   ]
-  },
-  {
-   "id": "lp-1",
-   "op": "logical_product",
-   "a": "(2,2):(4,1)",
-   "b": "(6):(1)"
-  },
-  {
-   "id": "lp-2",
-   "op": "logical_product",
-   "a": "(4,4):(4,1)",
-   "b": "(2,2):(1,2)"
-  },
-  {
-   "id": "lp-3",
-   "op": "logical_product",
-   "a": "2:1",
-   "b": "3:1"
-  },
-  {
-   "id": "lp-4",
-   "op": "logical_product",
-   "a": "(2,2):(1,2)",
-   "b": "(3,3):(1,3)"
-  },
-  {
-   "id": "zp-1",
-   "op": "zipped_product",
-   "a": "(2,2):(1,2)",
-   "b": "(2,2):(1,2)"
-  },
-  {
-   "id": "zp-2",
-   "op": "zipped_product",
-   "a": "(4,4):(4,1)",
-   "b": "(2,2):(1,2)"
-  },
-  {
-   "id": "tp-1",
-   "op": "tiled_product",
-   "a": "(2,2):(1,2)",
-   "b": "(2,2):(1,2)"
-  },
-  {
-   "id": "tp-2",
-   "op": "tiled_product",
-   "a": "(4,4):(4,1)",
-   "b": "(2,2):(1,2)"
-  },
-  {
-   "id": "fp-1",
-   "op": "flat_product",
-   "a": "(2,2):(1,2)",
-   "b": "(2,2):(1,2)"
-  },
-  {
-   "id": "fp-2",
-   "op": "flat_product",
-   "a": "(4,4):(4,1)",
-   "b": "(2,2):(1,2)"
-  },
-  {
-   "id": "bp-1",
-   "op": "blocked_product",
-   "a": "(2,2):(1,2)",
-   "b": "(3,3):(1,3)"
-  },
-  {
-   "id": "bp-2",
-   "op": "blocked_product",
-   "a": "(2,5):(5,1)",
-   "b": "(3,4):(1,3)"
-  },
-  {
-   "id": "bp-3",
-   "op": "blocked_product",
-   "a": "2:1",
-   "b": "(4,4):(4,1)"
-  },
-  {
-   "id": "rp-1",
-   "op": "raked_product",
-   "a": "(2,2):(1,2)",
-   "b": "(3,3):(1,3)"
-  },
-  {
-   "id": "rp-2",
-   "op": "raked_product",
-   "a": "(2,5):(5,1)",
-   "b": "(3,4):(1,3)"
-  },
-  {
-   "id": "rp-3",
-   "op": "raked_product",
-   "a": "(4,8):(8,1)",
-   "b": "(2,2):(1,2)"
-  },
-  {
-   "id": "size-1",
-   "op": "size",
-   "a": "((2,3),4):((1,8),2)"
-  },
-  {
-   "id": "cosize-1",
-   "op": "cosize",
-   "a": "((2,3),4):((1,8),2)"
-  },
-  {
-   "id": "cosize-2",
-   "op": "cosize",
-   "a": "(4,2):(1,16)"
-  },
-  {
-   "id": "sao-1",
-   "op": "slice_and_offset",
-   "a": "(8,8):(8,1)",
-   "crd": [
-    null,
-    2
-   ]
-  },
-  {
-   "id": "sao-2",
-   "op": "slice_and_offset",
-   "a": "(8,8):(8,1)",
-   "crd": [
-    3,
-    null
-   ]
-  },
-  {
-   "id": "sao-3",
-   "op": "slice_and_offset",
-   "a": "((2,4),8):((1,16),2)",
-   "crd": [
-    [
-     null,
-     1
-    ],
-    3
-   ]
-  },
-  {
-   "id": "pe-1",
-   "op": "product_each",
-   "shape": "((2,3),4)"
-  },
-  {
-   "id": "pe-2",
-   "op": "product_each",
-   "shape": "((2,3),(4,5),6)"
-  },
-  {
-   "id": "sd-1",
-   "op": "shape_div",
-   "shape": "(12,8)",
-   "shape_b": "(4,2)"
-  },
-  {
-   "id": "sd-2",
-   "op": "shape_div",
-   "shape": "((6,4),8)",
-   "shape_b": "((2,2),4)"
-  },
-  {
-   "id": "i2c-1",
-   "op": "idx2crd",
-   "idx": 9,
-   "shape": "(4,4)"
-  },
-  {
-   "id": "i2c-2",
-   "op": "idx2crd",
-   "idx": 17,
-   "shape": "((2,3),4)"
-  },
-  {
-   "id": "c2i-1",
-   "op": "crd2idx",
-   "a": "((2,3),4):((1,8),2)",
-   "crd": [
-    [
-     1,
-     2
-    ],
-    3
-   ]
-  },
-  {
-   "id": "c2i-2",
-   "op": "crd2idx",
-   "a": "(4,4):(4,1)",
-   "crd": [
-    1,
-    2
-   ]
-  }
- ],
- "_comment_basis": [
-  "Coordinate (scaled-basis) layouts. CuTe defines composition and the divide",
-  "family over them; complement / inverses / products are rejected (see the table",
-  "in CLAUDE.md). Only the 'yes' half appears here."
- ],
- "basis_ops": [
-  {
-   "id": "basis-comp-1",
-   "op": "composition",
-   "a": "(32,64):(1@0,1@1)",
-   "b": "(8,8):(1,32)"
-  },
-  {
-   "id": "basis-comp-2",
-   "op": "composition",
-   "a": "(256,128):(1@1,1@0)",
-   "b": "(64,64):(1,256)"
-  },
-  {
-   "id": "basis-coal-1",
-   "op": "coalesce",
-   "a": "(4,1,8):(1@0,0@0,4@0)"
-  },
-  {
-   "id": "basis-ld-1",
-   "op": "logical_divide",
-   "a": "(32,64):(1@0,1@1)",
-   "b": [
-    "8:1",
-    "8:1"
-   ]
-  },
-  {
-   "id": "basis-zd-1",
-   "op": "zipped_divide",
-   "a": "(256,128):(1@0,1@1)",
-   "b": [
-    "64:1",
-    "64:1"
-   ]
-  },
-  {
-   "id": "basis-zd-2",
-   "op": "zipped_divide",
-   "a": "(256,128):(1@1,1@0)",
-   "b": [
-    "8:1",
-    "64:1"
-   ]
-  },
-  {
-   "id": "basis-td-1",
-   "op": "tiled_divide",
-   "a": "(32,64):(1@0,1@1)",
-   "b": [
-    "8:1",
-    "8:1"
-   ]
-  },
-  {
-   "id": "basis-fd-1",
-   "op": "flat_divide",
-   "a": "(32,64):(1@0,1@1)",
-   "b": [
-    "8:1",
-    "8:1"
-   ]
-  }
- ],
- "_comment_tv": [
-  "make_layout_tv(thr_layout, val_layout) -> (tiler_mn, layout_tv), the derivation",
-  "behind the make_tiled_copy_tv tab. Checked against cute.make_layout_tv AND",
-  "against the TiledCopy that make_tiled_copy_tv actually builds."
- ],
- "make_layout_tv": [
-  {
-   "id": "tv-cpasync-128b",
-   "thr": "(16,8):(8,1)",
-   "val": "(1,8):(1,1)",
-   "dtype": "half_t",
-   "bits": 128
-  },
-  {
-   "id": "tv-colmajor",
-   "thr": "(32,4):(1,32)",
-   "val": "(4,1):(1,1)",
-   "dtype": "half_t",
-   "bits": 64
-  },
-  {
-   "id": "tv-rowmajor",
-   "thr": "(8,4):(4,1)",
-   "val": "(2,2):(2,1)",
-   "dtype": "float",
-   "bits": 128
-  },
-  {
-   "id": "tv-1x4",
-   "thr": "(4,8):(8,1)",
-   "val": "(1,4):(1,1)",
-   "dtype": "float",
-   "bits": 128
-  },
-  {
-   "id": "tv-4x1",
-   "thr": "(4,8):(1,4)",
-   "val": "(4,1):(1,1)",
-   "dtype": "int8_t",
-   "bits": 32
-  },
-  {
-   "id": "tv-2d-val",
-   "thr": "(2,2):(1,2)",
-   "val": "(2,2):(2,1)",
-   "dtype": "float",
-   "bits": 32
-  },
-  {
-   "id": "tv-warp-32x8",
-   "thr": "(32,8):(8,1)",
-   "val": "(1,8):(1,1)",
-   "dtype": "half_t",
-   "bits": 128
-  }
- ],
- "_comment_mtc": [
-  "The PRIMITIVE constructor _make_tiled_copy(atom, layout_tv, tiler_mn). CuTe just",
-  "stores the two, so the reference records what the TiledCopy reports back and the",
-  "JS side checks its parse of the same strings (mtcParseTiler + parseLayout).",
-  "The `op` field is optional and defaults to universal. The directional cases",
-  "mirror universal ones with the same tv/tiler: since all six SIMT Ops give an",
-  "identical Atom, the TiledCopy must be identical too, and run.js checks them",
-  "against the same expectations. This is what stops the three tabs' shared Op",
-  "picker from silently mattering."
- ],
- "make_tiled_copy": [
-  {
-   "id": "mtc-cpasync",
-   "dtype": "half_t",
-   "bits": 128,
-   "tv": "((8,16),8):((128,1),16)",
-   "tiler": "(16,64)"
-  },
-  {
-   "id": "mtc-simple",
-   "dtype": "float",
-   "bits": 128,
-   "tv": "(4,4):(4,1)",
-   "tiler": "(4,4)"
-  },
-  {
-   "id": "mtc-strided",
-   "dtype": "half_t",
-   "bits": 128,
-   "tv": "((4,8),8):((64,1),8)",
-   "tiler": "(8,32)"
-  },
-  {
-   "id": "mtc-g2r",
-   "op": "g2r",
-   "dtype": "half_t",
-   "bits": 128,
-   "tv": "((8,16),8):((128,1),16)",
-   "tiler": "(16,64)"
-  },
-  {
-   "id": "mtc-r2s",
-   "op": "r2s",
-   "dtype": "half_t",
-   "bits": 64,
-   "tv": "((4,8),8):((64,1),8)",
-   "tiler": "(8,32)"
-  },
-  {
-   "id": "mtc-s2r",
-   "op": "s2r",
-   "dtype": "float",
-   "bits": 128,
-   "tv": "(4,4):(4,1)",
-   "tiler": "(4,4)"
-  }
- ],
- "_comment_copy_atom": [
-  "make_copy_atom(op, dtype, num_bits_per_copy) -> Copy_Atom whose ValLayout is",
-  "(1, num_bits/dtype_bits):(0,1). Checks ui.js's DTYPE_BITS table against the DSL.",
-  "The six SIMT Ops -- CopyUniversalOp, cpasync.CopyG2SOp and the four",
-  "directional CopyG2ROp / CopyR2GOp / CopyS2ROp / CopyR2SOp -- all produce a",
-  "byte-identical Atom, so every case here is checked against the SAME",
-  "(1,N):(0,1) expectation. The directional cases mirror universal ones at the",
-  "same widths on purpose: that identity is the reason make_copy_atom,",
-  "make_tiled_copy and make_tiled_copy_tv can share one Op table (ui.js's",
-  "SIMT_COPY_OPS), and it is checked here rather than assumed.",
-  "The `attrs` cases pin the tab's claim that the directional Ops' memory",
-  "attributes change the MLIR atom type and the emitted PTX but NOT the layouts:",
-  "run.js checks them against the same (1,N):(0,1) expectation as everything",
-  "else. They also document three cross-parameter rules the DSL enforces (found",
-  "by writing these cases and watching them fail): `invariant` requires every",
-  "other memory feature at its default; `load_cache_mode` must be ALWAYS and",
-  "`store_cache_mode` WRITE_BACK unless `memory_order` is WEAK."
- ],
- "copy_atom": [
-  {
-   "id": "mca-univ-f16-128",
-   "op": "universal",
-   "dtype": "half_t",
-   "bits": 128
-  },
-  {
-   "id": "mca-univ-f16-32",
-   "op": "universal",
-   "dtype": "half_t",
-   "bits": 32
-  },
-  {
-   "id": "mca-univ-f32-128",
-   "op": "universal",
-   "dtype": "float",
-   "bits": 128
-  },
-  {
-   "id": "mca-univ-i8-64",
-   "op": "universal",
-   "dtype": "int8_t",
-   "bits": 64
-  },
-  {
-   "id": "mca-univ-f64-128",
-   "op": "universal",
-   "dtype": "double",
-   "bits": 128
-  },
-  {
-   "id": "mca-univ-bf16-128",
-   "op": "universal",
-   "dtype": "bfloat16_t",
-   "bits": 128
-  },
-  {
-   "id": "mca-cpasync-f16-128",
-   "op": "cpasync",
-   "dtype": "half_t",
-   "bits": 128
-  },
-  {
-   "id": "mca-cpasync-f32-64",
-   "op": "cpasync",
-   "dtype": "float",
-   "bits": 64
-  },
-  {
-   "id": "mca-g2r-f16-128",
-   "op": "g2r",
-   "dtype": "half_t",
-   "bits": 128
-  },
-  {
-   "id": "mca-g2r-f32-32",
-   "op": "g2r",
-   "dtype": "float",
-   "bits": 32
-  },
-  {
-   "id": "mca-g2r-i8-64",
-   "op": "g2r",
-   "dtype": "int8_t",
-   "bits": 64
-  },
-  {
-   "id": "mca-r2g-f32-128",
-   "op": "r2g",
-   "dtype": "float",
-   "bits": 128
-  },
-  {
-   "id": "mca-r2g-bf16-128",
-   "op": "r2g",
-   "dtype": "bfloat16_t",
-   "bits": 128
-  },
-  {
-   "id": "mca-s2r-f16-128",
-   "op": "s2r",
-   "dtype": "half_t",
-   "bits": 128
-  },
-  {
-   "id": "mca-s2r-f64-128",
-   "op": "s2r",
-   "dtype": "double",
-   "bits": 128
-  },
-  {
-   "id": "mca-r2s-f16-64",
-   "op": "r2s",
-   "dtype": "half_t",
-   "bits": 64
-  },
-  {
-   "id": "mca-r2s-f32-64",
-   "op": "r2s",
-   "dtype": "float",
-   "bits": 64
-  },
-  {
-   "id": "mca-g2r-attr-prefetch",
-   "op": "g2r",
-   "dtype": "half_t",
-   "bits": 128,
-   "attrs": {
-    "l2_prefetch_size": "SIZE_256B",
-    "l1c_evict_priority": "EVICT_LAST"
-   }
-  },
-  {
-   "id": "mca-g2r-attr-invariant",
-   "op": "g2r",
-   "dtype": "half_t",
-   "bits": 128,
-   "attrs": {
-    "invariant": true
-   }
-  },
-  {
-   "id": "mca-g2r-attr-ordering",
-   "op": "g2r",
-   "dtype": "half_t",
-   "bits": 128,
-   "attrs": {
-    "memory_order": "ACQUIRE",
-    "memory_scope": "SYS"
-   }
-  },
-  {
-   "id": "mca-g2r-attr-cachemode",
-   "op": "g2r",
-   "dtype": "half_t",
-   "bits": 128,
-   "attrs": {
-    "load_cache_mode": "STREAMING"
-   }
-  },
-  {
-   "id": "mca-r2g-attr-store",
-   "op": "r2g",
-   "dtype": "float",
-   "bits": 128,
-   "attrs": {
-    "store_cache_mode": "WRITE_THROUGH"
-   }
-  },
-  {
-   "id": "mca-r2g-attr-ordering",
-   "op": "r2g",
-   "dtype": "float",
-   "bits": 128,
-   "attrs": {
-    "memory_order": "RELEASE",
-    "memory_scope": "GPU",
-    "l1c_evict_priority": "NO_ALLOCATE"
-   }
-  },
-  {
-   "id": "mca-s2r-attr-cluster",
-   "op": "s2r",
-   "dtype": "half_t",
-   "bits": 128,
-   "attrs": {
-    "shared_space": "CLUSTER",
-    "memory_order": "RELAXED"
-   }
-  },
-  {
-   "id": "mca-r2s-attr-cluster",
-   "op": "r2s",
-   "dtype": "half_t",
-   "bits": 64,
-   "attrs": {
-    "shared_space": "CLUSTER"
-   }
-  }
- ],
- "_comment_ldmatrix_atom": [
-  "make_copy_atom(<an LdMatrix Op>, dtype) for the whole warp.LdMatrix* family.",
-  "Oracle: cutlass.cute -- thr_id, layout_src_tv, layout_dst_tv, each with",
-  "size/cosize and its value at every point of the domain.",
-  "Ported by tabs/make_copy_atom.js:mcaLdmatrixAtom, which re-expresses each",
-  "instruction's fixed geometry in the chosen element type. The three Ops differ in",
-  "more than constants: 8x8x16b transposes 16-bit units and has optional transpose;",
-  "16x16x8b is a 256-byte matrix over 8-bit units with mandatory transpose; and",
-  "16x8x8b bakes in an address permutation (matching stmatrix.m16n8.trans) that makes",
-  "its layout_src_tv a rank-4 thread mode rather than the usual (live, broadcast) pair.",
-  "unpack_bits cases exist to pin the claim the tab makes about them: they change the",
-  "LdsmSzPattern handed to MLIR and NO layout. Verified across all 156 accepted",
-  "combinations of the two 8-bit Ops."
- ],
- "ldmatrix_atom": [
-  {
-   "id": "ldsm-8x8x16b-half_t-x1-N",
-   "op": "ldsm8x8x16b",
-   "dtype": "half_t",
-   "num_matrices": 1,
-   "transpose": false
-  },
-  {
-   "id": "ldsm-8x8x16b-half_t-x1-T",
-   "op": "ldsm8x8x16b",
-   "dtype": "half_t",
-   "num_matrices": 1,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-8x8x16b-half_t-x2-N",
-   "op": "ldsm8x8x16b",
-   "dtype": "half_t",
-   "num_matrices": 2,
-   "transpose": false
-  },
-  {
-   "id": "ldsm-8x8x16b-half_t-x2-T",
-   "op": "ldsm8x8x16b",
-   "dtype": "half_t",
-   "num_matrices": 2,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-8x8x16b-half_t-x4-N",
-   "op": "ldsm8x8x16b",
-   "dtype": "half_t",
-   "num_matrices": 4,
-   "transpose": false
-  },
-  {
-   "id": "ldsm-8x8x16b-half_t-x4-T",
-   "op": "ldsm8x8x16b",
-   "dtype": "half_t",
-   "num_matrices": 4,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-8x8x16b-int8_t-x1-N",
-   "op": "ldsm8x8x16b",
-   "dtype": "int8_t",
-   "num_matrices": 1,
-   "transpose": false
-  },
-  {
-   "id": "ldsm-8x8x16b-int8_t-x1-T",
-   "op": "ldsm8x8x16b",
-   "dtype": "int8_t",
-   "num_matrices": 1,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-8x8x16b-int8_t-x2-N",
-   "op": "ldsm8x8x16b",
-   "dtype": "int8_t",
-   "num_matrices": 2,
-   "transpose": false
-  },
-  {
-   "id": "ldsm-8x8x16b-int8_t-x2-T",
-   "op": "ldsm8x8x16b",
-   "dtype": "int8_t",
-   "num_matrices": 2,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-8x8x16b-int8_t-x4-N",
-   "op": "ldsm8x8x16b",
-   "dtype": "int8_t",
-   "num_matrices": 4,
-   "transpose": false
-  },
-  {
-   "id": "ldsm-8x8x16b-int8_t-x4-T",
-   "op": "ldsm8x8x16b",
-   "dtype": "int8_t",
-   "num_matrices": 4,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-8x8x16b-float-x1-N",
-   "op": "ldsm8x8x16b",
-   "dtype": "float",
-   "num_matrices": 1,
-   "transpose": false
-  },
-  {
-   "id": "ldsm-8x8x16b-float-x1-T",
-   "op": "ldsm8x8x16b",
-   "dtype": "float",
-   "num_matrices": 1,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-8x8x16b-float-x4-N",
-   "op": "ldsm8x8x16b",
-   "dtype": "float",
-   "num_matrices": 4,
-   "transpose": false
-  },
-  {
-   "id": "ldsm-8x8x16b-float-x4-T",
-   "op": "ldsm8x8x16b",
-   "dtype": "float",
-   "num_matrices": 4,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-8x8x16b-double-x1-N",
-   "op": "ldsm8x8x16b",
-   "dtype": "double",
-   "num_matrices": 1,
-   "transpose": false
-  },
-  {
-   "id": "ldsm-8x8x16b-double-x4-T",
-   "op": "ldsm8x8x16b",
-   "dtype": "double",
-   "num_matrices": 4,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-8x8x16b-double-x2-T",
-   "op": "ldsm8x8x16b",
-   "dtype": "double",
-   "num_matrices": 2,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-8x8x16b-bfloat16_t-x4-N",
-   "op": "ldsm8x8x16b",
-   "dtype": "bfloat16_t",
-   "num_matrices": 4,
-   "transpose": false
-  },
-  {
-   "id": "ldsm-8x8x16b-uint16_t-x2-T",
-   "op": "ldsm8x8x16b",
-   "dtype": "uint16_t",
-   "num_matrices": 2,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-8x8x16b-tfloat32_t-x2-N",
-   "op": "ldsm8x8x16b",
-   "dtype": "tfloat32_t",
-   "num_matrices": 2,
-   "transpose": false
-  },
-  {
-   "id": "ldsm-8x8x16b-uint8_t-x4-T",
-   "op": "ldsm8x8x16b",
-   "dtype": "uint8_t",
-   "num_matrices": 4,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-8x8x16b-int64_t-x4-N",
-   "op": "ldsm8x8x16b",
-   "dtype": "int64_t",
-   "num_matrices": 4,
-   "transpose": false
-  },
-  {
-   "id": "ldsm-16x16x8b-int8_t-x1-T",
-   "op": "ldsm16x16x8b",
-   "dtype": "int8_t",
-   "num_matrices": 1,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x16x8b-half_t-x1-T",
-   "op": "ldsm16x16x8b",
-   "dtype": "half_t",
-   "num_matrices": 1,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x16x8b-float-x1-T",
-   "op": "ldsm16x16x8b",
-   "dtype": "float",
-   "num_matrices": 1,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x16x8b-double-x1-T",
-   "op": "ldsm16x16x8b",
-   "dtype": "double",
-   "num_matrices": 1,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x16x8b-int8_t-x2-T",
-   "op": "ldsm16x16x8b",
-   "dtype": "int8_t",
-   "num_matrices": 2,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x16x8b-half_t-x2-T",
-   "op": "ldsm16x16x8b",
-   "dtype": "half_t",
-   "num_matrices": 2,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x16x8b-float-x2-T",
-   "op": "ldsm16x16x8b",
-   "dtype": "float",
-   "num_matrices": 2,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x16x8b-double-x2-T",
-   "op": "ldsm16x16x8b",
-   "dtype": "double",
-   "num_matrices": 2,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x16x8b-uint8_t-x1-T",
-   "op": "ldsm16x16x8b",
-   "dtype": "uint8_t",
-   "num_matrices": 1,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x16x8b-bfloat16_t-x2-T",
-   "op": "ldsm16x16x8b",
-   "dtype": "bfloat16_t",
-   "num_matrices": 2,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x16x8b-int8_t-x1-T-u4",
-   "op": "ldsm16x16x8b",
-   "dtype": "int8_t",
-   "num_matrices": 1,
-   "transpose": true,
-   "unpack_bits": 4
-  },
-  {
-   "id": "ldsm-16x16x8b-int8_t-x2-T-u6",
-   "op": "ldsm16x16x8b",
-   "dtype": "int8_t",
-   "num_matrices": 2,
-   "transpose": true,
-   "unpack_bits": 6
-  },
-  {
-   "id": "ldsm-16x16x8b-half_t-x1-T-u4",
-   "op": "ldsm16x16x8b",
-   "dtype": "half_t",
-   "num_matrices": 1,
-   "transpose": true,
-   "unpack_bits": 4
-  },
-  {
-   "id": "ldsm-16x8x8b-int8_t-x2-T",
-   "op": "ldsm16x8x8b",
-   "dtype": "int8_t",
-   "num_matrices": 2,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x8x8b-half_t-x2-T",
-   "op": "ldsm16x8x8b",
-   "dtype": "half_t",
-   "num_matrices": 2,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x8x8b-float-x2-T",
-   "op": "ldsm16x8x8b",
-   "dtype": "float",
-   "num_matrices": 2,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x8x8b-double-x2-T",
-   "op": "ldsm16x8x8b",
-   "dtype": "double",
-   "num_matrices": 2,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x8x8b-int8_t-x4-T",
-   "op": "ldsm16x8x8b",
-   "dtype": "int8_t",
-   "num_matrices": 4,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x8x8b-half_t-x4-T",
-   "op": "ldsm16x8x8b",
-   "dtype": "half_t",
-   "num_matrices": 4,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x8x8b-float-x4-T",
-   "op": "ldsm16x8x8b",
-   "dtype": "float",
-   "num_matrices": 4,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x8x8b-double-x4-T",
-   "op": "ldsm16x8x8b",
-   "dtype": "double",
-   "num_matrices": 4,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x8x8b-uint8_t-x2-T",
-   "op": "ldsm16x8x8b",
-   "dtype": "uint8_t",
-   "num_matrices": 2,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x8x8b-int32_t-x4-T",
-   "op": "ldsm16x8x8b",
-   "dtype": "int32_t",
-   "num_matrices": 4,
-   "transpose": true
-  },
-  {
-   "id": "ldsm-16x8x8b-int8_t-x2-T-u4",
-   "op": "ldsm16x8x8b",
-   "dtype": "int8_t",
-   "num_matrices": 2,
-   "transpose": true,
-   "unpack_bits": 4
-  },
-  {
-   "id": "ldsm-16x8x8b-int8_t-x4-T-u6",
-   "op": "ldsm16x8x8b",
-   "dtype": "int8_t",
-   "num_matrices": 4,
-   "transpose": true,
-   "unpack_bits": 6
-  },
-  {
-   "id": "ldsm-16x8x8b-half_t-x2-T-u4",
-   "op": "ldsm16x8x8b",
-   "dtype": "half_t",
-   "num_matrices": 2,
-   "transpose": true,
-   "unpack_bits": 4
-  }
- ],
- "_comment_mma_atom": [
-  "make_mma_atom(op) for the three DENSE cute.nvgpu.warp WarpMmaOp subclasses.",
-  "Oracle: cutlass.cute -- thr_id, shape_mnk, and tv_layout_A/B/C, each with",
-  "size/cosize and its value at every point of the domain.",
-  "Ported by tabs/make_mma_atom.js:mmaWarpAtom, which is a TABLE rather than a",
-  "derivation -- CUTLASS itself defines these as hand-written MMA_Traits",
-  "specializations (include/cute/atom/mma_traits_sm80.hpp:78), so there is no",
-  "arithmetic to port and the only way to be right is to diff every entry.",
-  "The corpus is EXHAUSTIVE over the valid parameter domains (16 cases). That is",
-  "what pins the tab's load-bearing claim that the three layouts depend only on",
-  "the Op family and K: 16 combinations collapse to 6 distinct layout triples, so",
-  "neither ab_dtype nor acc_dtype provably changes anything.",
-  "Excluded on purpose: MmaF16BF16SparseOp, the fourth WarpMmaOp subclass -- it",
-  "traces fine, but MmaAtom exposes no metadata (E) layout and its A layout is",
-  "over the LOGICAL (M,K) tile, so the tab could not draw what distinguishes it.",
-  "Also MmaMXF4Op / MmaMXF8Op / MmaMXF4NVF4Op / MmaMXF8F6F4Op, which subclass",
-  "MmaOp rather than WarpMmaOp and are sm_120-only, so no oracle could be",
-  "generated for them here -- an untested tab entry is worse than a missing one."
- ],
- "mma_atom": [
-  {
-   "id": "mma-f16bf16-half_t-half_t-k8",
-   "op": "f16bf16",
-   "k": 8,
-   "ab_dtype": "half_t",
-   "acc_dtype": "half_t"
-  },
-  {
-   "id": "mma-f16bf16-half_t-half_t-k16",
-   "op": "f16bf16",
-   "k": 16,
-   "ab_dtype": "half_t",
-   "acc_dtype": "half_t"
-  },
-  {
-   "id": "mma-f16bf16-half_t-float-k8",
-   "op": "f16bf16",
-   "k": 8,
-   "ab_dtype": "half_t",
-   "acc_dtype": "float"
-  },
-  {
-   "id": "mma-f16bf16-half_t-float-k16",
-   "op": "f16bf16",
-   "k": 16,
-   "ab_dtype": "half_t",
-   "acc_dtype": "float"
-  },
-  {
-   "id": "mma-f16bf16-bfloat16_t-float-k8",
-   "op": "f16bf16",
-   "k": 8,
-   "ab_dtype": "bfloat16_t",
-   "acc_dtype": "float"
-  },
-  {
-   "id": "mma-f16bf16-bfloat16_t-float-k16",
-   "op": "f16bf16",
-   "k": 16,
-   "ab_dtype": "bfloat16_t",
-   "acc_dtype": "float"
-  },
-  {
-   "id": "mma-tf32-na-na-k4",
-   "op": "tf32",
-   "k": 4
-  },
-  {
-   "id": "mma-tf32-na-na-k8",
-   "op": "tf32",
-   "k": 8
-  },
-  {
-   "id": "mma-fp8-float_e4m3_t-half_t-k16",
-   "op": "fp8",
-   "k": 16,
-   "ab_dtype": "float_e4m3_t",
-   "acc_dtype": "half_t"
-  },
-  {
-   "id": "mma-fp8-float_e4m3_t-half_t-k32",
-   "op": "fp8",
-   "k": 32,
-   "ab_dtype": "float_e4m3_t",
-   "acc_dtype": "half_t"
-  },
-  {
-   "id": "mma-fp8-float_e4m3_t-float-k16",
-   "op": "fp8",
-   "k": 16,
-   "ab_dtype": "float_e4m3_t",
-   "acc_dtype": "float"
-  },
-  {
-   "id": "mma-fp8-float_e4m3_t-float-k32",
-   "op": "fp8",
-   "k": 32,
-   "ab_dtype": "float_e4m3_t",
-   "acc_dtype": "float"
-  },
-  {
-   "id": "mma-fp8-float_e5m2_t-half_t-k16",
-   "op": "fp8",
-   "k": 16,
-   "ab_dtype": "float_e5m2_t",
-   "acc_dtype": "half_t"
-  },
-  {
-   "id": "mma-fp8-float_e5m2_t-half_t-k32",
-   "op": "fp8",
-   "k": 32,
-   "ab_dtype": "float_e5m2_t",
-   "acc_dtype": "half_t"
-  },
-  {
-   "id": "mma-fp8-float_e5m2_t-float-k16",
-   "op": "fp8",
-   "k": 16,
-   "ab_dtype": "float_e5m2_t",
-   "acc_dtype": "float"
-  },
-  {
-   "id": "mma-fp8-float_e5m2_t-float-k32",
-   "op": "fp8",
-   "k": 32,
-   "ab_dtype": "float_e5m2_t",
-   "acc_dtype": "float"
-  }
- ],
- "_comment_tiled_mma": [
-  "make_tiled_mma(op, atom_layout_mnk, permutation_mnk) -- the MMA counterpart of",
-  "make_tiled_copy: one warp-level Atom replicated across warps, over a tile the",
-  "permutation Tiler decides. Ported by tabs/make_tiled_mma.js:mtmComputeTiledMma,",
-  "a port of CUTLASS's TiledMMA::thrfrg_A/B/C (include/cute/atom/mma_atom.hpp:291)",
-  "plus the get_layoutA_TV (:416) reassembly.",
-  "",
-  "THE ORACLE IS partition_A/B/C, NOT tv_layout_X_tiled. partition_X is what a",
-  "kernel actually calls, and it is unambiguous: for each thread it hands back the",
-  "tile coordinates of that thread's fragment, in value order. So frag_X here is",
-  "one string per thread -- the flat col-major offsets it owns -- i.e. the",
-  "(thread, value) -> tile map in full, which is exactly what the tab draws.",
-  "",
-  "tv_layout_A_tiled / tv_layout_B_tiled agree with the port character-for-",
-  "character and are compared as strings. tv_layout_C_tiled does NOT, whenever",
-  "atom_layout_mnk has both aN > 1 and aK > 1, and the C++ says why:",
-  "get_layoutA_TV and get_layoutB_TV each insert a stride-0 'atile' / 'btile' for",
-  "the VMNK mode their operand does not depend on, but get_layoutC_TV (:399) has",
-  "no equivalent -- it composes thrfrg_C's size-32*aM*aN thread mode straight",
-  "against a size-32*aM*aN*aK identity, and composing with a larger identity",
-  "EXTENDS the last mode instead. So for (2,2,2) it reports",
-  "((4,8,2,4),..):((64,1,16,256),..), N and K fused into one 4:256, sending the",
-  "k=1 warps to a second copy of C outside the 32x16 tile. partition_C on the same",
-  "object puts thread 128 on exactly thread 0's cells, because the K warps hold",
-  "PARTIAL SUMS of one accumulator. The port gives C the same stride-0 treatment A",
-  "and B get, and run.js compares the C string only where aN == 1 or aK == 1 --",
-  "which is what pins where the divergence starts rather than exempting C.",
-  "",
-  "Covered: the plain warp tilings, an M-only and a K-split one, both broadcast",
-  "and reduction together (2,2,2), a non-column-major atom_layout stride (which",
-  "reorders which warp is which and is the only thing the left_inverse step in",
-  "the port is for), permutations that merely repeat the pattern, permutations",
-  "that genuinely permute ((2,16):(16,1)), a partially-applied permutation, and",
-  "one of each Op family."
- ],
- "tiled_mma": [
-  {
-   "id": "tmma-a111",
-   "op": "f16bf16",
-   "ab_dtype": "half_t",
-   "acc_dtype": "float",
-   "k": 16,
-   "atom_layout": "(1,1,1)",
-   "perm": null
-  },
-  {
-   "id": "tmma-a221",
-   "op": "f16bf16",
-   "ab_dtype": "half_t",
-   "acc_dtype": "float",
-   "k": 16,
-   "atom_layout": "(2,2,1)",
-   "perm": null
-  },
-  {
-   "id": "tmma-a411",
-   "op": "f16bf16",
-   "ab_dtype": "half_t",
-   "acc_dtype": "float",
-   "k": 16,
-   "atom_layout": "(4,1,1)",
-   "perm": null
-  },
-  {
-   "id": "tmma-a112-ksplit",
-   "op": "f16bf16",
-   "ab_dtype": "half_t",
-   "acc_dtype": "float",
-   "k": 16,
-   "atom_layout": "(1,1,2)",
-   "perm": null
-  },
-  {
-   "id": "tmma-a222-bcast-plus-reduce",
-   "op": "f16bf16",
-   "ab_dtype": "half_t",
-   "acc_dtype": "float",
-   "k": 16,
-   "atom_layout": "(2,2,2)",
-   "perm": null
-  },
-  {
-   "id": "tmma-a221-stride-swap",
-   "op": "f16bf16",
-   "ab_dtype": "half_t",
-   "acc_dtype": "float",
-   "k": 16,
-   "atom_layout": "(2,2,1):(2,1,4)",
-   "perm": null
-  },
-  {
-   "id": "tmma-a221-perm-n2",
-   "op": "f16bf16",
-   "ab_dtype": "half_t",
-   "acc_dtype": "float",
-   "k": 16,
-   "atom_layout": "(2,2,1)",
-   "perm": "(32,32,16)"
-  },
-  {
-   "id": "tmma-a221-perm-m2n2",
-   "op": "f16bf16",
-   "ab_dtype": "half_t",
-   "acc_dtype": "float",
-   "k": 16,
-   "atom_layout": "(2,2,1)",
-   "perm": "(64,32,16)"
-  },
-  {
-   "id": "tmma-a221-perm-k2",
-   "op": "f16bf16",
-   "ab_dtype": "half_t",
-   "acc_dtype": "float",
-   "k": 16,
-   "atom_layout": "(2,2,1)",
-   "perm": "(32,16,32)"
-  },
-  {
-   "id": "tmma-a221-perm-m-layout",
-   "op": "f16bf16",
-   "ab_dtype": "half_t",
-   "acc_dtype": "float",
-   "k": 16,
-   "atom_layout": "(2,2,1)",
-   "perm": "((2,16):(16,1),32,16)"
-  },
-  {
-   "id": "tmma-a221-perm-n-layout",
-   "op": "f16bf16",
-   "ab_dtype": "half_t",
-   "acc_dtype": "float",
-   "k": 16,
-   "atom_layout": "(2,2,1)",
-   "perm": "(32,(2,16):(16,1),16)"
-  },
-  {
-   "id": "tmma-a111-perm-partial",
-   "op": "f16bf16",
-   "ab_dtype": "half_t",
-   "acc_dtype": "float",
-   "k": 16,
-   "atom_layout": "(1,1,1)",
-   "perm": "(32,_,16)"
-  },
-  {
-   "id": "tmma-a221-k8",
-   "op": "f16bf16",
-   "ab_dtype": "half_t",
-   "acc_dtype": "half_t",
-   "k": 8,
-   "atom_layout": "(2,2,1)",
-   "perm": null
-  },
-  {
-   "id": "tmma-a221-bf16",
-   "op": "f16bf16",
-   "ab_dtype": "bfloat16_t",
-   "acc_dtype": "float",
-   "k": 16,
-   "atom_layout": "(2,2,1)",
-   "perm": null
-  },
-  {
-   "id": "tmma-tf32-a221-k8",
-   "op": "tf32",
-   "k": 8,
-   "atom_layout": "(2,2,1)",
-   "perm": null
-  },
-  {
-   "id": "tmma-tf32-a121-k4",
-   "op": "tf32",
-   "k": 4,
-   "atom_layout": "(1,2,1)",
-   "perm": null
-  },
-  {
-   "id": "tmma-fp8-a221-k32",
-   "op": "fp8",
-   "ab_dtype": "float_e4m3_t",
-   "acc_dtype": "float",
-   "k": 32,
-   "atom_layout": "(2,2,1)",
-   "perm": null
-  },
-  {
-   "id": "tmma-fp8-a221-k16-perm",
-   "op": "fp8",
-   "ab_dtype": "float_e5m2_t",
-   "acc_dtype": "half_t",
-   "k": 16,
-   "atom_layout": "(2,2,1)",
-   "perm": "(32,32,32)"
-  }
- ],
- "_comment_tma": [
-  "make_tiled_tma_atom for cpasync.CopyBulkTensorTileG2SOp. The reference records",
-  "the atom's NumValSrc (== the inferred box size) and the returned TMA coordinate",
-  "tensor's layout; the JS side compares tmaComputeAtom's boxSize / tmaTensorStride.",
-  "Cases marked expect_issues are ones CuTe only catches with a host assert()."
- ],
- "tma_atom": [
-  {
-   "id": "tma-f16-64x64-sw128",
-   "dtype": "half_t",
-   "gmem": "(256,128):(128,1)",
-   "swizzle": "3,4,3",
-   "smem": "(64,64):(64,1)",
-   "tiler": "(64,64)"
-  },
-  {
-   "id": "tma-f16-8x64-sw128",
-   "dtype": "half_t",
-   "gmem": "(256,128):(128,1)",
-   "swizzle": "3,4,3",
-   "smem": "(8,64):(64,1)",
-   "tiler": "(8,64)"
-  },
-  {
-   "id": "tma-f16-8x32-sw64",
-   "dtype": "half_t",
-   "gmem": "(256,128):(128,1)",
-   "swizzle": "2,4,3",
-   "smem": "(8,32):(32,1)",
-   "tiler": "(8,32)"
-  },
-  {
-   "id": "tma-f16-none",
-   "dtype": "half_t",
-   "gmem": "(256,128):(128,1)",
-   "swizzle": "none",
-   "smem": "(8,64):(64,1)",
-   "tiler": "(8,64)"
-  },
-  {
-   "id": "tma-f32-32x32",
-   "dtype": "float",
-   "gmem": "(128,128):(128,1)",
-   "swizzle": "none",
-   "smem": "(32,32):(32,1)",
-   "tiler": "(32,32)"
-  },
-  {
-   "id": "tma-u128-8x8-sw128",
-   "dtype": "uint128_t",
-   "gmem": "(64,32):(32,1)",
-   "swizzle": "3,4,3",
-   "smem": "(8,8):(8,1)",
-   "tiler": "(8,8)"
-  },
-  {
-   "id": "tma-f16-colmajor",
-   "dtype": "half_t",
-   "gmem": "(256,128):(1,256)",
-   "swizzle": "none",
-   "smem": "(64,64):(1,64)",
-   "tiler": "(64,64)"
-  },
-  {
-   "id": "tma-f16-reshape",
-   "dtype": "half_t",
-   "gmem": "(256,128):(128,1)",
-   "swizzle": "none",
-   "smem": "(16,128):(128,1)",
-   "tiler": "(16,128)"
-  },
-  {
-   "id": "tma-f16-1x64",
-   "dtype": "half_t",
-   "gmem": "(256,128):(128,1)",
-   "swizzle": "none",
-   "smem": "(1,64):(64,1)",
-   "tiler": "(1,64)"
-  },
-  {
-   "id": "tma-f16-2x256",
-   "dtype": "half_t",
-   "gmem": "(256,256):(256,1)",
-   "swizzle": "none",
-   "smem": "(2,256):(256,1)",
-   "tiler": "(2,256)"
-  }
- ],
- "_comment_tma_partition": [
-  "tma_partition(atom, 0, Layout<1>, sT, gT). The generator runs the real pipeline",
-  "(make_tiled_tma_atom -> group_modes / zipped_divide -> tma_partition) and records",
-  "both the partitioned results AND the grouped tensor strings it fed in, so the JS",
-  "side is checked on inputs CuTe itself produced.",
-  "",
-  "atom_smem / atom_tiler build the ATOM over a smaller box than the tile being",
-  "partitioned, which is the only way to reach TMA_Iter > 1. That regime matters:",
-  "it is where mode 1 of composition(tile, layout_V) comes out HIERARCHICAL, and so",
-  "the only place the Shape<Shape<_1,_1>> coalesce profile is distinguishable from a",
-  "rank-1 one. Without such a case the profile constant is untested. When they are",
-  "absent the atom is built over the tile itself, as in ordinary single-shot usage."
- ],
- "tma_partition": [
-  {
-   "id": "tp-f16-8x64",
-   "dtype": "half_t",
-   "gmem": "(256,128):(128,1)",
-   "swizzle": "3,4,3",
-   "smem": "(8,64):(64,1)",
-   "tiler": "(8,64)"
-  },
-  {
-   "id": "tp-f16-iter8",
-   "dtype": "half_t",
-   "gmem": "(256,128):(128,1)",
-   "swizzle": "none",
-   "smem": "(8,64):(64,1)",
-   "tiler": "(8,64)",
-   "atom_smem": "(1,64):(64,1)",
-   "atom_tiler": "(1,64)"
-  },
-  {
-   "id": "tp-f16-iter2",
-   "dtype": "half_t",
-   "gmem": "(256,128):(128,1)",
-   "swizzle": "none",
-   "smem": "(8,64):(64,1)",
-   "tiler": "(8,64)",
-   "atom_smem": "(4,64):(64,1)",
-   "atom_tiler": "(4,64)"
-  },
-  {
-   "id": "tp-f16-iter16",
-   "dtype": "half_t",
-   "gmem": "(256,128):(128,1)",
-   "swizzle": "3,4,3",
-   "smem": "(16,128):(128,1)",
-   "tiler": "(16,128)",
-   "atom_smem": "(1,128):(128,1)",
-   "atom_tiler": "(1,128)"
-  },
-  {
-   "id": "tp-f16-col-iter",
-   "dtype": "half_t",
-   "gmem": "(256,128):(1,256)",
-   "swizzle": "none",
-   "smem": "(64,64):(1,64)",
-   "tiler": "(64,64)",
-   "atom_smem": "(64,1):(1,64)",
-   "atom_tiler": "(64,1)"
-  },
-  {
-   "id": "tp-f16-64x64",
-   "dtype": "half_t",
-   "gmem": "(256,128):(128,1)",
-   "swizzle": "3,4,3",
-   "smem": "(64,64):(64,1)",
-   "tiler": "(64,64)"
-  },
-  {
-   "id": "tp-f16-nosw",
-   "dtype": "half_t",
-   "gmem": "(256,128):(128,1)",
-   "swizzle": "none",
-   "smem": "(8,64):(64,1)",
-   "tiler": "(8,64)"
-  },
-  {
-   "id": "tp-f32-32x32",
-   "dtype": "float",
-   "gmem": "(128,128):(128,1)",
-   "swizzle": "none",
-   "smem": "(32,32):(32,1)",
-   "tiler": "(32,32)"
-  },
-  {
-   "id": "tp-f16-col",
-   "dtype": "half_t",
-   "gmem": "(256,128):(1,256)",
-   "swizzle": "none",
-   "smem": "(64,64):(1,64)",
-   "tiler": "(64,64)"
-  }
- ],
- "_comment_swizzle": [
-  "applySwizzleOffset(x, {B,M,S}) against cute::Swizzle<B,M,S>, evaluated through a",
-  "ComposedLayout so the DSL applies the real swizzle. Note the triple here is in",
-  "ELEMENTS (the Swizzle tab's convention), not the bytes a TMA descriptor uses."
- ],
- "swizzle": [
-  {
-   "id": "sw-333",
-   "bms": "3,3,3",
-   "layout": "(8,64):(64,1)"
-  },
-  {
-   "id": "sw-303",
-   "bms": "3,0,3",
-   "layout": "(8,8):(8,1)"
-  },
-  {
-   "id": "sw-203",
-   "bms": "2,0,3",
-   "layout": "(8,8):(8,1)"
-  },
-  {
-   "id": "sw-343",
-   "bms": "3,4,3",
-   "layout": "(8,64):(64,1)"
-  },
-  {
-   "id": "sw-102",
-   "bms": "1,0,2",
-   "layout": "(4,4):(4,1)"
-  },
-  {
-   "id": "sw-2- 3-2",
-   "bms": "2,3,2",
-   "layout": "(8,8):(8,1)"
-  }
- ],
- "_comment_local_tile": [
-  "local_tile(tensor, tiler, coord[, proj]) -- zipped_divide plus a slice, and,",
-  "with a fourth argument, dice(proj, tiler) / dice(proj, coord) before that.",
-  "The oracle is cute.local_tile itself, run over a real Tensor: the result LAYOUT",
-  "is diffed pointwise as everywhere else, and the tile's POSITION is checked",
-  "separately, because a layout structurally cannot carry a constant. For an",
-  "ordinary tensor that position is recorded as CuTeDSL's own crd2idx of the tile",
-  "origin (which local_tile over make_identity_tensor reports); for a coordinate",
-  "(basis-strided) tensor the iterator IS the origin coordinate, read off directly.",
-  "'tiler' and 'coord' are the raw strings the tab's fields take -- several lines is",
-  "a Tiler tuple, one line with a colon a single layout tiler, one without a Shape",
-  "tiler (CLAUDE.md) -- so the parser is exercised on the way in.",
-  "An 'equiv' block gives the same call with proj already applied by hand; run.js",
-  "requires the two to agree, which turns the tab's claim that proj is nothing but",
-  "dicing into something enforced rather than asserted."
- ],
- "local_tile": [
-  {
-   "id": "lt-basic",
-   "a": "(16, 16):(16, 1)",
-   "tiler": "(4, 4)",
-   "coord": "(1, 2)"
-  },
-  {
-   "id": "lt-pick-one",
-   "a": "(32, 64):(64, 1)",
-   "tiler": "(8, 32)",
-   "coord": "(1, 0)"
-  },
-  {
-   "id": "lt-keep-mode",
-   "a": "(32, 64):(64, 1)",
-   "tiler": "(8, 32)",
-   "coord": "(_, 0)"
-  },
-  {
-   "id": "lt-keep-all",
-   "a": "(16, 16):(16, 1)",
-   "tiler": "(4, 4)",
-   "coord": "(_, _)"
-  },
-  {
-   "id": "lt-colmajor",
-   "a": "(8, 8):(1, 8)",
-   "tiler": "(4, 4)",
-   "coord": "(0, 1)"
-  },
-  {
-   "id": "lt-strided-tiler",
-   "a": "(12, 32):(32, 1)",
-   "tiler": "3:4\n8:4",
-   "coord": "(1, 2)"
-  },
-  {
-   "id": "lt-nested-modes",
-   "a": "(8, 16):(1, 8)",
-   "tiler": "(2,2):(1,4)\n(4,2):(1,8)",
-   "coord": "(1, 1)"
-  },
-  {
-   "id": "lt-basis-identity",
-   "a": "(16, 16):(1@0, 1@1)",
-   "tiler": "(4, 4)",
-   "coord": "(1, 2)"
-  },
-  {
-   "id": "lt-basis-keep-all",
-   "a": "(16, 16):(1@0, 1@1)",
-   "tiler": "(4, 4)",
-   "coord": "(_, _)"
-  },
-  {
-   "id": "lt-basis-transposed",
-   "a": "(8, 16):(1@1, 1@0)",
-   "tiler": "(4, 4)",
-   "coord": "(1, 1)"
-  },
-  {
-   "id": "lt-proj-gemm-a",
-   "a": "(32, 64):(64, 1)",
-   "tiler": "(8, 16, 4)",
-   "coord": "(1, 2, _)",
-   "proj": "(1, x, 1)",
-   "equiv": {
-    "tiler": "(8, 4)",
-    "coord": "(1, _)"
-   }
-  },
-  {
-   "id": "lt-proj-gemm-b",
-   "a": "(48, 64):(64, 1)",
-   "tiler": "(8, 16, 4)",
-   "coord": "(1, 2, _)",
-   "proj": "(x, 1, 1)",
-   "equiv": {
-    "tiler": "(16, 4)",
-    "coord": "(2, _)"
-   }
-  },
-  {
-   "id": "lt-proj-gemm-c",
-   "a": "(32, 48):(48, 1)",
-   "tiler": "(8, 16, 4)",
-   "coord": "(1, 2, _)",
-   "proj": "(1, 1, x)",
-   "equiv": {
-    "tiler": "(8, 16)",
-    "coord": "(1, 2)"
-   }
-  },
-  {
-   "id": "lt-proj-dsl-spelling",
-   "a": "(32, 64):(64, 1)",
-   "tiler": "(8, 16, 4)",
-   "coord": "(1, 2, 3)",
-   "proj": "(1, None, 1)",
-   "equiv": {
-    "tiler": "(8, 4)",
-    "coord": "(1, 3)"
-   }
-  },
-  {
-   "id": "lt-proj-layout-tiler",
-   "a": "(32, 64):(64, 1)",
-   "tiler": "8:1\n16:1\n4:1",
-   "coord": "(1, 2, _)",
-   "proj": "(1, _, 1)",
-   "equiv": {
-    "tiler": "8:1\n4:1",
-    "coord": "(1, _)"
-   }
-  },
-  {
-   "id": "lt-proj-strided",
-   "a": "(12, 32):(32, 1)",
-   "tiler": "3:4\n4:1\n8:4",
-   "coord": "(1, 0, 2)",
-   "proj": "(1, X, 1)",
-   "equiv": {
-    "tiler": "3:4\n8:4",
-    "coord": "(1, 2)"
-   }
-  },
-  {
-   "id": "lt-proj-basis",
-   "a": "(16, 16):(1@0, 1@1)",
-   "tiler": "(4, 8, 4)",
-   "coord": "(1, 0, 2)",
-   "proj": "(1, X, 1)",
-   "equiv": {
-    "tiler": "(4, 4)",
-    "coord": "(1, 2)"
-   }
-  },
-  {
-   "id": "lt-proj-noop",
-   "a": "(16, 16):(16, 1)",
-   "tiler": "(4, 4)",
-   "coord": "(1, 2)",
-   "proj": "(1, 1)",
-   "equiv": {
-    "tiler": "(4, 4)",
-    "coord": "(1, 2)"
-   }
-  }
- ]
+  "_comment": [
+    "Shared test corpus: read by tests/gen_reference.py (which runs each case through",
+    "CuTeDSL to produce tests/reference.json) and by tests/run.js (which runs the same",
+    "case through the JS port and compares). Inputs are CuTe layout STRINGS so the",
+    "parser is exercised on the way in.",
+    "A tiler argument may be a string (a single layout tiler) or an array of strings",
+    "(a by-mode Tiler, i.e. a tuple of layouts)."
+  ],
+  "layout_ops": [
+    {
+      "id": "coalesce-basic",
+      "op": "coalesce",
+      "a": "(2,(1,6)):(1,(6,2))"
+    },
+    {
+      "id": "coalesce-zero",
+      "op": "coalesce",
+      "a": "(4,1,2):(1,0,4)"
+    },
+    {
+      "id": "coalesce-nested",
+      "op": "coalesce",
+      "a": "((2,2),(2,2)):((1,2),(4,8))"
+    },
+    {
+      "id": "coalesce-noop",
+      "op": "coalesce",
+      "a": "(4,4):(4,1)"
+    },
+    {
+      "id": "coalesce-stride0",
+      "op": "coalesce",
+      "a": "(8,4):(1,0)"
+    },
+    {
+      "id": "coalesce-prof-1",
+      "op": "coalesce",
+      "a": "((4,2),(3,1)):((1,4),(8,0))",
+      "profile": [
+        1
+      ]
+    },
+    {
+      "id": "coalesce-prof-11",
+      "op": "coalesce",
+      "a": "((4,2),(3,1)):((1,4),(8,0))",
+      "profile": [
+        1,
+        1
+      ]
+    },
+    {
+      "id": "coalesce-prof-tp",
+      "op": "coalesce",
+      "a": "((512,1),(32,2)):((1,0),(8,64))",
+      "profile": [
+        1,
+        1
+      ]
+    },
+    {
+      "id": "filter-zero",
+      "op": "filter",
+      "a": "(4,1,2):(1,0,4)"
+    },
+    {
+      "id": "filter-broadcast",
+      "op": "filter",
+      "a": "(2,4,3):(0,1,0)"
+    },
+    {
+      "id": "filter-nested",
+      "op": "filter",
+      "a": "((2,3),(1,4)):((4,1),(0,8))"
+    },
+    {
+      "id": "comp-rowmajor",
+      "op": "composition",
+      "a": "(4,4):(4,1)",
+      "b": "(2,2):(1,2)"
+    },
+    {
+      "id": "comp-colmajor",
+      "op": "composition",
+      "a": "(6,2):(8,2)",
+      "b": "(4,3):(3,1)"
+    },
+    {
+      "id": "comp-int",
+      "op": "composition",
+      "a": "(12,32):(32,1)",
+      "b": "8:1"
+    },
+    {
+      "id": "comp-stride0",
+      "op": "composition",
+      "a": "(8,8):(8,1)",
+      "b": "(4,4):(0,1)"
+    },
+    {
+      "id": "comp-nested-b",
+      "op": "composition",
+      "a": "(24):(2)",
+      "b": "((2,3),4):((1,8),2)"
+    },
+    {
+      "id": "comp-bymode",
+      "op": "composition",
+      "a": "(12,32):(32,1)",
+      "b": [
+        "3:1",
+        "8:2"
+      ]
+    },
+    {
+      "id": "comp-swap",
+      "op": "composition",
+      "a": "(4,8):(8,1)",
+      "b": "(8,4):(4,1)"
+    },
+    {
+      "id": "comp-nonsurj",
+      "op": "composition",
+      "a": "(10,2):(16,4)",
+      "b": "(5,4):(1,5)"
+    },
+    {
+      "id": "compl-1",
+      "op": "complement",
+      "a": "(2,2):(1,2)",
+      "n": 16
+    },
+    {
+      "id": "compl-2",
+      "op": "complement",
+      "a": "4:1",
+      "n": 16
+    },
+    {
+      "id": "compl-3",
+      "op": "complement",
+      "a": "4:2",
+      "n": 16
+    },
+    {
+      "id": "compl-4",
+      "op": "complement",
+      "a": "(2,4):(1,4)",
+      "n": 32
+    },
+    {
+      "id": "compl-5",
+      "op": "complement",
+      "a": "(4,2):(1,16)",
+      "n": 128
+    },
+    {
+      "id": "compl-6",
+      "op": "complement",
+      "a": "6:4",
+      "n": 24
+    },
+    {
+      "id": "compl-exact",
+      "op": "complement",
+      "a": "(2,2):(1,2)",
+      "n": 4
+    },
+    {
+      "id": "rinv-1",
+      "op": "right_inverse",
+      "a": "(4,4):(4,1)"
+    },
+    {
+      "id": "rinv-2",
+      "op": "right_inverse",
+      "a": "(8,4):(1,8)"
+    },
+    {
+      "id": "rinv-3",
+      "op": "right_inverse",
+      "a": "((2,4),(3,2)):((24,1),(8,4))"
+    },
+    {
+      "id": "rinv-4",
+      "op": "right_inverse",
+      "a": "(4,2):(1,16)"
+    },
+    {
+      "id": "linv-1",
+      "op": "left_inverse",
+      "a": "(8,8):(8,1)"
+    },
+    {
+      "id": "linv-2",
+      "op": "left_inverse",
+      "a": "(4,2):(2,1)"
+    },
+    {
+      "id": "linv-3",
+      "op": "left_inverse",
+      "a": "((2,2),2):((4,1),2)"
+    },
+    {
+      "id": "ld-1",
+      "op": "logical_divide",
+      "a": "(4,8):(8,1)",
+      "b": "(2,2):(1,2)"
+    },
+    {
+      "id": "ld-2",
+      "op": "logical_divide",
+      "a": "(12,32):(32,1)",
+      "b": [
+        "3:1",
+        "8:1"
+      ]
+    },
+    {
+      "id": "ld-3",
+      "op": "logical_divide",
+      "a": "(9,32):(32,1)",
+      "b": [
+        "3:3",
+        "8:1"
+      ]
+    },
+    {
+      "id": "ld-4",
+      "op": "logical_divide",
+      "a": "24:2",
+      "b": "4:1"
+    },
+    {
+      "id": "ld-5",
+      "op": "logical_divide",
+      "a": "(8,8):(1,8)",
+      "b": [
+        "4:2",
+        "2:1"
+      ]
+    },
+    {
+      "id": "zd-1",
+      "op": "zipped_divide",
+      "a": "(12,32):(32,1)",
+      "b": [
+        "3:1",
+        "8:1"
+      ]
+    },
+    {
+      "id": "zd-2",
+      "op": "zipped_divide",
+      "a": "(16,16):(16,1)",
+      "b": [
+        "4:1",
+        "4:1"
+      ]
+    },
+    {
+      "id": "zd-3",
+      "op": "zipped_divide",
+      "a": "(4,8):(8,1)",
+      "b": "(2,2):(1,2)"
+    },
+    {
+      "id": "td-1",
+      "op": "tiled_divide",
+      "a": "(12,32):(32,1)",
+      "b": [
+        "3:1",
+        "8:1"
+      ]
+    },
+    {
+      "id": "td-2",
+      "op": "tiled_divide",
+      "a": "(16,16):(16,1)",
+      "b": [
+        "4:1",
+        "4:1"
+      ]
+    },
+    {
+      "id": "fd-1",
+      "op": "flat_divide",
+      "a": "(12,32):(32,1)",
+      "b": [
+        "3:1",
+        "8:1"
+      ]
+    },
+    {
+      "id": "fd-2",
+      "op": "flat_divide",
+      "a": "(16,16):(16,1)",
+      "b": [
+        "4:1",
+        "4:1"
+      ]
+    },
+    {
+      "id": "lp-1",
+      "op": "logical_product",
+      "a": "(2,2):(4,1)",
+      "b": "(6):(1)"
+    },
+    {
+      "id": "lp-2",
+      "op": "logical_product",
+      "a": "(4,4):(4,1)",
+      "b": "(2,2):(1,2)"
+    },
+    {
+      "id": "lp-3",
+      "op": "logical_product",
+      "a": "2:1",
+      "b": "3:1"
+    },
+    {
+      "id": "lp-4",
+      "op": "logical_product",
+      "a": "(2,2):(1,2)",
+      "b": "(3,3):(1,3)"
+    },
+    {
+      "id": "zp-1",
+      "op": "zipped_product",
+      "a": "(2,2):(1,2)",
+      "b": "(2,2):(1,2)"
+    },
+    {
+      "id": "zp-2",
+      "op": "zipped_product",
+      "a": "(4,4):(4,1)",
+      "b": "(2,2):(1,2)"
+    },
+    {
+      "id": "tp-1",
+      "op": "tiled_product",
+      "a": "(2,2):(1,2)",
+      "b": "(2,2):(1,2)"
+    },
+    {
+      "id": "tp-2",
+      "op": "tiled_product",
+      "a": "(4,4):(4,1)",
+      "b": "(2,2):(1,2)"
+    },
+    {
+      "id": "fp-1",
+      "op": "flat_product",
+      "a": "(2,2):(1,2)",
+      "b": "(2,2):(1,2)"
+    },
+    {
+      "id": "fp-2",
+      "op": "flat_product",
+      "a": "(4,4):(4,1)",
+      "b": "(2,2):(1,2)"
+    },
+    {
+      "id": "bp-1",
+      "op": "blocked_product",
+      "a": "(2,2):(1,2)",
+      "b": "(3,3):(1,3)"
+    },
+    {
+      "id": "bp-2",
+      "op": "blocked_product",
+      "a": "(2,5):(5,1)",
+      "b": "(3,4):(1,3)"
+    },
+    {
+      "id": "bp-3",
+      "op": "blocked_product",
+      "a": "2:1",
+      "b": "(4,4):(4,1)"
+    },
+    {
+      "id": "rp-1",
+      "op": "raked_product",
+      "a": "(2,2):(1,2)",
+      "b": "(3,3):(1,3)"
+    },
+    {
+      "id": "rp-2",
+      "op": "raked_product",
+      "a": "(2,5):(5,1)",
+      "b": "(3,4):(1,3)"
+    },
+    {
+      "id": "rp-3",
+      "op": "raked_product",
+      "a": "(4,8):(8,1)",
+      "b": "(2,2):(1,2)"
+    },
+    {
+      "id": "size-1",
+      "op": "size",
+      "a": "((2,3),4):((1,8),2)"
+    },
+    {
+      "id": "cosize-1",
+      "op": "cosize",
+      "a": "((2,3),4):((1,8),2)"
+    },
+    {
+      "id": "cosize-2",
+      "op": "cosize",
+      "a": "(4,2):(1,16)"
+    },
+    {
+      "id": "sao-1",
+      "op": "slice_and_offset",
+      "a": "(8,8):(8,1)",
+      "crd": [
+        null,
+        2
+      ]
+    },
+    {
+      "id": "sao-2",
+      "op": "slice_and_offset",
+      "a": "(8,8):(8,1)",
+      "crd": [
+        3,
+        null
+      ]
+    },
+    {
+      "id": "sao-3",
+      "op": "slice_and_offset",
+      "a": "((2,4),8):((1,16),2)",
+      "crd": [
+        [
+          null,
+          1
+        ],
+        3
+      ]
+    },
+    {
+      "id": "pe-1",
+      "op": "product_each",
+      "shape": "((2,3),4)"
+    },
+    {
+      "id": "pe-2",
+      "op": "product_each",
+      "shape": "((2,3),(4,5),6)"
+    },
+    {
+      "id": "sd-1",
+      "op": "shape_div",
+      "shape": "(12,8)",
+      "shape_b": "(4,2)"
+    },
+    {
+      "id": "sd-2",
+      "op": "shape_div",
+      "shape": "((6,4),8)",
+      "shape_b": "((2,2),4)"
+    },
+    {
+      "id": "i2c-1",
+      "op": "idx2crd",
+      "idx": 9,
+      "shape": "(4,4)"
+    },
+    {
+      "id": "i2c-2",
+      "op": "idx2crd",
+      "idx": 17,
+      "shape": "((2,3),4)"
+    },
+    {
+      "id": "c2i-1",
+      "op": "crd2idx",
+      "a": "((2,3),4):((1,8),2)",
+      "crd": [
+        [
+          1,
+          2
+        ],
+        3
+      ]
+    },
+    {
+      "id": "c2i-2",
+      "op": "crd2idx",
+      "a": "(4,4):(4,1)",
+      "crd": [
+        1,
+        2
+      ]
+    }
+  ],
+  "_comment_basis": [
+    "Coordinate (scaled-basis) layouts. CuTe defines composition and the divide",
+    "family over them; complement / inverses / products are rejected (see the table",
+    "in CLAUDE.md). Only the 'yes' half appears here."
+  ],
+  "basis_ops": [
+    {
+      "id": "basis-comp-1",
+      "op": "composition",
+      "a": "(32,64):(1@0,1@1)",
+      "b": "(8,8):(1,32)"
+    },
+    {
+      "id": "basis-comp-2",
+      "op": "composition",
+      "a": "(256,128):(1@1,1@0)",
+      "b": "(64,64):(1,256)"
+    },
+    {
+      "id": "basis-coal-1",
+      "op": "coalesce",
+      "a": "(4,1,8):(1@0,0@0,4@0)"
+    },
+    {
+      "id": "basis-ld-1",
+      "op": "logical_divide",
+      "a": "(32,64):(1@0,1@1)",
+      "b": [
+        "8:1",
+        "8:1"
+      ]
+    },
+    {
+      "id": "basis-zd-1",
+      "op": "zipped_divide",
+      "a": "(256,128):(1@0,1@1)",
+      "b": [
+        "64:1",
+        "64:1"
+      ]
+    },
+    {
+      "id": "basis-zd-2",
+      "op": "zipped_divide",
+      "a": "(256,128):(1@1,1@0)",
+      "b": [
+        "8:1",
+        "64:1"
+      ]
+    },
+    {
+      "id": "basis-td-1",
+      "op": "tiled_divide",
+      "a": "(32,64):(1@0,1@1)",
+      "b": [
+        "8:1",
+        "8:1"
+      ]
+    },
+    {
+      "id": "basis-fd-1",
+      "op": "flat_divide",
+      "a": "(32,64):(1@0,1@1)",
+      "b": [
+        "8:1",
+        "8:1"
+      ]
+    }
+  ],
+  "_comment_tv": [
+    "make_layout_tv(thr_layout, val_layout) -> (tiler_mn, layout_tv), the derivation",
+    "behind the make_tiled_copy_tv tab. Checked against cute.make_layout_tv AND",
+    "against the TiledCopy that make_tiled_copy_tv actually builds."
+  ],
+  "make_layout_tv": [
+    {
+      "id": "tv-cpasync-128b",
+      "thr": "(16,8):(8,1)",
+      "val": "(1,8):(1,1)",
+      "dtype": "half_t",
+      "bits": 128
+    },
+    {
+      "id": "tv-colmajor",
+      "thr": "(32,4):(1,32)",
+      "val": "(4,1):(1,1)",
+      "dtype": "half_t",
+      "bits": 64
+    },
+    {
+      "id": "tv-rowmajor",
+      "thr": "(8,4):(4,1)",
+      "val": "(2,2):(2,1)",
+      "dtype": "float",
+      "bits": 128
+    },
+    {
+      "id": "tv-1x4",
+      "thr": "(4,8):(8,1)",
+      "val": "(1,4):(1,1)",
+      "dtype": "float",
+      "bits": 128
+    },
+    {
+      "id": "tv-4x1",
+      "thr": "(4,8):(1,4)",
+      "val": "(4,1):(1,1)",
+      "dtype": "int8_t",
+      "bits": 32
+    },
+    {
+      "id": "tv-2d-val",
+      "thr": "(2,2):(1,2)",
+      "val": "(2,2):(2,1)",
+      "dtype": "float",
+      "bits": 32
+    },
+    {
+      "id": "tv-warp-32x8",
+      "thr": "(32,8):(8,1)",
+      "val": "(1,8):(1,1)",
+      "dtype": "half_t",
+      "bits": 128
+    }
+  ],
+  "_comment_mtc": [
+    "The PRIMITIVE constructor _make_tiled_copy(atom, layout_tv, tiler_mn). CuTe just",
+    "stores the two, so the reference records what the TiledCopy reports back and the",
+    "JS side checks its parse of the same strings (mtcParseTiler + parseLayout).",
+    "The `op` field is optional and defaults to universal. The directional cases",
+    "mirror universal ones with the same tv/tiler: since all six SIMT Ops give an",
+    "identical Atom, the TiledCopy must be identical too, and run.js checks them",
+    "against the same expectations. This is what stops the three tabs' shared Op",
+    "picker from silently mattering."
+  ],
+  "make_tiled_copy": [
+    {
+      "id": "mtc-cpasync",
+      "dtype": "half_t",
+      "bits": 128,
+      "tv": "((8,16),8):((128,1),16)",
+      "tiler": "(16,64)"
+    },
+    {
+      "id": "mtc-simple",
+      "dtype": "float",
+      "bits": 128,
+      "tv": "(4,4):(4,1)",
+      "tiler": "(4,4)"
+    },
+    {
+      "id": "mtc-strided",
+      "dtype": "half_t",
+      "bits": 128,
+      "tv": "((4,8),8):((64,1),8)",
+      "tiler": "(8,32)"
+    },
+    {
+      "id": "mtc-g2r",
+      "op": "g2r",
+      "dtype": "half_t",
+      "bits": 128,
+      "tv": "((8,16),8):((128,1),16)",
+      "tiler": "(16,64)"
+    },
+    {
+      "id": "mtc-r2s",
+      "op": "r2s",
+      "dtype": "half_t",
+      "bits": 64,
+      "tv": "((4,8),8):((64,1),8)",
+      "tiler": "(8,32)"
+    },
+    {
+      "id": "mtc-s2r",
+      "op": "s2r",
+      "dtype": "float",
+      "bits": 128,
+      "tv": "(4,4):(4,1)",
+      "tiler": "(4,4)"
+    }
+  ],
+  "_comment_copy_atom": [
+    "make_copy_atom(op, dtype, num_bits_per_copy) -> Copy_Atom whose ValLayout is",
+    "(1, num_bits/dtype_bits):(0,1). Checks ui.js's DTYPE_BITS table against the DSL.",
+    "The six SIMT Ops -- CopyUniversalOp, cpasync.CopyG2SOp and the four",
+    "directional CopyG2ROp / CopyR2GOp / CopyS2ROp / CopyR2SOp -- all produce a",
+    "byte-identical Atom, so every case here is checked against the SAME",
+    "(1,N):(0,1) expectation. The directional cases mirror universal ones at the",
+    "same widths on purpose: that identity is the reason make_copy_atom,",
+    "make_tiled_copy and make_tiled_copy_tv can share one Op table (ui.js's",
+    "SIMT_COPY_OPS), and it is checked here rather than assumed.",
+    "The `attrs` cases pin the tab's claim that the directional Ops' memory",
+    "attributes change the MLIR atom type and the emitted PTX but NOT the layouts:",
+    "run.js checks them against the same (1,N):(0,1) expectation as everything",
+    "else. They also document three cross-parameter rules the DSL enforces (found",
+    "by writing these cases and watching them fail): `invariant` requires every",
+    "other memory feature at its default; `load_cache_mode` must be ALWAYS and",
+    "`store_cache_mode` WRITE_BACK unless `memory_order` is WEAK."
+  ],
+  "copy_atom": [
+    {
+      "id": "mca-univ-f16-128",
+      "op": "universal",
+      "dtype": "half_t",
+      "bits": 128
+    },
+    {
+      "id": "mca-univ-f16-32",
+      "op": "universal",
+      "dtype": "half_t",
+      "bits": 32
+    },
+    {
+      "id": "mca-univ-f32-128",
+      "op": "universal",
+      "dtype": "float",
+      "bits": 128
+    },
+    {
+      "id": "mca-univ-i8-64",
+      "op": "universal",
+      "dtype": "int8_t",
+      "bits": 64
+    },
+    {
+      "id": "mca-univ-f64-128",
+      "op": "universal",
+      "dtype": "double",
+      "bits": 128
+    },
+    {
+      "id": "mca-univ-bf16-128",
+      "op": "universal",
+      "dtype": "bfloat16_t",
+      "bits": 128
+    },
+    {
+      "id": "mca-cpasync-f16-128",
+      "op": "cpasync",
+      "dtype": "half_t",
+      "bits": 128
+    },
+    {
+      "id": "mca-cpasync-f32-64",
+      "op": "cpasync",
+      "dtype": "float",
+      "bits": 64
+    },
+    {
+      "id": "mca-g2r-f16-128",
+      "op": "g2r",
+      "dtype": "half_t",
+      "bits": 128
+    },
+    {
+      "id": "mca-g2r-f32-32",
+      "op": "g2r",
+      "dtype": "float",
+      "bits": 32
+    },
+    {
+      "id": "mca-g2r-i8-64",
+      "op": "g2r",
+      "dtype": "int8_t",
+      "bits": 64
+    },
+    {
+      "id": "mca-r2g-f32-128",
+      "op": "r2g",
+      "dtype": "float",
+      "bits": 128
+    },
+    {
+      "id": "mca-r2g-bf16-128",
+      "op": "r2g",
+      "dtype": "bfloat16_t",
+      "bits": 128
+    },
+    {
+      "id": "mca-s2r-f16-128",
+      "op": "s2r",
+      "dtype": "half_t",
+      "bits": 128
+    },
+    {
+      "id": "mca-s2r-f64-128",
+      "op": "s2r",
+      "dtype": "double",
+      "bits": 128
+    },
+    {
+      "id": "mca-r2s-f16-64",
+      "op": "r2s",
+      "dtype": "half_t",
+      "bits": 64
+    },
+    {
+      "id": "mca-r2s-f32-64",
+      "op": "r2s",
+      "dtype": "float",
+      "bits": 64
+    },
+    {
+      "id": "mca-g2r-attr-prefetch",
+      "op": "g2r",
+      "dtype": "half_t",
+      "bits": 128,
+      "attrs": {
+        "l2_prefetch_size": "SIZE_256B",
+        "l1c_evict_priority": "EVICT_LAST"
+      }
+    },
+    {
+      "id": "mca-g2r-attr-invariant",
+      "op": "g2r",
+      "dtype": "half_t",
+      "bits": 128,
+      "attrs": {
+        "invariant": true
+      }
+    },
+    {
+      "id": "mca-g2r-attr-ordering",
+      "op": "g2r",
+      "dtype": "half_t",
+      "bits": 128,
+      "attrs": {
+        "memory_order": "ACQUIRE",
+        "memory_scope": "SYS"
+      }
+    },
+    {
+      "id": "mca-g2r-attr-cachemode",
+      "op": "g2r",
+      "dtype": "half_t",
+      "bits": 128,
+      "attrs": {
+        "load_cache_mode": "STREAMING"
+      }
+    },
+    {
+      "id": "mca-r2g-attr-store",
+      "op": "r2g",
+      "dtype": "float",
+      "bits": 128,
+      "attrs": {
+        "store_cache_mode": "WRITE_THROUGH"
+      }
+    },
+    {
+      "id": "mca-r2g-attr-ordering",
+      "op": "r2g",
+      "dtype": "float",
+      "bits": 128,
+      "attrs": {
+        "memory_order": "RELEASE",
+        "memory_scope": "GPU",
+        "l1c_evict_priority": "NO_ALLOCATE"
+      }
+    },
+    {
+      "id": "mca-s2r-attr-cluster",
+      "op": "s2r",
+      "dtype": "half_t",
+      "bits": 128,
+      "attrs": {
+        "shared_space": "CLUSTER",
+        "memory_order": "RELAXED"
+      }
+    },
+    {
+      "id": "mca-r2s-attr-cluster",
+      "op": "r2s",
+      "dtype": "half_t",
+      "bits": 64,
+      "attrs": {
+        "shared_space": "CLUSTER"
+      }
+    }
+  ],
+  "_comment_ldmatrix_atom": [
+    "make_copy_atom(<an LdMatrix Op>, dtype) for the whole warp.LdMatrix* family.",
+    "Oracle: cutlass.cute -- thr_id, layout_src_tv, layout_dst_tv, each with",
+    "size/cosize and its value at every point of the domain.",
+    "Ported by tabs/make_copy_atom.js:mcaLdmatrixAtom, which re-expresses each",
+    "instruction's fixed geometry in the chosen element type. The three Ops differ in",
+    "more than constants: 8x8x16b transposes 16-bit units and has optional transpose;",
+    "16x16x8b is a 256-byte matrix over 8-bit units with mandatory transpose; and",
+    "16x8x8b bakes in an address permutation (matching stmatrix.m16n8.trans) that makes",
+    "its layout_src_tv a rank-4 thread mode rather than the usual (live, broadcast) pair.",
+    "unpack_bits cases exist to pin the claim the tab makes about them: they change the",
+    "LdsmSzPattern handed to MLIR and NO layout. Verified across all 156 accepted",
+    "combinations of the two 8-bit Ops."
+  ],
+  "ldmatrix_atom": [
+    {
+      "id": "ldsm-8x8x16b-half_t-x1-N",
+      "op": "ldsm8x8x16b",
+      "dtype": "half_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x8x16b-half_t-x1-T",
+      "op": "ldsm8x8x16b",
+      "dtype": "half_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-8x8x16b-half_t-x2-N",
+      "op": "ldsm8x8x16b",
+      "dtype": "half_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x8x16b-half_t-x2-T",
+      "op": "ldsm8x8x16b",
+      "dtype": "half_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-8x8x16b-half_t-x4-N",
+      "op": "ldsm8x8x16b",
+      "dtype": "half_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x8x16b-half_t-x4-T",
+      "op": "ldsm8x8x16b",
+      "dtype": "half_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-8x8x16b-int8_t-x1-N",
+      "op": "ldsm8x8x16b",
+      "dtype": "int8_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x8x16b-int8_t-x1-T",
+      "op": "ldsm8x8x16b",
+      "dtype": "int8_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-8x8x16b-int8_t-x2-N",
+      "op": "ldsm8x8x16b",
+      "dtype": "int8_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x8x16b-int8_t-x2-T",
+      "op": "ldsm8x8x16b",
+      "dtype": "int8_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-8x8x16b-int8_t-x4-N",
+      "op": "ldsm8x8x16b",
+      "dtype": "int8_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x8x16b-int8_t-x4-T",
+      "op": "ldsm8x8x16b",
+      "dtype": "int8_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-8x8x16b-float-x1-N",
+      "op": "ldsm8x8x16b",
+      "dtype": "float",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x8x16b-float-x1-T",
+      "op": "ldsm8x8x16b",
+      "dtype": "float",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-8x8x16b-float-x4-N",
+      "op": "ldsm8x8x16b",
+      "dtype": "float",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x8x16b-float-x4-T",
+      "op": "ldsm8x8x16b",
+      "dtype": "float",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-8x8x16b-double-x1-N",
+      "op": "ldsm8x8x16b",
+      "dtype": "double",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x8x16b-double-x4-T",
+      "op": "ldsm8x8x16b",
+      "dtype": "double",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-8x8x16b-double-x2-T",
+      "op": "ldsm8x8x16b",
+      "dtype": "double",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-8x8x16b-bfloat16_t-x4-N",
+      "op": "ldsm8x8x16b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x8x16b-uint16_t-x2-T",
+      "op": "ldsm8x8x16b",
+      "dtype": "uint16_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-8x8x16b-tfloat32_t-x2-N",
+      "op": "ldsm8x8x16b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x8x16b-uint8_t-x4-T",
+      "op": "ldsm8x8x16b",
+      "dtype": "uint8_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-8x8x16b-int64_t-x4-N",
+      "op": "ldsm8x8x16b",
+      "dtype": "int64_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-16x16x8b-int8_t-x1-T",
+      "op": "ldsm16x16x8b",
+      "dtype": "int8_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x16x8b-half_t-x1-T",
+      "op": "ldsm16x16x8b",
+      "dtype": "half_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x16x8b-float-x1-T",
+      "op": "ldsm16x16x8b",
+      "dtype": "float",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x16x8b-double-x1-T",
+      "op": "ldsm16x16x8b",
+      "dtype": "double",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x16x8b-int8_t-x2-T",
+      "op": "ldsm16x16x8b",
+      "dtype": "int8_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x16x8b-half_t-x2-T",
+      "op": "ldsm16x16x8b",
+      "dtype": "half_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x16x8b-float-x2-T",
+      "op": "ldsm16x16x8b",
+      "dtype": "float",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x16x8b-double-x2-T",
+      "op": "ldsm16x16x8b",
+      "dtype": "double",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x16x8b-uint8_t-x1-T",
+      "op": "ldsm16x16x8b",
+      "dtype": "uint8_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x16x8b-bfloat16_t-x2-T",
+      "op": "ldsm16x16x8b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x16x8b-int8_t-x1-T-u4",
+      "op": "ldsm16x16x8b",
+      "dtype": "int8_t",
+      "num_matrices": 1,
+      "transpose": true,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-16x16x8b-int8_t-x2-T-u6",
+      "op": "ldsm16x16x8b",
+      "dtype": "int8_t",
+      "num_matrices": 2,
+      "transpose": true,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-16x16x8b-half_t-x1-T-u4",
+      "op": "ldsm16x16x8b",
+      "dtype": "half_t",
+      "num_matrices": 1,
+      "transpose": true,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-16x8x8b-int8_t-x2-T",
+      "op": "ldsm16x8x8b",
+      "dtype": "int8_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x8x8b-half_t-x2-T",
+      "op": "ldsm16x8x8b",
+      "dtype": "half_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x8x8b-float-x2-T",
+      "op": "ldsm16x8x8b",
+      "dtype": "float",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x8x8b-double-x2-T",
+      "op": "ldsm16x8x8b",
+      "dtype": "double",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x8x8b-int8_t-x4-T",
+      "op": "ldsm16x8x8b",
+      "dtype": "int8_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x8x8b-half_t-x4-T",
+      "op": "ldsm16x8x8b",
+      "dtype": "half_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x8x8b-float-x4-T",
+      "op": "ldsm16x8x8b",
+      "dtype": "float",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x8x8b-double-x4-T",
+      "op": "ldsm16x8x8b",
+      "dtype": "double",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x8x8b-uint8_t-x2-T",
+      "op": "ldsm16x8x8b",
+      "dtype": "uint8_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x8x8b-int32_t-x4-T",
+      "op": "ldsm16x8x8b",
+      "dtype": "int32_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "ldsm-16x8x8b-int8_t-x2-T-u4",
+      "op": "ldsm16x8x8b",
+      "dtype": "int8_t",
+      "num_matrices": 2,
+      "transpose": true,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-16x8x8b-int8_t-x4-T-u6",
+      "op": "ldsm16x8x8b",
+      "dtype": "int8_t",
+      "num_matrices": 4,
+      "transpose": true,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-16x8x8b-half_t-x2-T-u4",
+      "op": "ldsm16x8x8b",
+      "dtype": "half_t",
+      "num_matrices": 2,
+      "transpose": true,
+      "unpack_bits": 4
+    }
+  ],
+  "_comment_mma_atom": [
+    "make_mma_atom(op) for the three DENSE cute.nvgpu.warp WarpMmaOp subclasses.",
+    "Oracle: cutlass.cute -- thr_id, shape_mnk, and tv_layout_A/B/C, each with",
+    "size/cosize and its value at every point of the domain.",
+    "Ported by tabs/make_mma_atom.js:mmaWarpAtom, which is a TABLE rather than a",
+    "derivation -- CUTLASS itself defines these as hand-written MMA_Traits",
+    "specializations (include/cute/atom/mma_traits_sm80.hpp:78), so there is no",
+    "arithmetic to port and the only way to be right is to diff every entry.",
+    "The corpus is EXHAUSTIVE over the valid parameter domains (16 cases). That is",
+    "what pins the tab's load-bearing claim that the three layouts depend only on",
+    "the Op family and K: 16 combinations collapse to 6 distinct layout triples, so",
+    "neither ab_dtype nor acc_dtype provably changes anything.",
+    "Excluded on purpose: MmaF16BF16SparseOp, the fourth WarpMmaOp subclass -- it",
+    "traces fine, but MmaAtom exposes no metadata (E) layout and its A layout is",
+    "over the LOGICAL (M,K) tile, so the tab could not draw what distinguishes it.",
+    "Also MmaMXF4Op / MmaMXF8Op / MmaMXF4NVF4Op / MmaMXF8F6F4Op, which subclass",
+    "MmaOp rather than WarpMmaOp and are sm_120-only, so no oracle could be",
+    "generated for them here -- an untested tab entry is worse than a missing one."
+  ],
+  "mma_atom": [
+    {
+      "id": "mma-f16bf16-half_t-half_t-k8",
+      "op": "f16bf16",
+      "k": 8,
+      "ab_dtype": "half_t",
+      "acc_dtype": "half_t"
+    },
+    {
+      "id": "mma-f16bf16-half_t-half_t-k16",
+      "op": "f16bf16",
+      "k": 16,
+      "ab_dtype": "half_t",
+      "acc_dtype": "half_t"
+    },
+    {
+      "id": "mma-f16bf16-half_t-float-k8",
+      "op": "f16bf16",
+      "k": 8,
+      "ab_dtype": "half_t",
+      "acc_dtype": "float"
+    },
+    {
+      "id": "mma-f16bf16-half_t-float-k16",
+      "op": "f16bf16",
+      "k": 16,
+      "ab_dtype": "half_t",
+      "acc_dtype": "float"
+    },
+    {
+      "id": "mma-f16bf16-bfloat16_t-float-k8",
+      "op": "f16bf16",
+      "k": 8,
+      "ab_dtype": "bfloat16_t",
+      "acc_dtype": "float"
+    },
+    {
+      "id": "mma-f16bf16-bfloat16_t-float-k16",
+      "op": "f16bf16",
+      "k": 16,
+      "ab_dtype": "bfloat16_t",
+      "acc_dtype": "float"
+    },
+    {
+      "id": "mma-tf32-na-na-k4",
+      "op": "tf32",
+      "k": 4
+    },
+    {
+      "id": "mma-tf32-na-na-k8",
+      "op": "tf32",
+      "k": 8
+    },
+    {
+      "id": "mma-fp8-float_e4m3_t-half_t-k16",
+      "op": "fp8",
+      "k": 16,
+      "ab_dtype": "float_e4m3_t",
+      "acc_dtype": "half_t"
+    },
+    {
+      "id": "mma-fp8-float_e4m3_t-half_t-k32",
+      "op": "fp8",
+      "k": 32,
+      "ab_dtype": "float_e4m3_t",
+      "acc_dtype": "half_t"
+    },
+    {
+      "id": "mma-fp8-float_e4m3_t-float-k16",
+      "op": "fp8",
+      "k": 16,
+      "ab_dtype": "float_e4m3_t",
+      "acc_dtype": "float"
+    },
+    {
+      "id": "mma-fp8-float_e4m3_t-float-k32",
+      "op": "fp8",
+      "k": 32,
+      "ab_dtype": "float_e4m3_t",
+      "acc_dtype": "float"
+    },
+    {
+      "id": "mma-fp8-float_e5m2_t-half_t-k16",
+      "op": "fp8",
+      "k": 16,
+      "ab_dtype": "float_e5m2_t",
+      "acc_dtype": "half_t"
+    },
+    {
+      "id": "mma-fp8-float_e5m2_t-half_t-k32",
+      "op": "fp8",
+      "k": 32,
+      "ab_dtype": "float_e5m2_t",
+      "acc_dtype": "half_t"
+    },
+    {
+      "id": "mma-fp8-float_e5m2_t-float-k16",
+      "op": "fp8",
+      "k": 16,
+      "ab_dtype": "float_e5m2_t",
+      "acc_dtype": "float"
+    },
+    {
+      "id": "mma-fp8-float_e5m2_t-float-k32",
+      "op": "fp8",
+      "k": 32,
+      "ab_dtype": "float_e5m2_t",
+      "acc_dtype": "float"
+    }
+  ],
+  "_comment_tiled_mma": [
+    "make_tiled_mma(op, atom_layout_mnk, permutation_mnk) -- the MMA counterpart of",
+    "make_tiled_copy: one warp-level Atom replicated across warps, over a tile the",
+    "permutation Tiler decides. Ported by tabs/make_tiled_mma.js:mtmComputeTiledMma,",
+    "a port of CUTLASS's TiledMMA::thrfrg_A/B/C (include/cute/atom/mma_atom.hpp:291)",
+    "plus the get_layoutA_TV (:416) reassembly.",
+    "",
+    "THE ORACLE IS partition_A/B/C, NOT tv_layout_X_tiled. partition_X is what a",
+    "kernel actually calls, and it is unambiguous: for each thread it hands back the",
+    "tile coordinates of that thread's fragment, in value order. So frag_X here is",
+    "one string per thread -- the flat col-major offsets it owns -- i.e. the",
+    "(thread, value) -> tile map in full, which is exactly what the tab draws.",
+    "",
+    "tv_layout_A_tiled / tv_layout_B_tiled agree with the port character-for-",
+    "character and are compared as strings. tv_layout_C_tiled does NOT, whenever",
+    "atom_layout_mnk has both aN > 1 and aK > 1, and the C++ says why:",
+    "get_layoutA_TV and get_layoutB_TV each insert a stride-0 'atile' / 'btile' for",
+    "the VMNK mode their operand does not depend on, but get_layoutC_TV (:399) has",
+    "no equivalent -- it composes thrfrg_C's size-32*aM*aN thread mode straight",
+    "against a size-32*aM*aN*aK identity, and composing with a larger identity",
+    "EXTENDS the last mode instead. So for (2,2,2) it reports",
+    "((4,8,2,4),..):((64,1,16,256),..), N and K fused into one 4:256, sending the",
+    "k=1 warps to a second copy of C outside the 32x16 tile. partition_C on the same",
+    "object puts thread 128 on exactly thread 0's cells, because the K warps hold",
+    "PARTIAL SUMS of one accumulator. The port gives C the same stride-0 treatment A",
+    "and B get, and run.js compares the C string only where aN == 1 or aK == 1 --",
+    "which is what pins where the divergence starts rather than exempting C.",
+    "",
+    "Covered: the plain warp tilings, an M-only and a K-split one, both broadcast",
+    "and reduction together (2,2,2), a non-column-major atom_layout stride (which",
+    "reorders which warp is which and is the only thing the left_inverse step in",
+    "the port is for), permutations that merely repeat the pattern, permutations",
+    "that genuinely permute ((2,16):(16,1)), a partially-applied permutation, and",
+    "one of each Op family."
+  ],
+  "tiled_mma": [
+    {
+      "id": "tmma-a111",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(1,1,1)",
+      "perm": null
+    },
+    {
+      "id": "tmma-a221",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": null
+    },
+    {
+      "id": "tmma-a411",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(4,1,1)",
+      "perm": null
+    },
+    {
+      "id": "tmma-a112-ksplit",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(1,1,2)",
+      "perm": null
+    },
+    {
+      "id": "tmma-a222-bcast-plus-reduce",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,2)",
+      "perm": null
+    },
+    {
+      "id": "tmma-a221-stride-swap",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1):(2,1,4)",
+      "perm": null
+    },
+    {
+      "id": "tmma-a221-perm-n2",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,16)"
+    },
+    {
+      "id": "tmma-a221-perm-m2n2",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(64,32,16)"
+    },
+    {
+      "id": "tmma-a221-perm-k2",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,16,32)"
+    },
+    {
+      "id": "tmma-a221-perm-m-layout",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "((2,16):(16,1),32,16)"
+    },
+    {
+      "id": "tmma-a221-perm-n-layout",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,(2,16):(16,1),16)"
+    },
+    {
+      "id": "tmma-a111-perm-partial",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(1,1,1)",
+      "perm": "(32,_,16)"
+    },
+    {
+      "id": "tmma-a221-k8",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "half_t",
+      "k": 8,
+      "atom_layout": "(2,2,1)",
+      "perm": null
+    },
+    {
+      "id": "tmma-a221-bf16",
+      "op": "f16bf16",
+      "ab_dtype": "bfloat16_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": null
+    },
+    {
+      "id": "tmma-tf32-a221-k8",
+      "op": "tf32",
+      "k": 8,
+      "atom_layout": "(2,2,1)",
+      "perm": null
+    },
+    {
+      "id": "tmma-tf32-a121-k4",
+      "op": "tf32",
+      "k": 4,
+      "atom_layout": "(1,2,1)",
+      "perm": null
+    },
+    {
+      "id": "tmma-fp8-a221-k32",
+      "op": "fp8",
+      "ab_dtype": "float_e4m3_t",
+      "acc_dtype": "float",
+      "k": 32,
+      "atom_layout": "(2,2,1)",
+      "perm": null
+    },
+    {
+      "id": "tmma-fp8-a221-k16-perm",
+      "op": "fp8",
+      "ab_dtype": "float_e5m2_t",
+      "acc_dtype": "half_t",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,32)"
+    }
+  ],
+  "_comment_tma": [
+    "make_tiled_tma_atom for cpasync.CopyBulkTensorTileG2SOp. The reference records",
+    "the atom's NumValSrc (== the inferred box size) and the returned TMA coordinate",
+    "tensor's layout; the JS side compares tmaComputeAtom's boxSize / tmaTensorStride.",
+    "Cases marked expect_issues are ones CuTe only catches with a host assert()."
+  ],
+  "tma_atom": [
+    {
+      "id": "tma-f16-64x64-sw128",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "3,4,3",
+      "smem": "(64,64):(64,1)",
+      "tiler": "(64,64)"
+    },
+    {
+      "id": "tma-f16-8x64-sw128",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "3,4,3",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)"
+    },
+    {
+      "id": "tma-f16-8x32-sw64",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "2,4,3",
+      "smem": "(8,32):(32,1)",
+      "tiler": "(8,32)"
+    },
+    {
+      "id": "tma-f16-none",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)"
+    },
+    {
+      "id": "tma-f32-32x32",
+      "dtype": "float",
+      "gmem": "(128,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(32,32):(32,1)",
+      "tiler": "(32,32)"
+    },
+    {
+      "id": "tma-u128-8x8-sw128",
+      "dtype": "uint128_t",
+      "gmem": "(64,32):(32,1)",
+      "swizzle": "3,4,3",
+      "smem": "(8,8):(8,1)",
+      "tiler": "(8,8)"
+    },
+    {
+      "id": "tma-f16-colmajor",
+      "dtype": "half_t",
+      "gmem": "(256,128):(1,256)",
+      "swizzle": "none",
+      "smem": "(64,64):(1,64)",
+      "tiler": "(64,64)"
+    },
+    {
+      "id": "tma-f16-reshape",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(16,128):(128,1)",
+      "tiler": "(16,128)"
+    },
+    {
+      "id": "tma-f16-1x64",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(1,64):(64,1)",
+      "tiler": "(1,64)"
+    },
+    {
+      "id": "tma-f16-2x256",
+      "dtype": "half_t",
+      "gmem": "(256,256):(256,1)",
+      "swizzle": "none",
+      "smem": "(2,256):(256,1)",
+      "tiler": "(2,256)"
+    }
+  ],
+  "_comment_tma_partition": [
+    "tma_partition(atom, 0, Layout<1>, sT, gT). The generator runs the real pipeline",
+    "(make_tiled_tma_atom -> group_modes / zipped_divide -> tma_partition) and records",
+    "both the partitioned results AND the grouped tensor strings it fed in, so the JS",
+    "side is checked on inputs CuTe itself produced.",
+    "",
+    "atom_smem / atom_tiler build the ATOM over a smaller box than the tile being",
+    "partitioned, which is the only way to reach TMA_Iter > 1. That regime matters:",
+    "it is where mode 1 of composition(tile, layout_V) comes out HIERARCHICAL, and so",
+    "the only place the Shape<Shape<_1,_1>> coalesce profile is distinguishable from a",
+    "rank-1 one. Without such a case the profile constant is untested. When they are",
+    "absent the atom is built over the tile itself, as in ordinary single-shot usage."
+  ],
+  "tma_partition": [
+    {
+      "id": "tp-f16-8x64",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "3,4,3",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)"
+    },
+    {
+      "id": "tp-f16-iter8",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)",
+      "atom_smem": "(1,64):(64,1)",
+      "atom_tiler": "(1,64)"
+    },
+    {
+      "id": "tp-f16-iter2",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)",
+      "atom_smem": "(4,64):(64,1)",
+      "atom_tiler": "(4,64)"
+    },
+    {
+      "id": "tp-f16-iter16",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "3,4,3",
+      "smem": "(16,128):(128,1)",
+      "tiler": "(16,128)",
+      "atom_smem": "(1,128):(128,1)",
+      "atom_tiler": "(1,128)"
+    },
+    {
+      "id": "tp-f16-col-iter",
+      "dtype": "half_t",
+      "gmem": "(256,128):(1,256)",
+      "swizzle": "none",
+      "smem": "(64,64):(1,64)",
+      "tiler": "(64,64)",
+      "atom_smem": "(64,1):(1,64)",
+      "atom_tiler": "(64,1)"
+    },
+    {
+      "id": "tp-f16-64x64",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "3,4,3",
+      "smem": "(64,64):(64,1)",
+      "tiler": "(64,64)"
+    },
+    {
+      "id": "tp-f16-nosw",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)"
+    },
+    {
+      "id": "tp-f32-32x32",
+      "dtype": "float",
+      "gmem": "(128,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(32,32):(32,1)",
+      "tiler": "(32,32)"
+    },
+    {
+      "id": "tp-f16-col",
+      "dtype": "half_t",
+      "gmem": "(256,128):(1,256)",
+      "swizzle": "none",
+      "smem": "(64,64):(1,64)",
+      "tiler": "(64,64)"
+    }
+  ],
+  "_comment_swizzle": [
+    "applySwizzleOffset(x, {B,M,S}) against cute::Swizzle<B,M,S>, evaluated through a",
+    "ComposedLayout so the DSL applies the real swizzle. Note the triple here is in",
+    "ELEMENTS (the Swizzle tab's convention), not the bytes a TMA descriptor uses."
+  ],
+  "swizzle": [
+    {
+      "id": "sw-333",
+      "bms": "3,3,3",
+      "layout": "(8,64):(64,1)"
+    },
+    {
+      "id": "sw-303",
+      "bms": "3,0,3",
+      "layout": "(8,8):(8,1)"
+    },
+    {
+      "id": "sw-203",
+      "bms": "2,0,3",
+      "layout": "(8,8):(8,1)"
+    },
+    {
+      "id": "sw-343",
+      "bms": "3,4,3",
+      "layout": "(8,64):(64,1)"
+    },
+    {
+      "id": "sw-102",
+      "bms": "1,0,2",
+      "layout": "(4,4):(4,1)"
+    },
+    {
+      "id": "sw-2- 3-2",
+      "bms": "2,3,2",
+      "layout": "(8,8):(8,1)"
+    }
+  ],
+  "_comment_local_tile": [
+    "local_tile(tensor, tiler, coord[, proj]) -- zipped_divide plus a slice, and,",
+    "with a fourth argument, dice(proj, tiler) / dice(proj, coord) before that.",
+    "The oracle is cute.local_tile itself, run over a real Tensor: the result LAYOUT",
+    "is diffed pointwise as everywhere else, and the tile's POSITION is checked",
+    "separately, because a layout structurally cannot carry a constant. For an",
+    "ordinary tensor that position is recorded as CuTeDSL's own crd2idx of the tile",
+    "origin (which local_tile over make_identity_tensor reports); for a coordinate",
+    "(basis-strided) tensor the iterator IS the origin coordinate, read off directly.",
+    "'tiler' and 'coord' are the raw strings the tab's fields take -- several lines is",
+    "a Tiler tuple, one line with a colon a single layout tiler, one without a Shape",
+    "tiler (CLAUDE.md) -- so the parser is exercised on the way in.",
+    "An 'equiv' block gives the same call with proj already applied by hand; run.js",
+    "requires the two to agree, which turns the tab's claim that proj is nothing but",
+    "dicing into something enforced rather than asserted."
+  ],
+  "local_tile": [
+    {
+      "id": "lt-basic",
+      "a": "(16, 16):(16, 1)",
+      "tiler": "(4, 4)",
+      "coord": "(1, 2)"
+    },
+    {
+      "id": "lt-pick-one",
+      "a": "(32, 64):(64, 1)",
+      "tiler": "(8, 32)",
+      "coord": "(1, 0)"
+    },
+    {
+      "id": "lt-keep-mode",
+      "a": "(32, 64):(64, 1)",
+      "tiler": "(8, 32)",
+      "coord": "(_, 0)"
+    },
+    {
+      "id": "lt-keep-all",
+      "a": "(16, 16):(16, 1)",
+      "tiler": "(4, 4)",
+      "coord": "(_, _)"
+    },
+    {
+      "id": "lt-colmajor",
+      "a": "(8, 8):(1, 8)",
+      "tiler": "(4, 4)",
+      "coord": "(0, 1)"
+    },
+    {
+      "id": "lt-strided-tiler",
+      "a": "(12, 32):(32, 1)",
+      "tiler": "3:4\n8:4",
+      "coord": "(1, 2)"
+    },
+    {
+      "id": "lt-nested-modes",
+      "a": "(8, 16):(1, 8)",
+      "tiler": "(2,2):(1,4)\n(4,2):(1,8)",
+      "coord": "(1, 1)"
+    },
+    {
+      "id": "lt-basis-identity",
+      "a": "(16, 16):(1@0, 1@1)",
+      "tiler": "(4, 4)",
+      "coord": "(1, 2)"
+    },
+    {
+      "id": "lt-basis-keep-all",
+      "a": "(16, 16):(1@0, 1@1)",
+      "tiler": "(4, 4)",
+      "coord": "(_, _)"
+    },
+    {
+      "id": "lt-basis-transposed",
+      "a": "(8, 16):(1@1, 1@0)",
+      "tiler": "(4, 4)",
+      "coord": "(1, 1)"
+    },
+    {
+      "id": "lt-proj-gemm-a",
+      "a": "(32, 64):(64, 1)",
+      "tiler": "(8, 16, 4)",
+      "coord": "(1, 2, _)",
+      "proj": "(1, x, 1)",
+      "equiv": {
+        "tiler": "(8, 4)",
+        "coord": "(1, _)"
+      }
+    },
+    {
+      "id": "lt-proj-gemm-b",
+      "a": "(48, 64):(64, 1)",
+      "tiler": "(8, 16, 4)",
+      "coord": "(1, 2, _)",
+      "proj": "(x, 1, 1)",
+      "equiv": {
+        "tiler": "(16, 4)",
+        "coord": "(2, _)"
+      }
+    },
+    {
+      "id": "lt-proj-gemm-c",
+      "a": "(32, 48):(48, 1)",
+      "tiler": "(8, 16, 4)",
+      "coord": "(1, 2, _)",
+      "proj": "(1, 1, x)",
+      "equiv": {
+        "tiler": "(8, 16)",
+        "coord": "(1, 2)"
+      }
+    },
+    {
+      "id": "lt-proj-dsl-spelling",
+      "a": "(32, 64):(64, 1)",
+      "tiler": "(8, 16, 4)",
+      "coord": "(1, 2, 3)",
+      "proj": "(1, None, 1)",
+      "equiv": {
+        "tiler": "(8, 4)",
+        "coord": "(1, 3)"
+      }
+    },
+    {
+      "id": "lt-proj-layout-tiler",
+      "a": "(32, 64):(64, 1)",
+      "tiler": "8:1\n16:1\n4:1",
+      "coord": "(1, 2, _)",
+      "proj": "(1, _, 1)",
+      "equiv": {
+        "tiler": "8:1\n4:1",
+        "coord": "(1, _)"
+      }
+    },
+    {
+      "id": "lt-proj-strided",
+      "a": "(12, 32):(32, 1)",
+      "tiler": "3:4\n4:1\n8:4",
+      "coord": "(1, 0, 2)",
+      "proj": "(1, X, 1)",
+      "equiv": {
+        "tiler": "3:4\n8:4",
+        "coord": "(1, 2)"
+      }
+    },
+    {
+      "id": "lt-proj-basis",
+      "a": "(16, 16):(1@0, 1@1)",
+      "tiler": "(4, 8, 4)",
+      "coord": "(1, 0, 2)",
+      "proj": "(1, X, 1)",
+      "equiv": {
+        "tiler": "(4, 4)",
+        "coord": "(1, 2)"
+      }
+    },
+    {
+      "id": "lt-proj-noop",
+      "a": "(16, 16):(16, 1)",
+      "tiler": "(4, 4)",
+      "coord": "(1, 2)",
+      "proj": "(1, 1)",
+      "equiv": {
+        "tiler": "(4, 4)",
+        "coord": "(1, 2)"
+      }
+    }
+  ],
+  "_comment_partition_sd": "ThrCopy::partition_S / partition_D -- copy_atom.hpp:368/378, via tidfrg_S/D (:221/:242) and tile2thrfrg (:257). Oracle is CuTeDSL's own tiled_copy.get_slice(t).partition_S(tensor). The intermediate tidfrg is not public, so it is pinned INDIRECTLY: the reference records the partition layout plus the base offset of EVERY thread, and run.js requires the port's tidfrg to reproduce all of them -- which is exactly what tidfrg's thread mode is. `offsets` come from the identity tensor (an ordinary tensor's iterator is a runtime pointer), the layout from a pointer tensor so its strides are integers.",
+  "partition_sd": [
+    {
+      "id": "basic_2x2",
+      "side": "S",
+      "bits": 32,
+      "dtype": "half_t",
+      "tv": "((8,4),(2,2)):((16,2),(8,1))",
+      "tiler": "(8, 16)",
+      "tensor": "(16, 32):(1, 16)"
+    },
+    {
+      "id": "basic_2x2_d",
+      "side": "D",
+      "bits": 32,
+      "dtype": "half_t",
+      "tv": "((8,4),(2,2)):((16,2),(8,1))",
+      "tiler": "(8, 16)",
+      "tensor": "(16, 32):(32, 1)"
+    },
+    {
+      "id": "tensor_eq_tile",
+      "side": "S",
+      "bits": 32,
+      "dtype": "half_t",
+      "tv": "((8,4),(2,2)):((16,2),(8,1))",
+      "tiler": "(8, 16)",
+      "tensor": "(8, 16):(1, 8)"
+    },
+    {
+      "id": "sgemm_sm80_tile",
+      "side": "S",
+      "op": "cpasync",
+      "bits": 128,
+      "dtype": "half_t",
+      "tv": "((8,16),8):((128,1),16)",
+      "tiler": "(16, 64)",
+      "tensor": "(16, 64):(64, 1)"
+    },
+    {
+      "id": "sgemm_sm80_2x2",
+      "side": "S",
+      "bits": 128,
+      "dtype": "half_t",
+      "tv": "((8,16),8):((128,1),16)",
+      "tiler": "(16, 64)",
+      "tensor": "(32, 128):(128, 1)"
+    },
+    {
+      "id": "rank3_k_loop",
+      "side": "S",
+      "bits": 32,
+      "dtype": "half_t",
+      "tv": "((8,4),(2,2)):((16,2),(8,1))",
+      "tiler": "(8, 16)",
+      "tensor": "(16, 32, 3):(1, 16, 512)"
+    },
+    {
+      "id": "rank4_stage",
+      "side": "S",
+      "bits": 32,
+      "dtype": "half_t",
+      "tv": "((8,4),(2,2)):((16,2),(8,1))",
+      "tiler": "(8, 16)",
+      "tensor": "(16, 32, 4, 3):(1, 16, 512, 2048)"
+    },
+    {
+      "id": "strided_tiler",
+      "side": "S",
+      "bits": 16,
+      "dtype": "half_t",
+      "tv": "((4,4),4):((4,16),1)",
+      "tiler": "(4:1, 16:2)",
+      "tensor": "(4, 32):(1, 4)"
+    },
+    {
+      "id": "float_128b",
+      "side": "S",
+      "bits": 128,
+      "dtype": "float",
+      "tv": "(256,4):(4,1)",
+      "tiler": "(128, 8)",
+      "tensor": "(128, 16):(1, 128)"
+    },
+    {
+      "id": "nested_tiler_mode",
+      "side": "S",
+      "bits": 32,
+      "dtype": "half_t",
+      "tv": "((8,4),(2,2)):((16,2),(8,1))",
+      "tiler": "((2,4), 16)",
+      "tensor": "(16, 32):(1, 16)"
+    },
+    {
+      "id": "g2r_op",
+      "side": "S",
+      "op": "g2r",
+      "bits": 32,
+      "dtype": "half_t",
+      "tv": "((8,4),(2,2)):((16,2),(8,1))",
+      "tiler": "(8, 16)",
+      "tensor": "(16, 32):(1, 16)"
+    }
+  ]
 }

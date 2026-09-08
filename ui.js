@@ -716,6 +716,7 @@ const TAB_RENDER_FN = {
   make_tiled_copy_tv: 'renderMakeTiledCopyTv',
   make_tiled_tma_atom: 'renderMakeTiledTmaAtom',
   tma_partition:      'renderTmaPartition',
+  partition_sd:       'renderPartitionSD',
   make_mma_atom:      'renderMakeMmaAtom',
   make_tiled_mma:     'renderMakeTiledMma',
 };
@@ -794,7 +795,7 @@ function generateTabContent(id) {
         </div>
         <div class="tab-scope-btn" data-scope="copy" onclick="switchTabGroup('${id}', 'copy')">
           <span class="tab-scope-icon">⇄</span>Copy
-          <span class="tab-scope-count">5</span>
+          <span class="tab-scope-count">6</span>
         </div>
         <div class="tab-scope-btn" data-scope="mma" onclick="switchTabGroup('${id}', 'mma')">
           <span class="tab-scope-icon">\u2B21</span>MMA
@@ -819,6 +820,7 @@ function generateTabContent(id) {
       <div data-tab="make_tiled_copy_tv" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy_tv')">make_tiled_copy_tv</div>
       <div data-tab="make_tiled_tma_atom" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_tma_atom')">make_tiled_tma_atom</div>
       <div data-tab="tma_partition" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'tma_partition')">tma_partition</div>
+      <div data-tab="partition_sd" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'partition_sd')">partition_S / partition_D</div>
       <div data-tab="make_mma_atom" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_mma_atom')">make_mma_atom</div>
       <div data-tab="make_tiled_mma" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_tiled_mma')">make_tiled_mma</div>
     </div>
@@ -840,6 +842,7 @@ function generateTabContent(id) {
     ${generateMakeTiledCopyTvTabContent(id)}
     ${generateMakeTiledTmaAtomTabContent(id)}
     ${generateTmaPartitionTabContent(id)}
+    ${generatePartitionSDTabContent(id)}
     ${generateMakeMmaAtomTabContent(id)}
     ${generateMakeTiledMmaTabContent(id)}
   </div>`;
@@ -1070,7 +1073,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_tma_atom: 15, tma_partition: 16, make_mma_atom: 17, make_tiled_mma: 18 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_tma_atom: 15, tma_partition: 16, partition_sd: 17, make_mma_atom: 18, make_tiled_mma: 19 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1169,6 +1172,21 @@ function layoutInputField(opts) {
       <label>${label}${hintSpan}</label>
       ${field}
     </div>`;
+}
+
+/** A small `i` that reveals `text` on hover — the same control the TV tab's
+ *  check buttons use, so there is one hint affordance in the app rather than
+ *  two. Plain text only: the bubble is a CSS `content: attr(data-tooltip)`, so
+ *  it cannot carry markup, and the text is escaped here because it is going
+ *  into an attribute.
+ *
+ *  Pass `id` for a tooltip whose text changes at render time and set it with
+ *  `setAttribute('data-tooltip', ...)`, which needs no escaping of its own. */
+function infoIcon(text, id) {
+  const esc = String(text)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return `<span class="cuo-info-icon"${id ? ` id="${id}"` : ''} data-tooltip="${esc}">i</span>`;
 }
 
 /** HTML for the standard error + rank-warning div pair. Use `${prefix}` where
@@ -1424,6 +1442,12 @@ function setCopyMove(tabId, p) { updateCopyPaneTitles(tabId, p); }
  *  than this probing for optional ones — a blind lookup for a pair that most
  *  tabs do not have is how you end up not noticing a genuine typo. */
 function updateCopyPaneTitles(tabId, p, moveFrom) {
+  // Not every Copy tab has a pane pair — `tma_partition` draws two results
+  // stacked and `partition_sd` draws one side at a time, so neither declares
+  // `-src-space`/`-dst-space`. Answer that from the registry `copyPanes` fills
+  // in rather than by probing for the element: an id no template declares is
+  // exactly what tests/dom_smoke.js flags, and it should stay a real signal.
+  if (!COPY_PANE_PREFIXES.has(p)) return;
   const [src, dst] = copyMove(tabId, moveFrom || p);
   const a = document.getElementById(`${tabId}-${p}-src-space`);
   const b = document.getElementById(`${tabId}-${p}-dst-space`);
@@ -1449,7 +1473,13 @@ function copyDirButtons(id, p) {
  *  In BOTH mode the two panes are flex siblings at 1fr each, so every SVG's
  *  `width:100%` resolves against half the container — same aspect ratio, half
  *  the box. */
+/** Id prefixes that actually have a SRC/DST pane pair. Filled in by
+ *  `copyPanes` as the markup is generated, which is before any render runs, so
+ *  `updateCopyPaneTitles` never has to guess or probe. */
+const COPY_PANE_PREFIXES = new Set();
+
 function copyPanes(id, p) {
+  COPY_PANE_PREFIXES.add(p);
   const pane = (side) => `
         <div class="copy-pane" data-side="${side}">
           <div class="copy-pane-head">
@@ -1484,7 +1514,7 @@ function renderAllTabs(tabId, activeTab) {
  *  first built, so the section-0 select and the SRC/DST headers are correct
  *  before the user has pressed Render. Prefixes that don't exist are skipped. */
 function initCopyPanes(tabId) {
-  for (const p of ['mca', 'mtc', 'mtv', 'tma']) {
+  for (const p of ['mca', 'mtc', 'mtv', 'tma', 'psd']) {
     const op = document.getElementById(`${tabId}-${p}-op-input`);
     if (op) syncCopyMoves(tabId, p, op.value);
   }
@@ -1708,6 +1738,7 @@ const FEATURE_SPEC = {
   make_tiled_copy_tv: { inputs: 5 },  // op, bits, dtype, thr, val
   make_tiled_tma_atom: { inputs: 5 },  // dtype, gmem, swizzle, smem, tiler
   tma_partition:       { inputs: 5 },  // values, dtype, swizzle, smem, rest
+  partition_sd:        { inputs: 8 },  // side, op, bits, dtype, layout_tv, tiler, thr, tensor
   swizzle:         { inputs: 2 },
   make_mma_atom:   { inputs: 4 },  // op, ab_dtype, acc_dtype, K
   make_tiled_mma:  { inputs: 6 },  // op, ab_dtype, acc_dtype, K, atom_layout_mnk, permutation_mnk
@@ -1919,6 +1950,20 @@ function applyKeyParam(tabId) {
       document.getElementById(`${tabId}-tp-gmem-input`).value    = inputs[4];
       switchInnerTab(tabId, 'tma_partition');
       renderTmaPartition(tabId);
+      break;
+    case 'partition_sd':
+      // The S/D toggle lives in psdState, not in the DOM, so it is set through
+      // the same helper the buttons use rather than by writing an element.
+      psdState[tabId] = Object.assign(psdState[tabId] || {}, { side: inputs[0] });
+      document.getElementById(`${tabId}-psd-op-input`).value    = inputs[1];
+      document.getElementById(`${tabId}-psd-bits-input`).value  = inputs[2];
+      document.getElementById(`${tabId}-psd-dtype-input`).value = inputs[3];
+      document.getElementById(`${tabId}-psd-tv-input`).value    = inputs[4];
+      document.getElementById(`${tabId}-psd-tiler-input`).value = inputs[5];
+      document.getElementById(`${tabId}-psd-thr-input`).value    = inputs[6];
+      document.getElementById(`${tabId}-psd-tensor-input`).value = inputs[7];
+      switchInnerTab(tabId, 'partition_sd');
+      renderPartitionSD(tabId);
       break;
     case 'swizzle':
       document.getElementById(`${tabId}-sw-layout-input`).value  = inputs[0];

@@ -509,6 +509,52 @@ if (section('local_tile')) {
 }
 
 // ═══════════════════════════════════════════════════════
+//  7b. partition_S / partition_D  (psdComputePartition)
+//
+//  CuTeDSL exposes only the per-thread slice, never `tidfrg_S`. So the port's
+//  tidfrg is pinned INDIRECTLY and completely: run it for every thread and
+//  require the layout AND the base offset to match. Those offsets are exactly
+//  tidfrg's thread mode, and the layout is its other two modes, so agreeing on
+//  all of them leaves nothing of tidfrg unchecked.
+// ═══════════════════════════════════════════════════════
+
+if (section('partition_sd')) {
+  for (const c of CASES.partition_sd) {
+    const ref = refFor('partition_sd', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const tv = parseExact(V, c.tv);
+      const tiler = V.psdParseTiler(c.tiler);
+      // The tab's tiler parser must recover the same Tiler CuTe reports —
+      // `(4:1, 16:2)` is how CuTeDSL prints one, and parseLayout would reject it.
+      check(c.id, 'tiler_mn', '(' + tiler.map(l => fmt(V, l)).join(',') + ')', ref.tiler_mn);
+
+      const tensor = parseExact(V, c.tensor);
+      const atomNumVal = c.bits / V.DTYPE_BITS[c.dtype];
+      const side = c.side || 'S';
+      const first = V.psdComputePartition(tv, tiler, tensor, atomNumVal, 0, side);
+      checkLayout(c.id, first.partition, ref.layout);
+
+      let badT = -1, badWhat = '', got = '', want = '';
+      for (let t = 0; t < ref.offsets.length; t++) {
+        const r = V.psdComputePartition(tv, tiler, tensor, atomNumVal, t, side);
+        const str = fmt(V, r.partition);
+        if (str !== ref.layout.str) { badT = t; badWhat = 'layout'; got = str; want = ref.layout.str; break; }
+        if (r.baseOffset !== ref.offsets[t]) {
+          badT = t; badWhat = 'offset'; got = r.baseOffset; want = ref.offsets[t]; break;
+        }
+      }
+      if (badT === -1) {
+        results.pass++;
+        if (VERBOSE) console.log(`  ${C.green}ok${C.off} ${c.id} ${C.dim}all ${ref.offsets.length} threads${C.off}`);
+      } else {
+        check(c.id, `T${badT} ${badWhat}`, got, want);
+      }
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
 //  8. Swizzle  (applySwizzleOffset vs cute::Swizzle<B,M,S>)
 // ═══════════════════════════════════════════════════════
 

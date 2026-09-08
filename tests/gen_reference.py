@@ -129,6 +129,38 @@ def parse_tiler(spec):
     return parse_layout(spec)
 
 
+def parse_tiler_mn(s):
+    """Tiler_MN as a tuple of per-mode layouts -- the Python twin of
+    `psdParseTiler` in tabs/partition_sd.js. Keep the two in step.
+
+    Unlike `parse_tiler` above this always splits on top-level commas, so
+    `(8, 16)` is two modes and `(4:1, 16:2)` -- CuTeDSL's own print form, whose
+    colons are NOT top-level -- parses too."""
+    t = s.strip()
+    if t.startswith("("):
+        depth = 0
+        for i, ch in enumerate(t):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    if i == len(t) - 1:
+                        t = t[1:-1]
+                    break
+    modes, depth, start = [], 0, 0
+    for i, ch in enumerate(t):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            modes.append(t[start:i])
+            start = i + 1
+    modes.append(t[start:])
+    return tuple(parse_layout(m.strip()) for m in modes if m.strip())
+
+
 def parse_swizzle(spec):
     if spec in (None, "none", ""):
         return None
@@ -328,6 +360,38 @@ def run_make_tiled_copy(c):
         "atom_num_val": int(cute.size(atom.layout_src_tv, mode=[1])),
         "eval": eval_all(layout_tv),
     }
+
+
+def run_partition_sd(c):
+    """One TiledCopy, one tensor, EVERY thread.
+
+    The tab's whole derivation is `tidfrg_S`, which CuTeDSL does not expose --
+    only the per-thread slice is public. Recording every thread's base offset
+    pins it anyway: tidfrg's thread mode IS that list of offsets, and its other
+    two modes are the partition layout, which is the same for every thread.
+    """
+    atom = cute.make_copy_atom(COPY_OPS[c.get("op", "universal")](), DTYPES[c["dtype"]],
+                               num_bits_per_copy=c["bits"])
+    tv = parse_layout(c["tv"])
+    tc = cute.make_tiled_copy(atom, tv, parse_tiler_mn(c["tiler"]))
+    tl = parse_layout(c["tensor"])
+    side = c.get("side", "S")
+
+    # The layout comes from a POINTER tensor (integer strides); the offset from
+    # the identity tensor over the same shape, since an ordinary tensor's
+    # iterator is a runtime pointer and unreadable at trace time.
+    ptr_t = cute.make_tensor(cute.make_ptr(DTYPES[c["dtype"]], 0, cute.AddressSpace.gmem), tl)
+    idn_t = cute.make_identity_tensor(tl.shape)
+
+    layout, offsets = None, []
+    for t in range(cute.size(tv, mode=[0])):
+        thr = tc.get_slice(t)
+        p = thr.partition_S(ptr_t) if side == "S" else thr.partition_D(ptr_t)
+        i = thr.partition_S(idn_t) if side == "S" else thr.partition_D(idn_t)
+        if layout is None:
+            layout = p.layout
+        offsets.append(int(cute.crd2idx(tuple(i.iterator), tl)))
+    return {"tiler_mn": canon(tc.tiler_mn), "layout": record(layout), "offsets": offsets}
 
 
 # Memory attributes a case may set via its optional "attrs" dict. Named here so
@@ -558,6 +622,7 @@ SECTIONS = [
     ("tiled_mma", run_tiled_mma),
     ("tma_atom", run_tma_atom),
     ("tma_partition", run_tma_partition),
+    ("partition_sd", run_partition_sd),
     ("local_tile", run_local_tile),
     ("swizzle", run_swizzle),
 ]

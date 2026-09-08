@@ -489,23 +489,20 @@ function generateMakeTiledMmaTabContent(id) {
         </div>
 
         <div class="form-group">
-          <label>Cell labels</label>
+          <label>Cell labels ${infoIcon(MTM_MODE_HINT)}</label>
           <div class="seg-control" id="${id}-mtm-mode-btns">
             <button class="mode-btn" onclick="setMtmMode('${id}', 'tv')">Show TVs</button>
             <button class="mode-btn active" onclick="setMtmMode('${id}', 'warp')">Show Warps</button>
           </div>
-          <div class="hint-inline">
-            <b>Show TVs</b> is make_mma_atom's picture &mdash; every cell carries the
-            <code>T</code>/<code>V</code> slot that owns it.
-            <b>Show Warps</b> drops it and names the warps instead.
-          </div>
         </div>
 
         <div class="form-group">
-          <label id="${id}-mtm-focus-label">Warp id</label>
+          <!-- The label TEXT is its own span: mtmSyncFocusField rewrites it per
+               mode with textContent, which would otherwise eat the icon. -->
+          <label><span id="${id}-mtm-focus-label">${MTM_FOCUS.warp.label}</span>
+            ${infoIcon(MTM_FOCUS.warp.hint, `${id}-mtm-focus-hint`)}</label>
           <input type="text" id="${id}-mtm-focus-input" value=""
-                 oninput="setMtmHighlight('${id}')" placeholder="all warps">
-          <div class="hint-inline" id="${id}-mtm-focus-hint"></div>
+                 oninput="setMtmHighlight('${id}')" placeholder="${MTM_FOCUS.warp.placeholder}">
         </div>
 
         <details class="cuo-section" open>
@@ -699,6 +696,10 @@ function renderMakeTiledMma(tabId) {
   }
 }
 
+const MTM_MODE_HINT =
+  "Show TVs is make_mma_atom's picture — every cell carries the T/V slot that owns it. " +
+  'Show Warps drops it and names the warps instead.';
+
 /** What the focus box means in each mode. One control, because the question is
  *  always "which unit am I looking at" — it is only the unit that changes with
  *  the cell labels. */
@@ -706,15 +707,14 @@ const MTM_FOCUS = {
   warp: {
     label: 'Warp id', placeholder: 'all warps', unit: 'warp', letter: 'W',
     hint: 'Applies to all six grids. Only that warp\'s region stays coloured — every cell it ' +
-          'touches reads <code>W&lt;id&gt;</code> — and the rest go grey, keeping their labels ' +
-          'so you can still see what it is interleaved with. Blank lists every warp that touches ' +
-          'a cell, one per line.',
+          'touches reads W<id> — and every other cell goes grey and unlabelled. Blank lists ' +
+          'every warp that touches a cell, one per line.',
   },
   tv: {
     label: 'Thread ID', placeholder: 'all threads', unit: 'thread', letter: 'T',
     hint: 'Applies to all six grids. Only that thread\'s region stays coloured, and each of its ' +
-          'cells shows the <code>V</code> slot that lands there; the rest go grey, keeping their ' +
-          'labels. Blank is make_mma_atom\'s picture — every thread at full brightness.',
+          'cells shows the V slot that lands there; every other cell goes grey and unlabelled. ' +
+          'Blank is make_mma_atom\'s picture — every thread at full brightness.',
   },
 };
 
@@ -760,7 +760,9 @@ function mtmSyncFocusField(tabId, mode) {
   const hint = document.getElementById(`${tabId}-mtm-focus-hint`);
   if (label) label.textContent = spec.label;
   if (input) input.placeholder = spec.placeholder;
-  if (hint) hint.innerHTML = spec.hint;
+  // setAttribute, not innerHTML: the bubble is `content: attr(data-tooltip)`,
+  // and going through the DOM means the text needs no escaping of its own.
+  if (hint) hint.setAttribute('data-tooltip', spec.hint);
 }
 
 // The three view controls all re-enter renderMakeTiledMma rather than calling

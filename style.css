@@ -690,6 +690,9 @@ textarea:focus { outline: none; border-color: #3b82f6; }
   line-height: 1;
   cursor: help;
   flex-shrink: 0;
+  /* No effect where the icon is a flex child (the TV tab's check buttons);
+     needed where it trails label text in an ordinary inline flow. */
+  vertical-align: middle;
 }
 .cuo-info-icon:hover { background: rgba(255, 255, 255, 0.22); }
 

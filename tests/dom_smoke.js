@@ -125,7 +125,9 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
   // Every status div, so a render's error output is readable rather than a
   // freshly-minted stub.
   const errorIds = [...html.matchAll(/id="([^"]*-(?:error|warning))"/g)].map(m => m[1]);
-  const paneIds = [...html.matchAll(/id="([^"]*-(?:src|dst|[abc])-svg)"/g)].map(m => m[1]);
+  // Every viz host a render is expected to fill: the Copy tabs' src/dst panes,
+  // the MMA tabs' a/b/c grids, and partition_sd's two stacked results.
+  const paneIds = [...html.matchAll(/id="([^"]*-(?:src|dst|tile|sweep|extra|[abc])-svg)"/g)].map(m => m[1]);
 
   // Seed every control with the default the markup declares. A real browser does
   // this for free; without it the tabs render from empty strings and every
@@ -207,7 +209,8 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     const hit = /^\s*(set[A-Z][A-Za-z]*)\('tab1'\s*,/.exec(src);
     if (!hit || typeof ctx[hit[1]] !== 'function') continue;
     const fnName = hit[1];
-    const pfx = { setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm' }[fnName];
+    const pfx = { setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm',
+                  setPSD: 'psd', setPsdSide: 'psd', setPsdMode: 'psd' }[fnName];
     const svgs = pfx ? paneIds.filter(id => id.startsWith(`${TAB}-${pfx}-`)) : [];
     let args;
     try { args = handlerArgs(ctx, src, fnName); } catch (e) { args = null; }
@@ -261,16 +264,23 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     }, svgs, { expectError: /not a warp id/ });
     // The box's UNIT follows the mode, so the same value can be legal in one
     // mode and out of range in the other — 100 is a thread but not a warp.
-    step('setMtmMode(tv) relabels the focus box', () => {
+    // The box's UNIT follows the mode, and so must its (i) tooltip. The label
+    // text lives in its own span precisely so `textContent` cannot eat the
+    // icon, and the tooltip is an ATTRIBUTE now — two things a render could
+    // silently stop doing.
+    const tip = () => (els.get(`${TAB}-mtm-focus-hint`) || {}).getAttribute('data-tooltip') || '';
+    step('setMtmMode(tv) relabels the focus box and its tooltip', () => {
       field.value = '100';
       ctx.setMtmMode(TAB, 'tv');
       const label = els.get(`${TAB}-mtm-focus-label`);
       if (label.textContent !== 'Thread ID') throw new Error(`label = ${label.textContent}`);
+      if (!/thread/i.test(tip())) throw new Error(`tooltip = ${tip().slice(0, 60)}`);
     }, svgs);
     step('the same id is out of range as a warp', () => {
       ctx.setMtmMode(TAB, 'warp');
       const label = els.get(`${TAB}-mtm-focus-label`);
       if (label.textContent !== 'Warp id') throw new Error(`label = ${label.textContent}`);
+      if (!/warp/i.test(tip())) throw new Error(`tooltip = ${tip().slice(0, 60)}`);
     }, svgs, { expectError: /Warp id 100 is out of range/ });
     step('clearing it recovers', () => {
       field.value = '';
@@ -342,6 +352,8 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     'make_tiled_mma-tf32-na-na-8-(2, 2, 1)-na',
     'local_tile-(16, 16):(16, 1)-(4, 4)-(1, 2)',
     'local_tile-(32, 64):(64, 1)-(8, 16, 4)-(1, 2, _)-(1, X, 1)',
+    'partition_sd-S-universal-32-half_t-((8,4),(2,2)):((16,2),(8,1))-(8, 16)-5-(16, 32):(1, 16)',
+    'partition_sd-D-cpasync-128-half_t-((8,16),8):((128,1),16)-(16, 64)-3-(16, 64):(64, 1)',
   ]) {
     step(`?key=${key}`, () => {
       ctx.location.search = `?key=${key}`;

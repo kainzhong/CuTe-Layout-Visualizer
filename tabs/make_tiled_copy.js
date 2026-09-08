@@ -38,8 +38,12 @@ const MTC_CPASYNC_BITS = [32, 64, 128];
 // ═══════════════════════════════════════════════════════
 
 /** HTML for the "which atom are you tiling" section. `p` is the id prefix
- *  ('mtc' or 'mtv') so the two tabs get distinct element ids. */
-function mtcAtomSection(id, p, summary) {
+ *  ('mtc', 'mtv', 'psd') so each tab gets distinct element ids. `bits` is the
+ *  shipped default for num_bits_per_copy — it has to be a parameter because it
+ *  must divide the tab's default layout_tv's value count, and those differ
+ *  (`renderAllTabs` renders every tab with its shipped defaults, so a mismatch
+ *  is an error box before the user has touched anything). */
+function mtcAtomSection(id, p, summary, bits) {
   return `
         <details class="cuo-section" open>
           <summary>0. Memory movement</summary>
@@ -59,7 +63,7 @@ ${copyMoveField(id, p)}
             </div>
             <div class="form-group">
               <label>num_bits_per_copy</label>
-              <input type="number" id="${id}-${p}-bits-input" value="128" min="1" step="1">
+              <input type="number" id="${id}-${p}-bits-input" value="${bits === undefined ? 128 : bits}" min="1" step="1">
             </div>
             <div class="form-group">
               <label>tensor_dtype</label>

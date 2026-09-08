@@ -57,6 +57,12 @@ tabs/
                         which takes an id prefix for this reason) and adds the two tiling arguments.
                         Draws SIX grids in two rows: atom_layout_mnk applied on top, the permuted
                         TiledMMA below. A port of TiledMMA::thrfrg_A/B/C, not a table. Prefix `mtm`.
+  partition_sd.js       "partition_S / partition_D" tab (COPY scope) — the ThrCopy slice.
+                        Takes a whole TiledCopy (reuses make_tiled_copy's `mtcAtomSection` /
+                        `mtcReadAtom` with prefix `psd`), a thread index and the tensor, and
+                        ports `tidfrg_S/D` + `tile2thrfrg` from copy_atom.hpp. Draws three
+                        grids, one per level: a thread's work in one tile, the tile over the
+                        (M,N) plane, and that plane over the untiled modes. Prefix `psd`.
   tma_partition.js      "tma_partition" tab (COPY scope) — CuTe's "VectorCopy Partitioner"
                         (copy_traits_sm90_tma.hpp:1409). Splits mode 0 of every tensor into
                         (TMA, TMA_Iter) using the atom's NumValSrc for the chunk size and the SMEM
@@ -201,7 +207,14 @@ produce hierarchical coordinates this 2-D grid cannot draw.
   than the font shrinking below a 9px floor or the text clipping — at that floor the URL needs
   ~330px, wider than a 4x4 grid's entire 280px canvas. Malformed or degenerate input comes back
   untouched rather than mangled.
-- **Copy SRC/DST panes**: `COPY_OP_MOVES`, `copyMoveField`, `syncCopyMoves`, `copyMove`, `setCopyMove`, `updateCopyPaneTitles`, `initCopyPanes`, `copyDirButtons`, `copyPanes`, `setCopyDir`, `copyDir`, `toggleCopyZoom` — the side-by-side view shared by all four Copy tabs. Both SVGs are always in the DOM; `data-dir` on `.copy-panes` decides visibility, so SRC/DST/BOTH is pure CSS and needs no re-render. In BOTH mode the panes are equal flex children, which halves each SVG's width while `width:100%;height:auto` preserves its ratio. Note `attachVizFullscreenButtons` iterates **every** `.viz-box` inside a `.comp-viz-item`, not just the first — the Copy tabs put two panes in one item, and taking the first left DST without a button.
+- **Copy SRC/DST panes**: `COPY_OP_MOVES`, `copyMoveField`, `syncCopyMoves`, `copyMove`, `setCopyMove`, `updateCopyPaneTitles`, `COPY_PANE_PREFIXES`, `initCopyPanes`, `copyDirButtons`, `copyPanes`, `setCopyDir`, `copyDir`, `toggleCopyZoom` — the side-by-side view shared by all four Copy tabs. Both SVGs are always in the DOM; `data-dir` on `.copy-panes` decides visibility, so SRC/DST/BOTH is pure CSS and needs no re-render. In BOTH mode the panes are equal flex children, which halves each SVG's width while `width:100%;height:auto` preserves its ratio. Note `attachVizFullscreenButtons` iterates **every** `.viz-box` inside a `.comp-viz-item`, not just the first — the Copy tabs put two panes in one item, and taking the first left DST without a button.
+  **Not every Copy tab has panes.** `tma_partition` stacks two results and `partition_sd` draws one
+  side at a time, so neither declares `-src-space` / `-dst-space`. `copyPanes(id, p)` registers its
+  prefix in `COPY_PANE_PREFIXES` as the markup is generated, and `updateCopyPaneTitles` returns early
+  for a prefix that is not in it — answering from the registry rather than probing for an element,
+  because an id no template declares is exactly what `dom_smoke` flags and that should stay a real
+  signal. `initCopyPanes`'s prefix list still has to name the tab, since the movement `<select>` is
+  independent of the panes.
 - **One atom renderer, three tabs**: `simtAtomPaneHTML(side, layoutStr, elements, dtype)` draws the
   `(1, N):(0, 1)` value strip. `make_copy_atom` uses it for its panes; `make_tiled_copy` /
   `make_tiled_copy_tv` draw the SAME strip in a `comp-viz-item` **above** their tile viz, so the unit
@@ -231,6 +244,14 @@ Atom-construction time. `ldmatrix` likewise has exactly one, SMEM→RMEM: the so
 - **Tab framework**: `generateTabContent` (orchestrator — calls each tab's `generateXTabContent`), `addOuterTab`, `switchOuterTab`, `closeOuterTab`, `switchInnerTab` (its `modeIndex` maps tab names to DOM order)
 - **Shared helpers**: `showErr`, `showWarn`, `isHighRankLayout`, `collectHighRank`, `updateRankWarning`, `readHighlightTid`, `updateModeBtns`, `updateOuterTabLabel`, `downloadSVG`
 - **Input components**: `layoutInputField`, `statusDivs` — ALWAYS use these for layout inputs (see "Layout input convention" below)
+- **`infoIcon(text, id)`** — the small `i` that reveals a hint on hover, generating the same
+  `.cuo-info-icon` the TV tab's check buttons hand-write, so there is one hint affordance in the app
+  rather than two. The bubble is a CSS `content: attr(data-tooltip)`, so the text is **plain text
+  only** and is escaped here on the way into the attribute — the MMA focus hint contains a literal
+  `W<id>`, which is exactly what would break the tag raw. Pass `id` for a tooltip whose text changes
+  at render time and set it with `setAttribute('data-tooltip', ...)`, which needs no escaping of its
+  own. Prefer this over a `.hint-inline` paragraph when the text is reference material rather than
+  something to read on every visit.
 - **Element-type / swizzle helpers**: `DTYPE_BITS`, `dtypeOptions(selected)`, `applySwizzleOffset(x, sw)`, `parseSwizzleSpec(raw)` — shared by the TV, Copy_Atom, make_tiled_copy and TMA tabs. `parseSwizzleSpec` accepts `Sw<B,M,S>`, `Swizzle<B,M,S>` and a bare `B, M, S`; `applySwizzleOffset` swizzles an **element** index, which is NOT the unit CuTe prints a TMA swizzle in — see the TMA section below
 - **Layout-string utilities**: `stripTrivialTrailing`, `formatLayoutStr`
 - **URL import/export infrastructure**: `FEATURE_SPEC`, `parseKeyParam`, `applyKeyParam` (dispatches on feature name to call the right `renderX`), `exportURL`
@@ -289,6 +310,7 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=make_tiled_mma-tf32-na-na-8-(2, 2, 1)-na   # 'na' is also "no permutation_mnk"
 ?key=make_tiled_tma_atom-half_t-(256, 128):(128, 1)-3,4,3-(64, 64):(64, 1)-(64, 64)
 ?key=tma_partition-1024-float-3,4,3-(8, 32):(32, 1)-(4, 2)
+?key=partition_sd-S-universal-32-half_t-((8,4),(2,2)):((16,2),(8,1))-(8, 16)-5-(16, 32):(1, 16)
 ```
 - Parsing is in `parseKeyParam()` (driven by `FEATURE_SPEC` in ui.js).
 - A feature may declare `optional: N` alongside `inputs`, accepting `inputs .. inputs+N` values. That
@@ -325,7 +347,7 @@ tests/cases.json        the shared corpus — inputs as CuTe layout STRINGS, so 
                         parser is exercised on the way in
                         Sections: layout_ops, basis_ops, make_layout_tv, make_tiled_copy,
                         copy_atom, ldmatrix_atom, mma_atom, tiled_mma, tma_atom,
-                        tma_partition, swizzle, local_tile
+                        tma_partition, partition_sd, swizzle, local_tile
 tests/gen_reference.py  runs cases.json through CuTeDSL -> tests/reference.json
 tests/reference.json    committed golden output (never hand-edit)
 tests/harness.js        loads the browser globals into node
@@ -577,7 +599,7 @@ The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. E
   coordinate. Comparing structurally selected **zero** tiles and left `kept[0]` undefined.
   CuTeDSL is not the oracle for this one: its MLIR `crd2idx` cannot infer a result type for that
   coord/layout pair at all, so the case lives in `tests/unit.js`.
-- `copy` — the copy-construction pipeline: `make_copy_atom` (one instruction), then `make_tiled_copy` / `make_tiled_copy_tv` (replicate it over a tile), plus `make_tiled_tma_atom` and `tma_partition` (the TMA path, which bypasses threads entirely). Accent color: emerald (`#10b981`).
+- `copy` — the copy-construction pipeline: `make_copy_atom` (one instruction), then `make_tiled_copy` / `make_tiled_copy_tv` (replicate it over a tile), then `partition_sd` (hand that TiledCopy a tensor and one thread), plus `make_tiled_tma_atom` and `tma_partition` (the TMA path, which bypasses threads entirely). Accent color: emerald (`#10b981`).
 - `mma` — the MMA side: `make_mma_atom`, then `make_tiled_mma`. Accent color: amber (`#f59e0b`). The natural next tabs are `make_tiled_copy_A/B/C`, which is where the copy and MMA scopes finally meet — a TiledMMA's `tv_layout_A` is literally the `layout_tv` they hand a copy.
 
 ### How scopes are wired
@@ -621,6 +643,7 @@ adding new copy atoms.
 | Deriving (layout_tv, Tiler_MN) from a thr/val pair | `make_tiled_copy_tv` | `copy` | One of several ways to compute the primitive's arguments |
 | What one TMA instruction moves, and the descriptor behind it | `make_tiled_tma_atom` | `copy` | A property of (tensor, smem layout, tiler) — no threads involved |
 | How a tile is split into instruction-sized chunks | `tma_partition` | `copy` | Needs only the atom's element count and the SMEM order |
+| What ONE THREAD of a TiledCopy gets, over a whole tensor | `partition_sd` | `copy` | The only thing a `ThrCopy` does; needs a tensor, which no other copy tab takes |
 | Whether the access pattern is coalesced / bank-conflict-free | `tv` | `basics` | A property of (TV layout, **data layout**) — no atom involved |
 
 ### The six SIMT Ops produce one identical Atom
@@ -785,6 +808,12 @@ The two checks are separate `<details>` sections in the TV tab, each with its ow
 mutually exclusive at render time — turning one on clears the other. Render paths are
 `renderTVCoalescedSVG` / `renderTVBankSVG`, sharing `tvResolveData(tabId, which, M, N, checkName)` and
 `tvBuildGrid`; `setTVDataMajor(tabId, which, major)` fills whichever box's Row/Col-major button was clicked.
+
+`mtcAtomSection(id, p, summary, bits)` takes the shipped `num_bits_per_copy` default as a
+parameter. It has to: the default must divide the tab's default `layout_tv` value count, those
+differ per tab, and `renderAllTabs` renders every tab with its shipped defaults — so a mismatch is
+an error box before the user has touched anything. `partition_sd` passes 32; the other two take the
+128 default.
 
 ### make_tiled_copy vs make_tiled_copy_tv
 
@@ -1079,6 +1108,138 @@ Out of scope for now, each a clean follow-on: multicast (`domain_offset` is alwa
 `cta_layout = (1)`), TMA store, im2col, `gather4`/`scatter4`, `internal_type` recasts, and
 rank > 2 tensors.
 
+### partition_S / partition_D
+
+`tiled_copy.get_slice(t).partition_S(tensor)` — a port of `copy_atom.hpp`'s `partition_S` (:368),
+`tidfrg_S` (:221) and `tile2thrfrg` (:257). A **TiledCopy is the only source of a ThrCopy**, so the
+tab takes a whole one: `mtcAtomSection` / `mtcReadAtom` with prefix `psd` (the same atom section
+`make_tiled_copy` uses), plus `layout_tv` and `Tiler_MN`. `psdComputePartition` is the DOM-free
+whole of the derivation; `renderPartitionSD` only parses and draws.
+
+**The tensor is NOT pre-divided by the tiler, and thinking it is was the first design mistake.**
+`tidfrg_S` runs `zipped_divide(tensor, Tiler_MN)` itself. The only requirement CuTe states is
+`rank(tensor) >= rank(Tiler_MN)` (:223) — modes past the tiler's rank are never tiled, they just
+come along and multiply Rest, which is how one TiledCopy partitions `gA` of shape
+`(BLK_M, BLK_K, k)`.
+
+**The result is `((FrgV, FrgX), RestM, RestN, ...)` — rank 1 + rank(tensor), with Rest at TOP
+level.** `partition_S` slices with `(thr_idx, _, repeat<rank>(_))` and CuTe's `slice` **splices** a
+sliced tuple mode into its parent (`int_tuple.hpp`; `layout.js`'s `slice_` already matches, via the
+`[].concat(...parts)` in its tuple branch). That is why CUTLASS's GEMMs write `tAgA(_,_,_,k)` rather
+than `tAgA(_,(_,_),k)`, and getting it wrong would nest Rest one level too deep.
+
+The three modes are the three levels of repetition, in order: **FrgV** is one atom invocation,
+**FrgX** is how many atoms the thread issues inside one `Tiler_MN` tile, **Rest** is how many times
+the whole TiledCopy is replayed to cover the tensor.
+
+**For every Op this tab offers, S and D differ ONLY in which tensor they are given.** The term that
+could make them differ is `right_inverse(ValLayoutRef).compose(ValLayoutSrc|Dst)` — it re-orders the
+atom's `(thr, val)` slots from the reference ordering into this side's — and every SIMT Op has
+`ValLayoutSrc == ValLayoutDst == ValLayoutRef`, so it is the identity. `psdComputePartition` still
+carries `ref2trg` through rather than dropping it, because it is the whole reason the two functions
+exist and it becomes real the moment a shuffling atom (ldmatrix) is added. The tab **says this in
+the S/D hint** instead of implying a difference that is not there.
+
+**`psdParseTiler` returns Layouts, not extents — the tiler's strides are load-bearing here.**
+`mtcParseTiler` discards them deliberately (that tab draws a tile with no tensor under it, so a
+stride has nothing to point into). This tab has a tensor, so `(4:1, 16:2)` genuinely makes tile 0
+every other column. Same grammar otherwise, and for the same reason `parseLayout` is wrong for both:
+it rejects a colon inside parens, which is exactly how CuTeDSL prints a Tiler. Unlike
+`mtcParseTiler` a rank-3 tiler is **accepted**, since CuTe only asserts `rank(tensor) >= rank(tiler)`.
+`parse_tiler_mn` in `tests/gen_reference.py` is the Python twin and must stay in step.
+
+**A tiler that does not divide the tensor is refused, and that refusal is the tab's own.** In C++ it
+is a constexpr `shape_div` assert, so the code does not compile; CuTeDSL's dynamic path has no such
+check and returns a layout that reads past the end. Verified: `(8, 16)` on a `(12, 32)` tensor gives
+`((2,2),2,2):((12,1),8,192)` from CuTeDSL and **the identical layout** from this port, covering 388
+positions of a 384-element tensor. Pinned in `tests/unit.js` — by construction the DSL cannot be the
+oracle for a check it does not perform.
+
+**Rest is TWO different things wearing one mode, and the viz separates them.** With a rank-2 tiler,
+`zipped_divide(tensor, Tiler_MN)` puts into Rest both (a) the two modes that came from dividing
+tensor modes 0 and 1, and (b) every tensor mode past the tiler's rank, carried through verbatim.
+Those mean different things — (a) is where the tile sits in the (M, N) plane, (b) is the k-loop and
+the pipeline stage — so `psdComputePartition` returns them as `sweepExtents` and `extraExtents` and
+the tab draws one grid each. Three grids, one per level:
+
+1. **One `Tiler_MN` tile**, tile-local, `(t, v)` per element — a thread's work inside the tiler.
+   Read off `thrval2mn`, the same map the composition uses, so it is the partition's own tile rather
+   than a parallel derivation of it.
+2. **One cell per tile** over the (M, N) plane — Rest modes 0 and 1, with the extra modes pinned at
+   0. Each cell carries the coordinate you would type at `tSgS(_, i, j)` and the tile's origin.
+3. **One cell per untiled slice** — Rest modes 2 and 3. A strip when there is one, a grid when there
+   are two. `value` shows the offset each step adds, which is what a k-loop actually advances by.
+
+   **A single untiled mode is drawn as a ROW, not a column**, which is the one place this tab breaks
+   the tool-wide "mode 0 runs down the rows". A lone mode has no second axis to be consistent with,
+   so the only question left is which reads better: a k-loop — which is what one untiled mode almost
+   always is — is read horizontally, the same orientation the MMA tabs draw K in, and it is the cheap
+   axis since these panels are stacked. The cost is that mode 2 rotates from horizontal to vertical
+   the moment a mode 3 appears; the cell labels are `(i)` against `(i,j)` and the header names the
+   modes, so which one is on screen is never in doubt.
+
+**Each grid prints the layout it draws**, in blue at the top of its own header — `tileLayout`,
+`sweepLayout`, `extraLayout`, computed in `psdComputePartition` and taken straight off
+`zipped_divide(tensor, Tiler_MN)`: mode 0, then mode 1 split at the tiler's rank. The three are a
+*partition* of that layout, so together they are the whole tensor and nothing else, and reading them
+top to bottom is the derivation. It is also the check that the pictures are what they claim: for
+`(4:1, 16:2)` on `(4,32):(1,4)` the tile prints `(4,16):(1,8)` (stride 8 = the tiler's 2 times the
+tensor's 4) and the sweep prints `(1,2):(0,4)` — one step of one column, which is the interleaving
+grid 2 draws.
+
+**The split is lossless, not a summary**, and that is the whole justification: `tidfrg`'s thread and
+value modes do not depend on its Rest mode, so *every* tile is partitioned by the identical grid 1,
+and every slice in grid 3 holds the identical grid 2. An earlier version drew the whole tensor at
+element resolution — correct, but a 128x256 tensor is 32768 cells repeating one 16x64 picture 32
+times, and it forced a rank-warning apology for any untiled mode. The three grids are 1024 + 32 for
+that input. **Do not re-merge them.**
+
+**The rank limits are the TAB's, not CuTe's, and the code says so.** CuTe asserts only
+`rank(tensor) >= rank(Tiler_MN)` and caps neither. This tab requires a **rank-2 tiler** (grid 1 is a
+2-D picture of one tile) and **at most 2 untiled modes** (grid 3 is a 2-D picture of them). Two is
+not an arbitrary cut — the modes that survive untiled are the k-loop and the pipeline stage. Both
+refusals name the grid as the reason and are pinned in `tests/unit.js`, since they are limits CuTe
+does not have rather than validation it skips.
+
+**The strided tiler is the case that proves grid 2 is not a block lattice.** With `(4:1, 16:2)` on a
+`(4, 32)` tensor the two tiles' origins are `(0,0)` and `(0,1)` — tile 1 starts one column over and
+interleaves, rather than starting at column 16. The origins are evaluated, never assumed.
+
+**Grid positions come from the COMPACT layout of the tensor's shape** (`tilePosAt`), the same trick
+`local_tile` uses: the picture never depends on the tensor's strides, so a non-injective or
+transposed tensor cannot alias two tiles onto one cell. The `value` toggle shows the real layout's
+output instead (`tileOffAt`).
+
+**Grid 3 is HIDDEN, not skipped, when the tensor is exactly the plane.** `psdRenderExtraViz` still
+renders its SVG into the hidden box, so the path runs on every render and `dom_smoke`'s
+"pane is non-empty" check keeps covering it. A lone 1x1 cell is not worth showing; a render path
+that only executes for rank-3+ inputs is worth testing.
+
+**There is ONE tensor box, and its label follows the S/D toggle.** Two boxes implied you were
+describing a copy; you are not — `partition_S` and `partition_D` are separate calls that each take
+one tensor. `layoutInputField` is still the component (per the layout-input convention); the label
+just carries two `<span id>`s that `psdSyncSideField` rewrites.
+
+**No result box.** The returned layout goes to `updateOuterTabLabel`, the same place `Divide` and
+`LocalTile` put theirs — the three grids are the answer, and a box restating the derivation under
+the last input was a wall nobody reads. `updateRankWarning` covers `layout_tv` and `Tiler_MN` only;
+the tensor is exempt because nothing flattens it (grid 2 and grid 3 between them draw every mode),
+and a rank-2 tensor under a rank-2 tiler is the ordinary case anyway.
+
+`tests/run.js` pins `tidfrg` **indirectly and completely**: CuTeDSL exposes only the per-thread
+slice, so the reference records the partition layout plus the base offset of **every** thread, and
+the port must reproduce all of them. Those offsets are exactly `tidfrg`'s thread mode and the layout
+is its other two modes, so nothing of it is left unchecked. Offsets come from the identity tensor
+(an ordinary tensor's iterator is a runtime pointer, unreadable at trace time), the layout from a
+pointer tensor so the strides are integers — the same split `run_local_tile` uses.
+
+Out of scope for now, each a clean follow-on: `retile_S` / `retile_D` (the same tab, a third
+button), the ldmatrix atoms (which is what would make S and D actually differ, and needs
+`mtcReadAtom` to grow a second atom shape), and basis-strided tensors — `make_identity_tensor` +
+`partition_S` is how CUTLASS builds a predicate tensor, and every op in the pipeline
+(`zipped_divide`, `composition`) is on the basis-safe half of the table above, so it is mostly a
+matter of parsing and an origin coordinate.
+
 ## The MMA scope
 
 ### The "Alternative View" (both MMA tabs)
@@ -1274,7 +1435,11 @@ rest modes live on the value side.
   `TxVx` and names warps instead.
 - **One focus box, whose UNIT follows the toggle.** It is `Warp id` in Warps mode and `Thread ID` in
   TVs mode; `MTM_FOCUS[mode]` carries the label, placeholder, hint and the noun the error messages
-  use, and `mtmSyncFocusField` moves them with the toggle. The question is always "which unit am I
+  use, and `mtmSyncFocusField` moves them with the toggle. The label TEXT lives in its own `<span>`
+  inside the `<label>`, because that sync writes it with `textContent` — which would otherwise eat
+  the `infoIcon` sitting beside it. Both this hint and the Cell-labels one live behind an `(i)`
+  rather than as standing paragraphs: they explain a control you understand after reading them once,
+  so they should not cost column height on every visit. The question is always "which unit am I
   looking at" — only the unit changes — so a second box would be two controls for one idea, and one
   whose label lied half the time would be worse.
 - **The filter is the same in both modes and drives all six grids**: only the cells that unit touches

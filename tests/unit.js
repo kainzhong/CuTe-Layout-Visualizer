@@ -104,6 +104,97 @@ function runUnitTests(V, T) {
     check('rank3-rejected', 'throws on rank 3', threw, true);
   });
 
+  // ── psdParseTiler: the same grammar, but the STRIDES are load-bearing ──────
+  //  `mtcParseTiler` throws the strides away — that tab draws a tile with no
+  //  tensor under it, so a stride has nothing to point into. partition_S has a
+  //  tensor, so `(4:1, 16:2)` really does select every other column and the
+  //  tiler has to come back as Layouts rather than extents. Same reason
+  //  `parseLayout` is the wrong parser for either: it rejects a colon inside
+  //  parens, which is exactly how CuTeDSL prints a Tiler.
+  setSection('unit/psdParseTiler');
+  const T3 = (s) => V.psdParseTiler(s).map(l => fmt(V, l)).join(' | ');
+  guard('plain-shape', () => check('plain-shape', '(8, 16)', T3('(8, 16)'), '8:1 | 16:1'));
+  guard('per-mode-layouts', () =>
+    check('per-mode-layouts', '(4:1, 16:2)', T3('(4:1, 16:2)'), '4:1 | 16:2'));
+  guard('nested-mode', () =>
+    check('nested-mode', '((2,4), 16)', T3('((2,4), 16)'), '(2,4):(1,2) | 16:1'));
+  guard('rank3-parsed', () => {
+    // The PARSER stays general — rank is the derivation's business, and
+    // psdComputePartition rejects a rank-3 tiler with a message about the grid
+    // (see below). Splitting it this way keeps the grammar test about grammar.
+    check('rank3-parsed', '(2,4,8)', T3('(2,4,8)'), '2:1 | 4:1 | 8:1');
+  });
+  guard('empty-rejected', () => {
+    let threw = false;
+    try { V.psdParseTiler('  '); } catch (e) { threw = /is empty/.test(e.message); }
+    check('empty-rejected', 'throws on empty', threw, true);
+  });
+
+  // ── psdComputePartition: the preconditions CuTe states and this reports ────
+  setSection('unit/psdComputePartition');
+  const PSD = (tv, tiler, tensor, anv, t) => {
+    try {
+      V.psdComputePartition(parseExact(V, tv), V.psdParseTiler(tiler),
+                            parseExact(V, tensor), anv, t, 'S');
+      return '';
+    } catch (e) { return e.message; }
+  };
+  guard('tiler-must-be-rank-2', () => {
+    // This tab's limit, not CuTe's: grid 1 draws one tile as a 2-D picture.
+    check('tiler-must-be-rank-2', 'rejects a rank-3 tiler',
+          /Tiler_MN has rank 3; this tab draws one tile as a 2-D grid/
+            .test(PSD('((8,4),(2,2)):((16,2),(8,1))', '(2,4,8)', '(16,32,8):(1,16,512)', 2, 0)),
+          true);
+  });
+  guard('at-most-two-untiled-modes', () => {
+    // Also this tab's limit: grid 3 draws the untiled modes as a 2-D picture,
+    // and in practice they are the k-loop and the pipeline stage.
+    check('at-most-two-untiled-modes', 'rejects rank 5',
+          /rank 5, i.e. 3 modes past the tiler's rank/
+            .test(PSD('((8,4),(2,2)):((16,2),(8,1))', '(8, 16)',
+                      '(16,32,2,2,2):(1,16,512,1024,2048)', 2, 0)),
+          true);
+    check('at-most-two-untiled-modes', 'accepts rank 4',
+          PSD('((8,4),(2,2)):((16,2),(8,1))', '(8, 16)', '(16,32,4,3):(1,16,512,2048)', 2, 0),
+          '');
+  });
+  guard('tensor-rank-too-small', () => {
+    // copy_atom.hpp:223 — a static_assert in C++, so it cannot be reached from
+    // the DSL at all; the tab has to say it itself.
+    let msg = '';
+    try {
+      V.psdComputePartition(parseExact(V, '((8,4),(2,2)):((16,2),(8,1))'),
+                            V.psdParseTiler('(8, 16)'),
+                            parseExact(V, '128:1'), 2, 0, 'S');
+    } catch (e) { msg = e.message; }
+    check('tensor-rank-too-small', 'reports the rank assert',
+          /rank\(tensor\) >= rank\(Tiler_MN\)/.test(msg), true);
+  });
+  guard('thread-out-of-range', () => {
+    let msg = '';
+    try {
+      V.psdComputePartition(parseExact(V, '((8,4),(2,2)):((16,2),(8,1))'),
+                            V.psdParseTiler('(8, 16)'),
+                            parseExact(V, '(16,32):(1,16)'), 2, 32, 'S');
+    } catch (e) { msg = e.message; }
+    check('thread-out-of-range', 'reports 32 threads', /has 32 threads/.test(msg), true);
+  });
+  guard('indivisible-tiler', () => {
+    // A C++ static_assert (shape_div) that the DSL's dynamic path skips.
+    // CuTeDSL happily returns ((2,2),2,2):((12,1),8,192) here — the SAME layout
+    // this port derives — which covers 388 positions of a 384-element tensor,
+    // i.e. it reads off the end. So the refusal is the tab's own.
+    let msg = '';
+    try {
+      V.psdComputePartition(parseExact(V, '((8,4),(2,2)):((16,2),(8,1))'),
+                            V.psdParseTiler('(8, 16)'),
+                            parseExact(V, '(12,32):(1,12)'), 2, 0, 'S');
+    } catch (e) { msg = e.message; }
+    check('indivisible-tiler', 'names the mode and the divisors',
+          /does not divide the tensor's mode 0 \(12\)/.test(msg) && /1, 2, 3, 4, 6, 12/.test(msg),
+          true);
+  });
+
   // ── parseSwizzleSpec ───────────────────────────────────────────────────────
   setSection('unit/parseSwizzleSpec');
   const SW = (s) => { const r = V.parseSwizzleSpec(s); return r ? `${r.B},${r.M},${r.S}` : 'null'; };
@@ -735,6 +826,31 @@ function runUnitTests(V, T) {
           flat.filter(c => c.rest === 0).length, flat.length / 2);
     check('rest-region-marks-the-repetition', 'every cell still owned',
           flat.every(c => c.entries.length > 0), true);
+  });
+
+  // ── infoIcon escapes, because it writes into an ATTRIBUTE ─────────────────
+  //  The bubble is a CSS `content: attr(data-tooltip)`, so the text cannot
+  //  carry markup and must survive being put in a quoted attribute. The MMA
+  //  focus hint contains a literal `W<id>`, which is exactly the case that
+  //  would break the tag if it went in raw.
+  setSection('unit/infoIcon');
+  guard('escapes-attribute-text', () => {
+    const tip = (h) => /data-tooltip="([^"]*)"/.exec(V.infoIcon(h))[1];
+    check('escapes-attribute-text', 'angle brackets', tip('W<id>'), 'W&lt;id&gt;');
+    check('escapes-attribute-text', 'quotes', tip('say "hi"'), 'say &quot;hi&quot;');
+    // & first, or the escapes of the other three get double-escaped.
+    check('escapes-attribute-text', 'ampersand once', tip('a & <b>'), 'a &amp; &lt;b&gt;');
+    check('escapes-attribute-text', 'id is optional', /\sid=/.test(V.infoIcon('x')), false);
+    check('escapes-attribute-text', 'id when given', /id="q"/.test(V.infoIcon('x', 'q')), true);
+  });
+  guard('mma-hints-are-plain-text', () => {
+    // These strings go through infoIcon (static) or setAttribute (dynamic), and
+    // neither renders markup — an <code> left in one would show as literal tags.
+    const hints = [V.MTM_MODE_HINT, V.MTM_FOCUS.warp.hint, V.MTM_FOCUS.tv.hint];
+    check('mma-hints-are-plain-text', 'no HTML tags',
+          hints.some(h => /<\/?(b|code|em|i)>/.test(h)), false);
+    check('mma-hints-are-plain-text', 'no entities',
+          hints.some(h => /&(lt|gt|amp|mdash|nbsp);/.test(h)), false);
   });
 
   // ── The MMA "Alternative View" rotates B and NOTHING else ─────────────────

@@ -57,6 +57,11 @@ tabs/
                         which takes an id prefix for this reason) and adds the two tiling arguments.
                         Draws SIX grids in two rows: atom_layout_mnk applied on top, the permuted
                         TiledMMA below. A port of TiledMMA::thrfrg_A/B/C, not a table. Prefix `mtm`.
+  partition_abc.js      "partition_A / B / C" tab (MMA scope) — the ThrMMA slice. The MMA
+                        twin of partition_sd, same three levels. Ports `thrfrg_A/B/C` +
+                        `partition_A/B/C` from mma_atom.hpp by reusing `mtmThrfrg` /
+                        `mtmComputeTiledMma` with a TENSOR instead of one tile, and
+                        `mtmOperandGrid` / `mtmBuildSVG` for grid 1. Prefix `pabc`.
   partition_sd.js       "partition_S / partition_D" tab (COPY scope) — the ThrCopy slice.
                         Takes a whole TiledCopy (reuses make_tiled_copy's `mtcAtomSection` /
                         `mtcReadAtom` with prefix `psd`), a thread index and the tensor, and
@@ -276,6 +281,11 @@ a picker inside a viz header, and too quiet for a switch that changes every cell
 `.seg-control` element must not also carry `.mode-btn-group`, or the two single-class rules tie on
 specificity and source order decides `gap`.
 
+`.seg-control.seg-stacked` turns the frame into a full-width **column**. A two-way switch fits the
+controls panel as a row; three options named `partition_A` / `partition_B` / `partition_C` do not,
+and shrinking them to `A / B / C` would drop the word the control is actually naming. `partition_abc`
+uses it; `partition_sd`'s two-way S/D switch does not need it.
+
 ## Display modes
 
 Each SVG grid supports 3 cell-label modes via the value/index/coord button group:
@@ -311,6 +321,7 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=make_tiled_tma_atom-half_t-(256, 128):(128, 1)-3,4,3-(64, 64):(64, 1)-(64, 64)
 ?key=tma_partition-1024-float-3,4,3-(8, 32):(32, 1)-(4, 2)
 ?key=partition_sd-S-universal-32-half_t-((8,4),(2,2)):((16,2),(8,1))-(8, 16)-5-(16, 32):(1, 16)
+?key=partition_abc-A-f16bf16-half_t-float-16-(2, 2, 1)-na-5-(64, 48):(48, 1)   # 'na' = no permutation_mnk
 ```
 - Parsing is in `parseKeyParam()` (driven by `FEATURE_SPEC` in ui.js).
 - A feature may declare `optional: N` alongside `inputs`, accepting `inputs .. inputs+N` values. That
@@ -347,7 +358,7 @@ tests/cases.json        the shared corpus — inputs as CuTe layout STRINGS, so 
                         parser is exercised on the way in
                         Sections: layout_ops, basis_ops, make_layout_tv, make_tiled_copy,
                         copy_atom, ldmatrix_atom, mma_atom, tiled_mma, tma_atom,
-                        tma_partition, partition_sd, swizzle, local_tile
+                        tma_partition, partition_sd, partition_abc, swizzle, local_tile
 tests/gen_reference.py  runs cases.json through CuTeDSL -> tests/reference.json
 tests/reference.json    committed golden output (never hand-edit)
 tests/harness.js        loads the browser globals into node
@@ -600,7 +611,7 @@ The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. E
   CuTeDSL is not the oracle for this one: its MLIR `crd2idx` cannot infer a result type for that
   coord/layout pair at all, so the case lives in `tests/unit.js`.
 - `copy` — the copy-construction pipeline: `make_copy_atom` (one instruction), then `make_tiled_copy` / `make_tiled_copy_tv` (replicate it over a tile), then `partition_sd` (hand that TiledCopy a tensor and one thread), plus `make_tiled_tma_atom` and `tma_partition` (the TMA path, which bypasses threads entirely). Accent color: emerald (`#10b981`).
-- `mma` — the MMA side: `make_mma_atom`, then `make_tiled_mma`. Accent color: amber (`#f59e0b`). The natural next tabs are `make_tiled_copy_A/B/C`, which is where the copy and MMA scopes finally meet — a TiledMMA's `tv_layout_A` is literally the `layout_tv` they hand a copy.
+- `mma` — the MMA side: `make_mma_atom`, then `make_tiled_mma`, then `partition_abc` (hand that TiledMMA a tensor and one thread). Accent color: amber (`#f59e0b`). The natural next tab is `make_tiled_copy_A/B/C`, which is where the copy and MMA scopes finally meet — a TiledMMA's `tv_layout_A` is literally the `layout_tv` they hand a copy.
 
 ### How scopes are wired
 
@@ -1215,6 +1226,19 @@ renders its SVG into the hidden box, so the path runs on every render and `dom_s
 "pane is non-empty" check keeps covering it. A lone 1x1 cell is not worth showing; a render path
 that only executes for rank-3+ inputs is worth testing.
 
+**The thread box is OPTIONAL, and blank means "every thread".** A real `ThrCopy` is one thread, so
+this looked like it had to be mandatory — but the layout `partition_S` returns is the *same for every
+thread*: slicing `tidfrg` with an integer drops the thread mode whatever its value, which is the same
+reason CuTe can give every thread the same static fragment type. Only `baseOffset` is per-thread, and
+it becomes `null`. So blank draws grid 1 with nothing dimmed and every `T`/`V` slot showing, which is
+a truthful picture rather than a fiction. `partition_abc` does the same, through `mtmBuildSVG`'s
+existing `focus: null` path — a cell then lists every thread that touches it, which is how a
+broadcast (`T0/V0` and `T64/V0` on one A cell) becomes visible. Both tabs still **blank their grids**
+on a bad id, unlike `make_tiled_mma`, whose focus box re-reads on every keystroke and must survive
+typing; these read only on Render. `dom_smoke` drives blank / valid / out-of-range / non-numeric /
+blank again on both, since every preset passes a concrete id and nothing else reaches the unfocused
+branch.
+
 **There is ONE tensor box, and its label follows the S/D toggle.** Two boxes implied you were
 describing a copy; you are not — `partition_S` and `partition_D` are separate calls that each take
 one tensor. `layoutInputField` is still the component (per the layout-input convention); the label
@@ -1481,6 +1505,122 @@ every operand covers its whole tile (a hole would mean `mtmOperandGrid` dropped 
 offset and the picture is quietly incomplete). Both go through **one writer** at the end of
 `mtmRenderViz`; `mtmReadHighlight` returns its message rather than writing it, because two functions
 racing for one element is how a warning goes missing.
+
+### partition_A / partition_B / partition_C
+
+`tiled_mma.get_slice(t).partition_A(gA)` — the MMA twin of `partition_sd`, deliberately the **same
+three levels with the same meanings**: a thread's work in one tile, that tile over the operand's
+plane, that plane over the whole tensor. Read that section first; only what differs is below.
+
+**There is ONE implementation of `thrfrg_X`, not two.** `mtmThrfrg` in `make_tiled_mma.js` grew an
+optional `tensorL` argument for this tab — `thrfrg_A` is *defined* over a tensor (`mma_atom.hpp:291`)
+and make_tiled_mma only ever asks about one tile, so the tile was always the special case.
+`mtmComputeTiledMma` likewise takes an optional `tensors` map. Grid 1 comes from a second call with
+no tensor, which is what make_tiled_mma draws, rendered by `mtmOperandGrid` + `mtmBuildSVG` so the
+two tabs cannot drift.
+
+**The three grids are the RETURNED layout, split** — their blue headers are mode 0, modes 1-2 and
+modes 3+ of `partition_X`'s result and concatenate back to it (`(2,2)` + `(8,2)` + `(4)` is
+`((2,2),8,2,4)`). That is the invariant to preserve when touching this tab, and it is stronger than
+partition_sd's (whose headers decompose `zipped_divide`, not the result).
+
+**`permutation_mnk` folds into those Rest modes, so LEVEL 1 IS NOT THE TiledMMA's TILE.** A copy's
+`Tiler_MN` gives one Rest entry per tile; an MMA's permutation does not, because the warp pattern can
+repeat *inside* the permuted tile. Drawing the tile as level 1 was an actual bug, found from a shared
+link:
+
+```
+B, atom_layout (2,2,1), permutation_mnk (32,32,16), tensor (128,32,4)
+  tile is 32x16, but partition_B = ((2,2),8,2,4) — Rest 8x2, so a Rest position covers 16x16
+  the grid said 4x2                                        ^ half the tile in N
+```
+
+Note that `partition_B` is byte-identical with and without that permutation — N's warp cover is
+`8*2 = 16` and `perm N = 32` merely doubles it, so the repeat coalesces straight back into RestN.
+A picture that changed when the result did not was wrong on its face.
+
+**So the level-1 block is DERIVED, never assumed**: gather every `(thread, value)` cell at Rest 0 and
+take the region they form, then compact the rows and columns it occupies. That is always what one
+Rest position covers, for any permutation. The rows come back non-consecutive under a permuting
+*layout* (32 rows spread over 48), which the header reports rather than hides — the block is still a
+rectangle in its own coordinates, the same treatment `partition_sd` gives a strided tiler.
+
+**The permutation stays visible in the two places it acts**: a plain multiple means the tile holds
+several blocks, which grid 2's header names; a permuting layout also interleaves the rows (grid 1's
+header) and makes Rest come back NESTED — `((2,32):(32,1),32,16)` on a (128,48) A gives
+`((2,2,2),(2,2),3)`, Rest mode 0 being `(repeat inside the tile, blocks across the tensor)`. Grid 2
+draws `size(RestX) x size(RestY)` and prints the nested layout in its header, so the nesting is
+stated rather than flattened away silently.
+
+`permutation_mnk` is still what `thrfrg_X` divides by, so it — not the block — is what must divide
+the tensor; that check keeps using `tileMNK` and the error names it.
+
+**Rank limits**: rank 2 to 4, same as `partition_sd` and for the same reason. There is no tiler-rank
+question here — an MMA operand always spans exactly two axes, which `PABC_OPERAND` names per operand
+(`A` → (M,K), `B` → (N,K), `C` → (M,N)) along with which `tile_size(M,N,K)` entries those are.
+
+**No `updateRankWarning` call**, and for two reasons rather than one: `atom_layout_mnk` and
+`permutation_mnk` are rank-3 by definition and are not drawn as grids (make_tiled_mma's reason), and
+the tensor is fully drawn between grids 2 and 3 (partition_sd's reason). That leaves nothing the
+warning could truthfully say.
+
+**`make_fragment_A|B|C` is NOT this tab** — see `partition_fragment_abc` below. It was briefly a
+fourth grid here, and that was the wrong call: the fragment answers a different question (what the
+thread holds in registers, and in what order) and `partition_fragment_X` is its own call. What stays
+here is `pabcMakeFragment` plus the `fragment` / `fragColMajor` fields, because the derivation is
+shared; only the drawing moved.
+
+`tests/run.js` pins this tab the same indirect-but-complete way as `partition_sd` — every thread's
+layout and base offset — plus `tile_mnk` and `thr_layout_vmnk`. The two permutation cases are the
+section's point.
+
+### partition_fragment_A / B / C
+
+`thr_mma.partition_fragment_A(sA)` — the register array a thread declares, and the call a kernel
+actually writes (`sgemm_sm80.cu:160`). It is **`make_fragment_A(partition_A(t))`**
+(`mma_atom.hpp:508`), so the tab is `partition_abc` plus one step and shares everything up to that
+step: `pabcInputSections` (the markup), `pabcReadInputs` (the reading and validation) and
+`pabcComputePartition` (the derivation, which already returns `fragment`). Prefix `pfab`. **CuTeDSL
+has no wrapper** — only `partition_fragment_SFA/SFB` for Blackwell scale factors — so there, and in
+`gen_reference.py`, you compose the two calls.
+
+It is a separate TAB rather than a fourth grid on `partition_abc` because it answers a different
+question; the inputs it shares are an argument for sharing code, not for merging concerns.
+
+**What `pabcMakeFragment` ports**, and the fact the tab is built around:
+
+- **A and B** go through `make_fragment_like` (`layout.hpp:455`). Mode 0 — the atom's value mode — is
+  forced compact col-major whatever the partition did; the trailing modes get compact strides in the
+  ORDER the partition's strides rank them (`make_ordered_layout`, flattened so a nested Rest mode
+  ranks against a flat one). The C++ says why on the function group: *"we can inspect the layout of
+  the partitioned data and attempt to match it in generated fragment to promote vectorization when
+  copying from partition to fragment."* So **the fragment's mode order follows the SOURCE's
+  majorness** — A over `(64,48):(48,1)` gives trailing `24, 8`, over `(64,48):(1,64)` gives `8, 16`.
+- **C** does not: `make_fragment_C` is `make_tensor<FrgTypeC>(shape(ctensor))`, plain compact,
+  because an accumulator is never read in the order it was partitioned. CUTLASS states this a second,
+  independent way — there is a *static* `partition_fragment_C(mma, shapeMN)` taking only a shape,
+  while A and B carry "often depend on the layout of A and B and/or the thread_idx" and "should not
+  be used in a static context" (`:557-585`). A claim the C++ makes twice is worth trusting.
+
+Both facts are **diffed rather than asserted**: `run.js` requires `A_2x2x1`'s fragment to DIFFER from
+`A_colmajor`'s and `C_2x2x1`'s to EQUAL `C_colmajor`'s — pairs that differ only in the tensor's
+strides. The `fragment` field lives in the `partition_abc` reference section rather than one of its
+own, because it is the same call on the same object.
+
+**Grid 2 is the tool's own analysis, not a port.** `pfabRegisterOrder` inverts the fragment (compact,
+so bijective) to get the source offset per register in index order, then counts maximal runs where
+consecutive registers hold consecutive source elements — the stretch a vector load covers. CuTe
+builds for that and never reports it, so there is no oracle; the expectations in `tests/unit.js` come
+from layouts CuTeDSL already confirmed. It is where the presets visibly differ: row-major A gives
+runs of 2 (a 32-bit load per pair), column-major A runs of 1 (every load scalar), and the two C
+presets give the same fragment from opposite-majorness sources.
+
+Two traps, both hit while porting: `filter_zeros` means a stride-0 sub-mode costs no register
+(ported, though no Op here produces one — an MMA broadcasts on the thread side, not the value side);
+and the compact stride of a **size-1 mode is 0**, not the running product, so `pabcOrderedStrides`
+and `pabcMakeFragment` use `mtmCompactStride` rather than `prefix_product`. A tensor exactly one tile
+wide has Rest `1,1` and CuTeDSL prints `((2,2,2),1,1):((1,2,4),0,0)` where the running product would
+say `8,8` — caught by `A_tile_exact`.
 
 ## Layout input convention (rank warnings)
 

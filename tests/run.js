@@ -555,6 +555,74 @@ if (section('partition_sd')) {
 }
 
 // ═══════════════════════════════════════════════════════
+//  7c. partition_A / B / C  (pabcComputePartition)
+//
+//  Same indirect-but-complete pinning as partition_sd: run every thread and
+//  require the layout AND the base offset to match. The permutation cases are
+//  the ones that matter — permutation_mnk folds into the returned Rest, flat
+//  for a plain multiple and NESTED for a layout, and the printed layout is the
+//  only thing that catches either drifting.
+// ═══════════════════════════════════════════════════════
+
+if (section('partition_abc')) {
+  for (const c of CASES.partition_abc) {
+    const ref = refFor('partition_abc', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const atom = V.mmaWarpAtom(c.op, c.k);
+      const atomLayout = V.mtmParseAtomLayout(c.atom_layout);
+      const perm = V.mtmParsePerm(c.perm || '');
+      const tensor = parseExact(V, c.tensor);
+
+      const first = V.pabcComputePartition(atom, atomLayout, perm, c.which, tensor, 0);
+      check(c.id, 'tile_mnk', `(${first.tileMNK.join(',')})`, `(${ref.tile_mnk.join(',')})`);
+      check(c.id, 'thr_layout_vmnk', fmt(V, first.thrLayoutVmnk), ref.thr_layout_vmnk);
+      checkLayout(c.id, first.partition, ref.layout);
+      // make_fragment_X — the partition_fragment_A/B/C tab's oracle. Checked
+      // here rather than in a section of its own because it is the same call on
+      // the same object: `partition_fragment_X` IS `make_fragment_X(partition_X)`.
+      checkLayout(`${c.id}/fragment`, first.fragment, ref.fragment);
+
+      let badT = -1, badWhat = '', got = '', want = '';
+      for (let t = 0; t < ref.offsets.length; t++) {
+        const r = V.pabcComputePartition(atom, atomLayout, perm, c.which, tensor, t);
+        const str = fmt(V, r.partition);
+        if (str !== ref.layout.str) { badT = t; badWhat = 'layout'; got = str; want = ref.layout.str; break; }
+        if (r.baseOffset !== ref.offsets[t]) {
+          badT = t; badWhat = 'offset'; got = r.baseOffset; want = ref.offsets[t]; break;
+        }
+      }
+      if (badT === -1) {
+        results.pass++;
+        if (VERBOSE) console.log(`  ${C.green}ok${C.off} ${c.id} ${C.dim}all ${ref.offsets.length} threads${C.off}`);
+      } else {
+        check(c.id, `T${badT} ${badWhat}`, got, want);
+      }
+    });
+  }
+}
+
+// The two claims the partition_fragment tab makes in prose, as a diff between
+// cases rather than an assertion: A's fragment mode order follows the SOURCE's
+// majorness, C's ignores it. Each pair differs only in the tensor's strides, so
+// a change in either behaviour shows up here and nowhere else.
+if (section('partition_abc')) {
+  const frag = (id) => (refFor('partition_abc', id) || {}).fragment;
+  guard('fragment/order-follows-source', () => {
+    const a = frag('A_2x2x1'), b = frag('A_colmajor');
+    if (!a || !b) return;
+    if (a.str !== b.str) results.pass++;
+    else check('fragment/order-follows-source',
+               "A's fragment must differ between row- and col-major sources", a.str, 'something else');
+  });
+  guard('fragment/C-ignores-source', () => {
+    const a = frag('C_2x2x1'), b = frag('C_colmajor');
+    if (!a || !b) return;
+    check('fragment/C-ignores-source', "C's fragment is the same either way", a.str, b.str);
+  });
+}
+
+// ═══════════════════════════════════════════════════════
 //  8. Swizzle  (applySwizzleOffset vs cute::Swizzle<B,M,S>)
 // ═══════════════════════════════════════════════════════
 

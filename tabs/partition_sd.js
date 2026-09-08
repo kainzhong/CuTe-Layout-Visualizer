@@ -233,7 +233,7 @@ function psdComputePartition(layout_tv, tiler, tensor, atomNumVal, thrIdx, side)
 
   const { tidfrg, thrval2mn } = psdTile2ThrFrg(tensorZ, layout_tv, atomNumThr, atomNumVal, ref2trg);
   const thrSize = product(tidfrg.shape[0]);
-  if (thrIdx >= thrSize) {
+  if (thrIdx !== null && thrIdx >= thrSize) {
     throw new Error(
       `Thread index ${thrIdx} is out of range — this TiledCopy has ${thrSize} ` +
       `thread${thrSize === 1 ? '' : 's'} (0..${thrSize - 1}).`);
@@ -242,9 +242,16 @@ function psdComputePartition(layout_tv, tiler, tensor, atomNumVal, thrIdx, side)
   // thr_tensor(thr_idx, _, repeat<rank(tensor)>(_)). The rest coord is R
   // SEPARATE underscores, and slicing a tuple mode splices it into the parent —
   // which is what puts RestM/RestN at top level instead of nested.
-  const sliceCrd = [thrIdx, null, new Array(R).fill(null)];
+  //
+  // `thrIdx` may be null — "show every thread". The LAYOUT does not depend on
+  // it: slicing with an integer drops the thread mode whatever its value, which
+  // is the same reason CuTe can give every thread the same static type. Only
+  // the base offset is per-thread, so that is what becomes null.
+  const sliceCrd = [thrIdx === null ? 0 : thrIdx, null, new Array(R).fill(null)];
   const partition = new Layout(slice_(sliceCrd, tidfrg.shape), slice_(sliceCrd, tidfrg.stride));
-  const baseOffset = crd2idx([thrIdx, 0, new Array(R).fill(0)], tidfrg.shape, tidfrg.stride);
+  const baseOffset = thrIdx === null
+    ? null
+    : crd2idx([thrIdx, 0, new Array(R).fill(0)], tidfrg.shape, tidfrg.stride);
 
   // The same divide over the COMPACT layout of the same shape, so grid 2's
   // positions never depend on the tensor's strides — a non-injective or
@@ -362,11 +369,12 @@ ${mtcAtomSection(id, 'psd', '1. The Copy_Atom', 32)}
           <div class="cuo-section-body">
             <div class="form-group">
               <label>Thread index</label>
-              <input type="text" id="${id}-psd-thr-input" value="5" placeholder="e.g. 5">
+              <input type="text" id="${id}-psd-thr-input" value="5" placeholder="all threads">
               <div class="hint-inline">
-                A ThrCopy is one thread's view. Unlike the highlight boxes on the other
-                tabs this is not optional &mdash; <code>partition_S</code> is defined
-                only for a thread.
+                A ThrCopy is one thread's view. Leave this <b>empty</b> to show every
+                thread instead: the layout <code>partition_S</code> returns is the same
+                for all of them, so a thread id only changes which cells are highlighted
+                and where the fragment starts.
               </div>
             </div>
           </div>
@@ -585,12 +593,15 @@ function renderPartitionSD(tabId) {
     mtcRequireAtomDivides(valSize, atom.atomNumVal, atom.numBits, atom.elemBits, atom.dtype);
 
     const tiler = psdParseTiler(tilerStr);
-    if (!/^\d+$/.test(thrStr)) {
+    // Blank means "every thread". A real ThrCopy is one thread, but the layout
+    // it returns is the same for all of them — only the base offset differs —
+    // so drawing the unsliced tile is a truthful default rather than a fiction.
+    if (thrStr !== '' && !/^\d+$/.test(thrStr)) {
       throw new Error(
-        `Thread index must be a whole number from 0 to ${thrSize - 1} — got "${thrStr}". ` +
-        `A ThrCopy is one thread's view, so there is no "all threads" setting here.`);
+        `Thread index must be a whole number from 0 to ${thrSize - 1}, or empty for all ` +
+        `threads — got "${thrStr}".`);
     }
-    const thrIdx = parseInt(thrStr, 10);
+    const thrIdx = thrStr === '' ? null : parseInt(thrStr, 10);
 
     const tP = parseLayout(tensorStr);
     const tS = stripTrivialTrailing(tP.shape, tP.stride);
@@ -666,7 +677,7 @@ function psdRenderTileViz(tabId) {
     if (!e) return { bg: '#f0f0f0', fg: '#bbb', text: ['—'] };
     const lines = [`T${e.t}`, `V${e.v}`];
     if (modes.has('value')) lines.push(String(m + n * M));
-    if (e.t !== s.thrIdx) return { bg: '#f0f0f0', fg: '#bbb', text: lines };
+    if (s.thrIdx !== null && e.t !== s.thrIdx) return { bg: '#f0f0f0', fg: '#bbb', text: lines };
     return { bg: mtcThreadAtomColor(e.t, Math.floor(e.v / s.atomNumVal), s.frgX), text: lines };
   });
 
@@ -674,9 +685,11 @@ function psdRenderTileViz(tabId) {
     `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
     `<b style="color:#93c5fd">${formatLayoutStr(s.tileLayout.shape, s.tileLayout.stride)}</b>` +
     ` &mdash; tile ${M}&times;${N}, ${s.thrSize} threads &times; ${s.valSize} values ` +
-    `(FrgV=${s.frgV}, FrgX=${s.frgX}), T${s.thrIdx} highlighted` +
+    `(FrgV=${s.frgV}, FrgX=${s.frgX}), ` +
+    (s.thrIdx === null ? `every thread shown` : `T${s.thrIdx} highlighted`) +
     (shared ? ` &mdash; <b>broadcast</b>: ${shared} claim${shared === 1 ? '' : 's'} beyond the ` +
-              `first, the cell shows T${s.thrIdx} where it is one of them` : '') +
+              `first` + (s.thrIdx === null ? '' :
+               `, the cell shows T${s.thrIdx} where it is one of them`) : '') +
     `</div>` + svg;
   applyZoomState(`${tabId}-psd-tile-svg`);
   updateModeBtns(`${tabId}-psd-tile-mode-btns`, modes);

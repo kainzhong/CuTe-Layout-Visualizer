@@ -543,6 +543,52 @@ def run_tiled_mma(c):
     }
 
 
+def run_partition_abc(c):
+    """One TiledMMA, one operand, one tensor, EVERY thread.
+
+    `thrfrg_A/B/C` is not public either, so this is pinned the same way
+    `partition_sd` is: the returned layout (identical for every thread) plus the
+    base offset of each one, which together are the whole of it.
+
+    The permutation cases are the reason the section exists. `permutation_mnk`
+    folds into the returned Rest modes -- flat when it is a plain multiple, a
+    NESTED tuple when it is a layout -- which is the one structural way
+    partition_A differs from partition_S. Diffing the printed layout catches
+    either drifting.
+    """
+    op_cfg = {"ab_dtype": c.get("ab") or "half_t",
+              "acc_dtype": c.get("acc") or "float", "k": c["k"]}
+    tmma = cute.make_tiled_mma(
+        cute.make_mma_atom(MMA_OPS[c["op"]](op_cfg)),
+        parse_layout(c["atom_layout"]),
+        parse_tiled_mma_perm(c["perm"]),
+    )
+    tl = parse_layout(c["tensor"])
+    which = c["which"]
+    ptr_t = cute.make_tensor(cute.make_ptr(cutlass.Float16, 0, cute.AddressSpace.gmem), tl)
+    idn_t = cute.make_identity_tensor(tl.shape)
+
+    layout, fragment, offsets = None, None, []
+    for t in range(int(cute.size(tmma.thr_layout_vmnk))):
+        thr = tmma.get_slice(t)
+        p = getattr(thr, "partition_" + which)(ptr_t)
+        i = getattr(thr, "partition_" + which)(idn_t)
+        if layout is None:
+            layout = p.layout
+            # make_fragment_X takes the ALREADY-PARTITIONED tensor -- that is
+            # what lets it copy the partition's mode order so the load into
+            # registers vectorizes (mma_atom.hpp:121-127).
+            fragment = getattr(thr, "make_fragment_" + which)(p).layout
+        offsets.append(int(cute.crd2idx(tuple(i.iterator), tl)))
+    return {
+        "tile_mnk": [int(tmma.get_tile_size(i)) for i in range(3)],
+        "thr_layout_vmnk": canon(tmma.thr_layout_vmnk),
+        "layout": record(layout),
+        "fragment": record(fragment),
+        "offsets": offsets,
+    }
+
+
 def _smem_layout(spec, sw):
     base = parse_layout(spec)
     if sw is None:
@@ -623,6 +669,7 @@ SECTIONS = [
     ("tma_atom", run_tma_atom),
     ("tma_partition", run_tma_partition),
     ("partition_sd", run_partition_sd),
+    ("partition_abc", run_partition_abc),
     ("local_tile", run_local_tile),
     ("swizzle", run_swizzle),
 ]

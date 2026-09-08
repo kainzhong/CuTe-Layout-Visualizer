@@ -825,3 +825,15 @@ textarea:focus { outline: none; border-color: #3b82f6; }
 }
 .seg-control .mode-btn:hover { background: #1e293b; color: #93c5fd; }
 .seg-control .mode-btn.active { background: #1e3a5f; color: #60a5fa; border-color: #3b82f6; }
+
+/* Stacked variant. A two-way switch fits the controls column as a row; three
+   options with names as long as "partition_A" do not, and shrinking the labels
+   to "A / B / C" would lose the thing the control is actually naming. So the
+   frame becomes a column and each option takes the full width. */
+.seg-control.seg-stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+}
+.seg-control.seg-stacked .mode-btn { text-align: center; }

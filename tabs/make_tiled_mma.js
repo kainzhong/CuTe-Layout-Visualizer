@@ -165,9 +165,18 @@ function mtmParsePerm(raw) {
  *  perm       [permX, permY], each a Layout or null
  *  thrTile    [ThrX, ThrY], how many atoms atom_layout_mnk tiles along each axis
  *  names      ['M','K'] etc., for error messages only
+ *  tensorL    OPTIONAL. `thrfrg_X` is defined over a TENSOR (mma_atom.hpp:291);
+ *             make_tiled_mma only ever asks about one tile, so the default is
+ *             the tile itself, col-major. The partition_ABC tab passes a real
+ *             tensor instead and the same four lines then produce the layout
+ *             `partition_X` returns — rank >= 2 works throughout, since
+ *             logical_divide / zipped_divide / composition all carry trailing
+ *             modes untouched.
  *
- *  Returns the six pieces the caller reassembles, plus the tile it is over. */
-function mtmThrfrg(atomTV, atomExt, perm, thrTile, names) {
+ *  Returns the six pieces the caller reassembles, plus the tile it is over and
+ *  `restExtra`, the rest modes past the operand's own two (empty for a rank-2
+ *  tensor, and therefore always empty for make_tiled_mma). */
+function mtmThrfrg(atomTV, atomExt, perm, thrTile, names, tensorL) {
   const tile = [0, 1].map(i => (perm[i] ? product(perm[i].shape) : atomExt[i] * thrTile[i]));
   for (const i of [0, 1]) {
     const covered = atomExt[i] * thrTile[i];
@@ -178,19 +187,23 @@ function mtmThrfrg(atomTV, atomExt, perm, thrTile, names) {
         `${thrTile[i]} warp${thrTile[i] === 1 ? '' : 's'}). ` +
         `zipped_divide needs it to divide exactly — try ${covered} or ${covered * 2}.`);
   }
-  let T = new Layout([tile[0], tile[1]], [1, tile[0]]);
+  let T = tensorL || new Layout([tile[0], tile[1]], [1, tile[0]]);
   T = logical_divide(T, [perm[0], perm[1]]);
   T = zipped_divide(T, [new Layout(atomExt[0]), new Layout(atomExt[1])]);
   T = composition(T, [atomTV, null]);
   T = zipped_divide(T, [null, [new Layout(thrTile[0]), new Layout(thrTile[1])]]);
+  const restAll = T.mode(1).mode(1);
+  const restExtra = [];
+  for (let i = 2; i < restAll.rank(); i++) restExtra.push(restAll.mode(i));
   return {
     tile,
     thrV:  T.mode(1).mode(0).mode(0),
     frgV:  T.mode(1).mode(0).mode(1),
     thrX:  T.mode(0).mode(1).mode(0),
     thrY:  T.mode(0).mode(1).mode(1),
-    restX: T.mode(1).mode(1).mode(0),
-    restY: T.mode(1).mode(1).mode(1),
+    restX: restAll.mode(0),
+    restY: restAll.mode(1),
+    restExtra,
   };
 }
 
@@ -202,7 +215,7 @@ function mtmThrfrg(atomTV, atomExt, perm, thrTile, names) {
  *  where `thr` is indexed by THREAD INDEX and `val` has shape
  *  (FrgV, (RestX, RestY)) — the same profile CuTeDSL's `tv_layout_X_tiled`
  *  prints and the same order `partition_X` hands back its fragment in. */
-function mtmComputeTiledMma(atom, atomLayout, perm) {
+function mtmComputeTiledMma(atom, atomLayout, perm, tensors) {
   const [M, N, K] = atom.shapeMNK;
   const thrVmnk = tiled_product(new Layout(MTM_ATOM_THREADS, 1), atomLayout);
   const aM = product(thrVmnk.shape[1]);
@@ -235,7 +248,10 @@ function mtmComputeTiledMma(atom, atomLayout, perm) {
     }[which];
     const thrTile = spec.pm.map(i => [aM, aN, aK][i]);
     const atomTV = new Layout(spec.L.shape, spec.L.stride);
-    const r = mtmThrfrg(atomTV, spec.ext, [perm[spec.pm[0]], perm[spec.pm[1]]], thrTile, spec.names);
+    // `tensors` is the partition_ABC tab's hook: the same derivation over a real
+    // tensor rather than over one tile. make_tiled_mma passes nothing.
+    const r = mtmThrfrg(atomTV, spec.ext, [perm[spec.pm[0]], perm[spec.pm[1]]], thrTile,
+                        spec.names, tensors && tensors[which]);
 
     // Reassemble the thread mode in VMNK order. The operand's own two thread
     // modes go in the positions atom_layout_mnk gave them; the third is the
@@ -247,12 +263,17 @@ function mtmComputeTiledMma(atom, atomLayout, perm) {
     vmnk[rest[0]] = r.thrX;
     vmnk[rest[1]] = r.thrY;
     const thr = composition(make_layout(vmnk[0], vmnk[1], vmnk[2], vmnk[3]), idx2vmnk);
-    const val = make_layout(r.frgV, make_layout(r.restX, r.restY));
+    const val = make_layout(r.frgV, make_layout(r.restX, r.restY, ...r.restExtra));
     return {
       tile: r.tile, thr, val,
       tv: make_layout(thr, val),
       frgSize: product(r.frgV.shape),
       restShape: [product(r.restX.shape), product(r.restY.shape)],
+      restX: r.restX, restY: r.restY, restExtra: r.restExtra,
+      // What `partition_X(tensor)` returns: the value mode with the rest tuple
+      // SPLICED to top level, exactly as CuTe's `slice` does — which is why a
+      // kernel writes `tCgA(_,_,_,k)` and not `tCgA(_,(_,_),k)`.
+      partition: make_layout(r.frgV, r.restX, r.restY, ...r.restExtra),
     };
   };
 

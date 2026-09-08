@@ -719,6 +719,8 @@ const TAB_RENDER_FN = {
   partition_sd:       'renderPartitionSD',
   make_mma_atom:      'renderMakeMmaAtom',
   make_tiled_mma:     'renderMakeTiledMma',
+  partition_abc:      'renderPartitionABC',
+  partition_fragment_abc: 'renderPartitionFragmentABC',
 };
 
 /** True on Apple platforms, where the modifier is ⌘ rather than Ctrl. */
@@ -799,7 +801,7 @@ function generateTabContent(id) {
         </div>
         <div class="tab-scope-btn" data-scope="mma" onclick="switchTabGroup('${id}', 'mma')">
           <span class="tab-scope-icon">\u2B21</span>MMA
-          <span class="tab-scope-count">2</span>
+          <span class="tab-scope-count">4</span>
         </div>
       </div>
     <div class="tab-bar" data-scope="basics">
@@ -823,6 +825,8 @@ function generateTabContent(id) {
       <div data-tab="partition_sd" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'partition_sd')">partition_S / partition_D</div>
       <div data-tab="make_mma_atom" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_mma_atom')">make_mma_atom</div>
       <div data-tab="make_tiled_mma" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_tiled_mma')">make_tiled_mma</div>
+      <div data-tab="partition_abc" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'partition_abc')">partition_A / B / C</div>
+      <div data-tab="partition_fragment_abc" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'partition_fragment_abc')">partition_fragment_A / B / C</div>
     </div>
     </div>
     ${generateLayoutTabContent(id)}
@@ -845,6 +849,8 @@ function generateTabContent(id) {
     ${generatePartitionSDTabContent(id)}
     ${generateMakeMmaAtomTabContent(id)}
     ${generateMakeTiledMmaTabContent(id)}
+    ${generatePartitionABCTabContent(id)}
+    ${generatePartitionFragmentABCTabContent(id)}
   </div>`;
 }
 
@@ -1073,7 +1079,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_tma_atom: 15, tma_partition: 16, partition_sd: 17, make_mma_atom: 18, make_tiled_mma: 19 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_tma_atom: 15, tma_partition: 16, partition_sd: 17, make_mma_atom: 18, make_tiled_mma: 19, partition_abc: 20, partition_fragment_abc: 21 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1742,6 +1748,8 @@ const FEATURE_SPEC = {
   swizzle:         { inputs: 2 },
   make_mma_atom:   { inputs: 4 },  // op, ab_dtype, acc_dtype, K
   make_tiled_mma:  { inputs: 6 },  // op, ab_dtype, acc_dtype, K, atom_layout_mnk, permutation_mnk
+  partition_abc:   { inputs: 9 },  // operand, op, ab, acc, K, atom_layout_mnk, perm, thr, tensor
+  partition_fragment_abc: { inputs: 9 },  // same nine — it is partition_abc plus a step
 };
 
 function parseKeyParam() {
@@ -1913,6 +1921,38 @@ function applyKeyParam(tabId) {
       document.getElementById(`${tabId}-mtm-perm-input`).value = inputs[5] === 'na' ? '' : inputs[5];
       switchInnerTab(tabId, 'make_tiled_mma');
       renderMakeTiledMma(tabId);
+      break;
+    }
+    case 'partition_abc': {
+      // The operand toggle lives in pabcState, not the DOM, and the per-Op
+      // selects must be repopulated BEFORE their values are assigned.
+      pabcState[tabId] = Object.assign(pabcState[tabId] || {}, { which: inputs[0] });
+      document.getElementById(`${tabId}-pabc-op-input`).value = inputs[1];
+      mmaSyncControls(tabId, inputs[1], 'pabc');
+      if (inputs[2] !== 'na') document.getElementById(`${tabId}-pabc-ab-input`).value  = inputs[2];
+      if (inputs[3] !== 'na') document.getElementById(`${tabId}-pabc-acc-input`).value = inputs[3];
+      document.getElementById(`${tabId}-pabc-k-input`).value          = inputs[4];
+      document.getElementById(`${tabId}-pabc-atomlayout-input`).value = inputs[5];
+      document.getElementById(`${tabId}-pabc-perm-input`).value       = inputs[6] === 'na' ? '' : inputs[6];
+      document.getElementById(`${tabId}-pabc-thr-input`).value        = inputs[7];
+      document.getElementById(`${tabId}-pabc-tensor-input`).value     = inputs[8];
+      switchInnerTab(tabId, 'partition_abc');
+      renderPartitionABC(tabId);
+      break;
+    }
+    case 'partition_fragment_abc': {
+      pfabState[tabId] = Object.assign(pfabState[tabId] || {}, { which: inputs[0] });
+      document.getElementById(`${tabId}-pfab-op-input`).value = inputs[1];
+      mmaSyncControls(tabId, inputs[1], 'pfab');
+      if (inputs[2] !== 'na') document.getElementById(`${tabId}-pfab-ab-input`).value  = inputs[2];
+      if (inputs[3] !== 'na') document.getElementById(`${tabId}-pfab-acc-input`).value = inputs[3];
+      document.getElementById(`${tabId}-pfab-k-input`).value          = inputs[4];
+      document.getElementById(`${tabId}-pfab-atomlayout-input`).value = inputs[5];
+      document.getElementById(`${tabId}-pfab-perm-input`).value       = inputs[6] === 'na' ? '' : inputs[6];
+      document.getElementById(`${tabId}-pfab-thr-input`).value        = inputs[7];
+      document.getElementById(`${tabId}-pfab-tensor-input`).value     = inputs[8];
+      switchInnerTab(tabId, 'partition_fragment_abc');
+      renderPartitionFragmentABC(tabId);
       break;
     }
     case 'make_tiled_copy':

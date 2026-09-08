@@ -2064,5 +2064,173 @@
       "tiler": "(8, 16)",
       "tensor": "(16, 32):(1, 16)"
     }
+  ],
+  "_comment_partition_abc": "ThrMMA::partition_A/B/C -- mma_atom.hpp:468, via thrfrg_A/B/C (:291). Oracle is CuTeDSL's tiled_mma.get_slice(t).partition_X(tensor). Same indirect-but-complete pinning as partition_sd: the reference records the returned layout plus EVERY thread's base offset, and those offsets are exactly thrfrg's thread mode. The permutation cases are the point of the section -- permutation_mnk folds into the returned Rest, flat when it is a plain multiple and NESTED when it is a layout, which is the one structural way partition_A differs from partition_S. The `fragment` field is the partition_fragment_A/B/C tab's oracle -- make_fragment_X of the same partition. `A_colmajor` vs `A_2x2x1` pins that A's fragment mode order follows the SOURCE's majorness; `C_colmajor` vs `C_2x2x1` pins that C's does not.",
+  "partition_abc": [
+    {
+      "id": "A_2x2x1",
+      "which": "A",
+      "op": "f16bf16",
+      "ab": "half_t",
+      "acc": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": null,
+      "tensor": "(64, 48):(48, 1)"
+    },
+    {
+      "id": "B_2x2x1",
+      "which": "B",
+      "op": "f16bf16",
+      "ab": "half_t",
+      "acc": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": null,
+      "tensor": "(32, 48):(48, 1)"
+    },
+    {
+      "id": "C_2x2x1",
+      "which": "C",
+      "op": "f16bf16",
+      "ab": "half_t",
+      "acc": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": null,
+      "tensor": "(64, 32):(32, 1)"
+    },
+    {
+      "id": "A_tile_exact",
+      "which": "A",
+      "op": "f16bf16",
+      "ab": "half_t",
+      "acc": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": null,
+      "tensor": "(32, 16):(16, 1)"
+    },
+    {
+      "id": "A_k_loop",
+      "which": "A",
+      "op": "f16bf16",
+      "ab": "half_t",
+      "acc": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": null,
+      "tensor": "(64, 48, 4):(48, 1, 3072)"
+    },
+    {
+      "id": "A_k_loop_stage",
+      "which": "A",
+      "op": "f16bf16",
+      "ab": "half_t",
+      "acc": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": null,
+      "tensor": "(64, 48, 4, 2):(48, 1, 3072, 12288)"
+    },
+    {
+      "id": "A_perm_plain",
+      "which": "A",
+      "op": "f16bf16",
+      "ab": "half_t",
+      "acc": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(64,32,32)",
+      "tensor": "(128, 96):(96, 1)"
+    },
+    {
+      "id": "A_perm_layout",
+      "which": "A",
+      "op": "f16bf16",
+      "ab": "half_t",
+      "acc": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "((2,32):(32,1),32,16)",
+      "tensor": "(128, 48):(48, 1)"
+    },
+    {
+      "id": "C_perm_layout",
+      "which": "C",
+      "op": "f16bf16",
+      "ab": "half_t",
+      "acc": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "((2,32):(32,1),32,16)",
+      "tensor": "(128, 64):(64, 1)"
+    },
+    {
+      "id": "A_4warps_M",
+      "which": "A",
+      "op": "f16bf16",
+      "ab": "half_t",
+      "acc": "float",
+      "k": 16,
+      "atom_layout": "(4,1,1)",
+      "perm": null,
+      "tensor": "(128, 32):(32, 1)"
+    },
+    {
+      "id": "C_kwarps",
+      "which": "C",
+      "op": "f16bf16",
+      "ab": "half_t",
+      "acc": "float",
+      "k": 16,
+      "atom_layout": "(2,2,2)",
+      "perm": null,
+      "tensor": "(64, 32):(32, 1)"
+    },
+    {
+      "id": "A_colmajor",
+      "which": "A",
+      "op": "f16bf16",
+      "ab": "half_t",
+      "acc": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": null,
+      "tensor": "(64, 48):(1, 64)"
+    },
+    {
+      "id": "C_colmajor",
+      "which": "C",
+      "op": "f16bf16",
+      "ab": "half_t",
+      "acc": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": null,
+      "tensor": "(64, 32):(1, 64)"
+    },
+    {
+      "id": "A_tf32",
+      "which": "A",
+      "op": "tf32",
+      "ab": null,
+      "acc": null,
+      "k": 8,
+      "atom_layout": "(2,2,1)",
+      "perm": null,
+      "tensor": "(64, 32):(32, 1)"
+    },
+    {
+      "id": "B_fp8",
+      "which": "B",
+      "op": "fp8",
+      "ab": "float_e4m3_t",
+      "acc": "float",
+      "k": 32,
+      "atom_layout": "(2,2,1)",
+      "perm": null,
+      "tensor": "(32, 96):(96, 1)"
+    }
   ]
 }

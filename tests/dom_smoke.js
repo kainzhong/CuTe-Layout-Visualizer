@@ -127,7 +127,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
   const errorIds = [...html.matchAll(/id="([^"]*-(?:error|warning))"/g)].map(m => m[1]);
   // Every viz host a render is expected to fill: the Copy tabs' src/dst panes,
   // the MMA tabs' a/b/c grids, and partition_sd's two stacked results.
-  const paneIds = [...html.matchAll(/id="([^"]*-(?:src|dst|tile|sweep|extra|[abc])-svg)"/g)].map(m => m[1]);
+  const paneIds = [...html.matchAll(/id="([^"]*-(?:src|dst|tile|sweep|extra|frag|strip|[abc])-svg)"/g)].map(m => m[1]);
 
   // Seed every control with the default the markup declares. A real browser does
   // this for free; without it the tabs render from empty strings and every
@@ -210,7 +210,9 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     if (!hit || typeof ctx[hit[1]] !== 'function') continue;
     const fnName = hit[1];
     const pfx = { setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm',
-                  setPSD: 'psd', setPsdSide: 'psd', setPsdMode: 'psd' }[fnName];
+                  setPSD: 'psd', setPsdSide: 'psd', setPsdMode: 'psd',
+                  setPABC: 'pabc', setPabcOperand: 'pabc', setPabcMode: 'pabc',
+                  setPFAB: 'pfab', setPfabOperand: 'pfab', setPfabMode: 'pfab' }[fnName];
     const svgs = pfx ? paneIds.filter(id => id.startsWith(`${TAB}-${pfx}-`)) : [];
     let args;
     try { args = handlerArgs(ctx, src, fnName); } catch (e) { args = null; }
@@ -228,6 +230,29 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     const missed = [...presetSrc].filter(src => !ran.has(src));
     if (missed.length) throw new Error(`${missed.length} preset(s) never ran: ${missed[0].slice(0, 90)}`);
   });
+
+  // ── the two partition tabs' thread box accepts BLANK = every thread ──────
+  // The presets all pass a concrete id, so nothing else here reaches the
+  // unfocused path — and it is a whole branch of both grid-1 renderers.
+  for (const [pfx, render] of [['psd', 'renderPartitionSD'], ['pabc', 'renderPartitionABC'],
+                              ['pfab', 'renderPartitionFragmentABC']]) {
+    const field = els.get(`${TAB}-${pfx}-thr-input`);
+    if (!field || typeof ctx[render] !== 'function') continue;
+    const svgs = paneIds.filter(id => id.startsWith(`${TAB}-${pfx}-`));
+    for (const [v, label, opts] of [
+      ['', 'blank (all threads)', undefined],
+      ['3', '#3', undefined],
+      ['99999', 'out of range', { expectError: /out of range/ }],
+      ['x', 'non-numeric', { expectError: /whole number/ }],
+      ['', 'blank again', undefined],
+    ]) {
+      // Both tabs blank their grids on an error, unlike make_tiled_mma (whose
+      // focus box re-reads on every keystroke and must survive typing). So the
+      // pane check applies only to the steps expected to succeed.
+      step(`${render} thread ${label}`, () => { field.value = v; ctx[render](TAB); },
+           opts ? [] : svgs, opts);
+    }
+  }
 
   // ── the highlight-thread controls ────────────────────────────────────────
   // Live `oninput` handlers that re-render, so nothing else here reaches them:
@@ -354,6 +379,10 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     'local_tile-(32, 64):(64, 1)-(8, 16, 4)-(1, 2, _)-(1, X, 1)',
     'partition_sd-S-universal-32-half_t-((8,4),(2,2)):((16,2),(8,1))-(8, 16)-5-(16, 32):(1, 16)',
     'partition_sd-D-cpasync-128-half_t-((8,16),8):((128,1),16)-(16, 64)-3-(16, 64):(64, 1)',
+    'partition_abc-A-f16bf16-half_t-float-16-(2, 2, 1)-na-5-(64, 48):(48, 1)',
+    'partition_abc-C-tf32-na-na-8-(2, 2, 1)-(32, 16, 8)-3-(64, 32):(32, 1)',
+    'partition_fragment_abc-A-f16bf16-half_t-float-16-(2, 2, 1)-na-5-(64, 48):(1, 64)',
+    'partition_fragment_abc-C-f16bf16-half_t-float-16-(2, 2, 1)-na-5-(64, 32):(32, 1)',
   ]) {
     step(`?key=${key}`, () => {
       ctx.location.search = `?key=${key}`;

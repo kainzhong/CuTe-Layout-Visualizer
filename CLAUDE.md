@@ -195,6 +195,16 @@ produce hierarchical coordinates this 2-D grid cannot draw.
 - **Drawing ACROSS cells**: `buildColoredLayoutSVG`'s `opts.overlay(geom)` returns raw SVG appended after the cells, with `geom = { cs, margin, W, H, M, N }`. A tile boundary is a *line*, not a property of the cells beside it — faking one with per-cell strokes gives a doubled, fuzzy edge. `tma_partition` uses it for its red tile outlines.
 - **SVG helpers**: `cellSize`, `svgFitStyle`, `cellTextSVG`, `buildCellLines`, `toModeSet`
 - **Zoom**: `applyZoomState`, `toggleZoom`
+- **A `.viz-box` MUST wrap its SVG host in an inner `div[id]`** — `<div class="viz-box"><div
+  id="${id}-x-svg"></div></div>`, never `<div class="viz-box" id="${id}-x-svg">`. This is
+  structural, not cosmetic. `attachVizFullscreenButtons` appends the ⛶ button to the **viz-box**,
+  while every render does `getElementById(hostId).innerHTML = svg` — so if the host *is* the
+  viz-box, the host is the button's parent and the first render deletes it. `addOuterTab` calls
+  `attachVizFullscreenButtons` **before** `renderAllTabs`, so such a button never survives long
+  enough to be seen. The helper's own guard is a silent `return` when it finds no descendant
+  `div[id]`, which is how `partition_sd` / `partition_abc` / `partition_fragment_abc` shipped with
+  no fullscreen button on any of their 8 panels. `dom_smoke` now asserts the shape for every
+  `.viz-box` in the generated markup, so this cannot recur quietly.
 - **Fullscreen + export**: `attachVizFullscreenButtons`, `viewFullscreen`, `closeFullscreen`,
   `downloadSVG`, `watermarkSVGMarkup`, `vizFilename`, `SVG_WATERMARK`. The overlay carries a
   **Download SVG** button under `× Close (Esc)`, and it is the only place *every* viz can be exported
@@ -534,6 +544,7 @@ Every new tab MUST:
 1. **Live in its own file** under `tabs/yourtab.js`.
 2. **Define `generateYourTabContent(id)`** that returns the HTML template (uses `${id}` interpolation). Start with `<div id="${id}-tab-yourtab" class="panel">...</div>`.
 3. **Use `layoutInputField(...)` and `statusDivs(prefix)`** from ui.js for ALL layout inputs (never hand-roll `<input>` blocks for layout strings).
+3b. **Give every `.viz-box` an inner `div[id]`** to hold the SVG — `<div class="viz-box"><div id="${id}-x-svg"></div></div>`. Putting the id on the `.viz-box` itself silently costs you the fullscreen button; see "A `.viz-box` MUST wrap its SVG host" above.
 4. **Call `updateRankWarning(warnId, [[label, val], ...])`** in the render function for every layout input, so the rank-warning appears if the user enters a rank > 2 layout.
 5. **Support URL import/export**:
    - Add an entry to `FEATURE_SPEC` in ui.js: `{ yourtab: { inputs: N } }` (or include `methods: [...]` if multiple input methods).

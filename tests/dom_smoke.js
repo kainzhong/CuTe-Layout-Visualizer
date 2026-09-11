@@ -201,6 +201,29 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     if (bad.length) throw new Error(`${bad.length} unparseable: ${bad[0].slice(0, 90)}`);
   });
 
+  // ── every .viz-box must be able to carry a fullscreen button ─────────────
+  //  attachVizFullscreenButtons looks for a DESCENDANT `div[id]` inside each
+  //  .viz-box and silently returns when there isn't one. That silence shipped
+  //  three tabs (partition_sd / _abc / _fragment_abc, 8 panels) with no
+  //  fullscreen button at all.
+  //
+  //  The inner div is structural, not cosmetic: the button is appended to the
+  //  .viz-box, while every render does `getElementById(hostId).innerHTML = svg`.
+  //  Put the id on the .viz-box itself and the host IS the button's parent, so
+  //  the first render deletes it — and addOuterTab calls attach BEFORE
+  //  renderAllTabs, so it would never survive to be seen.
+  step('every .viz-box wraps its SVG host in an inner div[id]', () => {
+    const boxes = [...html.matchAll(/<div class="viz-box"([^>]*)>([\s\S]{0,120})/g)];
+    const bad = boxes.filter(([, attrs, body]) =>
+      /\bid="/.test(attrs) || !/^\s*<div id="/.test(body));
+    if (bad.length) {
+      throw new Error(
+        `${bad.length} of ${boxes.length} viz-box(es) have no inner div[id], so ` +
+        `attachVizFullscreenButtons will skip them: ` +
+        bad.slice(0, 3).map(b => (b[1] + b[2]).slice(0, 70)).join(' | '));
+    }
+  });
+
   // ── every preset button in the generated markup ──────────────────────────
   const presetSrc = new Set(
     [...html.matchAll(/class="preset-btn"[^>]*onclick="([\s\S]*?)"/g)].map(m => decodeEntities(m[1])));

@@ -465,7 +465,7 @@ ${pabcInputSections({ id, p: 'pabc', fn: 'partition', render: 'renderPartitionAB
             smaller than the TiledMMA's tile. The layout in <b>blue</b> is mode 0
             of the returned layout: what one thread holds here.
           </div>
-          <div class="viz-box" id="${id}-pabc-tile-svg"></div>
+          <div class="viz-box"><div id="${id}-pabc-tile-svg"></div></div>
         </div>
         <div class="comp-viz-item">
           <div class="comp-viz-header">
@@ -487,7 +487,7 @@ ${pabcInputSections({ id, p: 'pabc', fn: 'partition', render: 'renderPartitionAB
             repeat inside the TiledMMA's tile, that repeat is one of these cells,
             and the header says so.
           </div>
-          <div class="viz-box" id="${id}-pabc-sweep-svg"></div>
+          <div class="viz-box"><div id="${id}-pabc-sweep-svg"></div></div>
         </div>
         <div class="comp-viz-item" id="${id}-pabc-extra-item">
           <div class="comp-viz-header">
@@ -508,7 +508,7 @@ ${pabcInputSections({ id, p: 'pabc', fn: 'partition', render: 'renderPartitionAB
             horizontally) or two, and this panel is hidden when the tensor is
             exactly the plane above.
           </div>
-          <div class="viz-box" id="${id}-pabc-extra-svg"></div>
+          <div class="viz-box"><div id="${id}-pabc-extra-svg"></div></div>
         </div>
       </div>
     </div>`;

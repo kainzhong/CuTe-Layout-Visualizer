@@ -147,7 +147,7 @@ ${pabcInputSections({ id, p: 'pfab', fn: 'partition_fragment', render: 'renderPa
             Column hues match the Rest grids on the <b>partition_A / B / C</b>
             tab.
           </div>
-          <div class="viz-box" id="${id}-pfab-frag-svg"></div>
+          <div class="viz-box"><div id="${id}-pfab-frag-svg"></div></div>
         </div>
         <div class="comp-viz-item">
           <div class="comp-viz-header">
@@ -166,7 +166,7 @@ ${pabcInputSections({ id, p: 'pfab', fn: 'partition_fragment', render: 'renderPa
             <code>make_fragment_A</code>'s ordering is optimising, so it is where
             the row-major and column-major presets visibly differ.
           </div>
-          <div class="viz-box" id="${id}-pfab-strip-svg"></div>
+          <div class="viz-box"><div id="${id}-pfab-strip-svg"></div></div>
         </div>
       </div>
     </div>`;

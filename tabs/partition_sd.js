@@ -523,7 +523,7 @@ ${mtcAtomSection(id, 'psd', '1. The Copy_Atom', 32)}
             <b>mode 0</b> of <code>zipped_divide(tensor, Tiler_MN)</code>, i.e.
             the tile as it sits in the tensor.
           </div>
-          <div class="viz-box" id="${id}-psd-tile-svg"></div>
+          <div class="viz-box"><div id="${id}-psd-tile-svg"></div></div>
         </div>
         <div class="comp-viz-item">
           <div class="comp-viz-header">
@@ -549,7 +549,7 @@ ${mtcAtomSection(id, 'psd', '1. The Copy_Atom', 32)}
             The layout in <b>blue</b> is the one this grid draws: <b>Rest modes
             0&ndash;1</b>, mapping a tile index to the offset of that tile.
           </div>
-          <div class="viz-box" id="${id}-psd-sweep-svg"></div>
+          <div class="viz-box"><div id="${id}-psd-sweep-svg"></div></div>
         </div>
         <div class="comp-viz-item" id="${id}-psd-extra-item">
           <div class="comp-viz-header">
@@ -577,7 +577,7 @@ ${mtcAtomSection(id, 'psd', '1. The Copy_Atom', 32)}
             <code>zipped_divide(tensor, Tiler_MN)</code> &mdash; together they
             are the whole tensor and nothing else.
           </div>
-          <div class="viz-box" id="${id}-psd-extra-svg"></div>
+          <div class="viz-box"><div id="${id}-psd-extra-svg"></div></div>
         </div>
       </div>
     </div>`;

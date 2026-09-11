@@ -570,7 +570,7 @@ ${copyMoveField(id, 'tma')}
             </div>
             <div class="form-group">
               <label>num_multicast<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; fixed at 1: this Op is the non-multicast form</span></label>
-              <input type="number" id="${id}-tma-multicast-input" value="1" disabled>
+              <input type="text" id="${id}-tma-multicast-input" value="1" disabled>
             </div>
             <div id="${id}-tma-op-params" class="cuo-result"></div>
           </div>

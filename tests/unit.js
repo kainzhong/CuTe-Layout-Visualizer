@@ -886,6 +886,36 @@ function runUnitTests(V, T) {
           hints.some(h => /&(lt|gt|amp|mdash|nbsp);/.test(h)), false);
   });
 
+  // ── partition_S/D refuses a width no atom can move ────────────────────────
+  //  CuTe does not check this: `_make_tiled_copy` only relates layout_tv to the
+  //  ATOM, never asks whether a copy that wide can reach those elements, and
+  //  CuTeDSL will build the partition regardless. So the DSL cannot be the
+  //  oracle and the expectation lives here.
+  setSection('unit/psd-vectorization');
+  guard('rejects-unvectorizable-width', () => {
+    const tv = parseExact(V, '((8,4),(2,2)):((16,2),(8,1))');   // each thread owns a 2x2 patch
+    const tiler = V.psdParseTiler('(8, 16)');
+    const tensor = parseExact(V, '(16, 32):(1, 16)');
+    const run = (atomNumVal) => {
+      try { V.psdComputePartition(tv, tiler, tensor, atomNumVal, 5, 'S'); return null; }
+      catch (e) { return e.message; }
+    };
+    // 1 and 2 elements are a run along N; 4 would need a 2x2 patch to be contiguous.
+    check('rejects-unvectorizable-width', '1 element (16b) accepted', run(1), null);
+    check('rejects-unvectorizable-width', '2 elements (32b) accepted', run(2), null);
+    check('rejects-unvectorizable-width', '4 elements (64b) refused',
+          /not a stride-1 run along either tile axis/.test(run(4) || ''), true);
+    // The message must name the way out, the same courtesy mtcRequireAtomDivides gives.
+    check('rejects-unvectorizable-width', 'names the widths that work',
+          /Widths that do vectorize here: 1, 2 elements/.test(run(4) || ''), true);
+    // A layout whose thread values ARE a contiguous run takes the wide atom fine,
+    // so the refusal is about this partition and not about the width itself.
+    const flat = parseExact(V, '((8,4),4):((4,32),1)');
+    check('rejects-unvectorizable-width', '4 elements fine on a stride-1 val layout',
+          (() => { try { V.psdComputePartition(flat, V.psdParseTiler('(8, 16)'), tensor, 4, 5, 'S');
+                         return null; } catch (e) { return e.message; } })(), null);
+  });
+
   // ── The MMA "Alternative View" rotates B and NOTHING else ─────────────────
   //  The quadrant layout draws B as K x N so its K axis meets A's and its N
   //  axis meets C's. The whole claim is that this is a change of ORIENTATION,

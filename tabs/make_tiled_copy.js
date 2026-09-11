@@ -63,7 +63,7 @@ ${copyMoveField(id, p)}
             </div>
             <div class="form-group">
               <label>num_bits_per_copy</label>
-              <input type="number" id="${id}-${p}-bits-input" value="${bits === undefined ? 128 : bits}" min="1" step="1">
+              <input type="text" id="${id}-${p}-bits-input" value="${bits === undefined ? 128 : bits}">
             </div>
             <div class="form-group">
               <label>tensor_dtype</label>

@@ -57,7 +57,7 @@ function generateTmaPartitionTabContent(id) {
             </div>
             <div class="form-group">
               <label>TV Layout Src = Dst &mdash; (1, N):(0,1)<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; N = values one instruction moves</span></label>
-              <input type="number" id="${id}-tp-vals-input" value="16" min="1" step="1">
+              <input type="text" id="${id}-tp-vals-input" value="16">
             </div>
             <div class="form-group">
               <label>Value type</label>

@@ -358,7 +358,7 @@ ${copyMoveField(id, 'mca')}
             </div>
             <div class="form-group" id="${id}-mca-bits-group">
               <label>num_bits_per_copy</label>
-              <input type="number" id="${id}-mca-bits-input" value="128" min="1" step="1">
+              <input type="text" id="${id}-mca-bits-input" value="128">
             </div>
             <div id="${id}-mca-atom-result" class="cuo-result"></div>
           </div>

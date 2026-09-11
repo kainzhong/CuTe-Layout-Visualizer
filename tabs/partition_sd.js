@@ -221,6 +221,34 @@ function psdComputePartition(layout_tv, tiler, tensor, atomNumVal, thrIdx, side)
     }
   }
 
+  // The atom must be able to MOVE what FrgV says it moves. mtcVectorizationCheck
+  // asks whether T0's first AtomNumVal values are a stride-1 run along one tile
+  // axis; `none` means there is no tensor majorness that makes them contiguous,
+  // so no copy instruction of that width exists for this partition.
+  //
+  // This is an ERROR here, where make_tiled_copy / make_tiled_copy_tv report the
+  // same check inline. The difference is what the picture claims: those tabs draw
+  // the tile's COVERAGE, which is true whatever atom runs over it, while grid 1
+  // here is by definition "one atom invocation" (FrgV). Drawing a 4-wide FrgV
+  // that no instruction can perform would be a fiction, not a caveat.
+  const psdVec = mtcVectorizationCheck(atomNumVal, layout_tv, tiler.map(l => product(l.shape)));
+  if (psdVec.kind === 'none') {
+    const widths = [];
+    for (let n = 1; n <= atomNumVal; n++) {
+      if (atomNumVal % n !== 0) continue;
+      if (mtcVectorizationCheck(n, layout_tv, tiler.map(l => product(l.shape))).kind !== 'none')
+        widths.push(n);
+    }
+    throw new Error(
+      `num_bits_per_copy gives AtomNumVal = ${atomNumVal}, but T0's first ${atomNumVal} ` +
+      `values are not a stride-1 run along either tile axis — they sit at ` +
+      `${psdVec.coords.map(c => `(${c[0]},${c[1]})`).join(' ')}. No copy instruction that ` +
+      `wide exists for this partition, so FrgV would name an atom that cannot run.` +
+      (widths.length
+        ? ` Widths that do vectorize here: ${widths.join(', ')} elements.`
+        : ''));
+  }
+
   let tensorZ;
   try {
     tensorZ = zipped_divide(tensor, tiler);

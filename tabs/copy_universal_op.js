@@ -38,7 +38,7 @@ function generateCopyUniversalOpTabContent(id) {
           <div class="cuo-section-body">
             <div class="form-group">
               <label>num_bits_per_copy</label>
-              <input type="number" id="${id}-cuo-bits-input" value="128" min="1" step="1">
+              <input type="text" id="${id}-cuo-bits-input" value="128">
             </div>
             <div class="form-group">
               <label>tensor_dtype</label>

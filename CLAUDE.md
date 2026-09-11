@@ -1159,6 +1159,17 @@ it rejects a colon inside parens, which is exactly how CuTeDSL prints a Tiler. U
 `mtcParseTiler` a rank-3 tiler is **accepted**, since CuTe only asserts `rank(tensor) >= rank(tiler)`.
 `parse_tiler_mn` in `tests/gen_reference.py` is the Python twin and must stay in step.
 
+**A width no atom can move is refused, and this tab is stricter than its siblings.**
+`psdComputePartition` runs `mtcVectorizationCheck` and **throws** on `kind: 'none'`, where
+`make_tiled_copy` / `make_tiled_copy_tv` report the same check as an inline diagnostic. The
+difference is what each picture claims: those tabs draw the tile's *coverage*, which stays true
+whatever atom runs over it, while grid 1 here is by definition **one atom invocation** (FrgV) — a
+4-wide FrgV that no instruction can perform is a fiction, not a caveat. The default TV layout gives
+each thread a 2x2 patch, so `num_bits_per_copy = 64` on `half_t` asks for 4 contiguous elements that
+do not exist; the message names the widths that do vectorize, the same courtesy
+`mtcRequireAtomDivides` gives. This does not conflict with the "every preset must render cleanly"
+rule — that rule is about presets, and no preset here reaches `kind: 'none'`.
+
 **A tiler that does not divide the tensor is refused, and that refusal is the tab's own.** In C++ it
 is a constexpr `shape_div` assert, so the code does not compile; CuTeDSL's dynamic path has no such
 check and returns a layout that reads past the end. Verified: `(8, 16)` on a `(12, 32)` tensor gives

@@ -578,9 +578,10 @@ if (section('partition_abc')) {
       check(c.id, 'tile_mnk', `(${first.tileMNK.join(',')})`, `(${ref.tile_mnk.join(',')})`);
       check(c.id, 'thr_layout_vmnk', fmt(V, first.thrLayoutVmnk), ref.thr_layout_vmnk);
       checkLayout(c.id, first.partition, ref.layout);
-      // make_fragment_X — the partition_fragment_A/B/C tab's oracle. Checked
+      // make_fragment_X — CuTeDSL's MmaAtom.make_fragment_A/B/C. Checked
       // here rather than in a section of its own because it is the same call on
-      // the same object: `partition_fragment_X` IS `make_fragment_X(partition_X)`.
+      // the same object. No tab draws this; the derivation is kept because it is
+      // a real DSL call and the coverage is free once the partition is set up.
       checkLayout(`${c.id}/fragment`, first.fragment, ref.fragment);
 
       let badT = -1, badWhat = '', got = '', want = '';
@@ -602,7 +603,7 @@ if (section('partition_abc')) {
   }
 }
 
-// The two claims the partition_fragment tab makes in prose, as a diff between
+// The two claims make_fragment_X makes good on, as a diff between
 // cases rather than an assertion: A's fragment mode order follows the SOURCE's
 // majorness, C's ignores it. Each pair differs only in the tensor's strides, so
 // a change in either behaviour shows up here and nowhere else.

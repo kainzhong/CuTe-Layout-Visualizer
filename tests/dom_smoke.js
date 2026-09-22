@@ -234,8 +234,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     const fnName = hit[1];
     const pfx = { setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm',
                   setPSD: 'psd', setPsdSide: 'psd', setPsdMode: 'psd',
-                  setPABC: 'pabc', setPabcOperand: 'pabc', setPabcMode: 'pabc',
-                  setPFAB: 'pfab', setPfabOperand: 'pfab', setPfabMode: 'pfab' }[fnName];
+                  setPABC: 'pabc', setPabcOperand: 'pabc', setPabcMode: 'pabc' }[fnName];
     const svgs = pfx ? paneIds.filter(id => id.startsWith(`${TAB}-${pfx}-`)) : [];
     let args;
     try { args = handlerArgs(ctx, src, fnName); } catch (e) { args = null; }
@@ -257,8 +256,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
   // ── the two partition tabs' thread box accepts BLANK = every thread ──────
   // The presets all pass a concrete id, so nothing else here reaches the
   // unfocused path — and it is a whole branch of both grid-1 renderers.
-  for (const [pfx, render] of [['psd', 'renderPartitionSD'], ['pabc', 'renderPartitionABC'],
-                              ['pfab', 'renderPartitionFragmentABC']]) {
+  for (const [pfx, render] of [['psd', 'renderPartitionSD'], ['pabc', 'renderPartitionABC']]) {
     const field = els.get(`${TAB}-${pfx}-thr-input`);
     if (!field || typeof ctx[render] !== 'function') continue;
     const svgs = paneIds.filter(id => id.startsWith(`${TAB}-${pfx}-`));
@@ -388,6 +386,25 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     });
   }
 
+  // ── a blank atom_layout_mnk must RENDER, not error ───────────────────────
+  //  Both MMA tabs ship the box filled, so nothing else in the suite reaches
+  //  the blank path — and blank is the API default (the argument omitted),
+  //  not a missing input.
+  for (const [pfx, render] of [['mtm', 'renderMakeTiledMma'], ['pabc', 'renderPartitionABC']]) {
+    const field = els.get(`${TAB}-${pfx}-atomlayout-input`);
+    if (!field || typeof ctx[render] !== 'function') continue;
+    const svgs = paneIds.filter(id => id.startsWith(`${TAB}-${pfx}-`));
+    const was = field.value;
+    step(`${pfx}: blank atom_layout_mnk renders as (1,1,1)`, () => {
+      field.value = '';
+      ctx[render](TAB);
+    }, svgs);
+    step(`${pfx}: restoring it renders again`, () => {
+      field.value = was;
+      ctx[render](TAB);
+    }, svgs);
+  }
+
   // ── URL round-trip: every ?key= form must parse ──────────────────────────
   for (const key of [
     'layout-(10,10):(1,10)',
@@ -404,8 +421,6 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     'partition_sd-D-cpasync-128-half_t-((8,16),8):((128,1),16)-(16, 64)-3-(16, 64):(64, 1)',
     'partition_abc-A-f16bf16-half_t-float-16-(2, 2, 1)-na-5-(64, 48):(48, 1)',
     'partition_abc-C-tf32-na-na-8-(2, 2, 1)-(32, 16, 8)-3-(64, 32):(32, 1)',
-    'partition_fragment_abc-A-f16bf16-half_t-float-16-(2, 2, 1)-na-5-(64, 48):(1, 64)',
-    'partition_fragment_abc-C-f16bf16-half_t-float-16-(2, 2, 1)-na-5-(64, 32):(32, 1)',
   ]) {
     step(`?key=${key}`, () => {
       ctx.location.search = `?key=${key}`;

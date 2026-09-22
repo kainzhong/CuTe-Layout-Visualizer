@@ -3,10 +3,11 @@
 //   ThrMMA thr  = tiled_mma.get_slice(thr_idx);
 //   Tensor tCgA = thr.partition_A(gA);      // or partition_B / partition_C
 //
-// What a thread's REGISTERS then look like is `partition_fragment_A/B/C`, which
-// is `make_fragment_A(partition_A(t))` — a separate concern and its own tab
-// (tabs/partition_fragment_abc.js). This one stops at the partition. The two
-// share their input sections and `pabcComputePartition`, both below.
+// This tab stops at the partition. What a thread then holds in REGISTERS is
+// CuTeDSL's `MmaAtom.make_fragment_A(partition_A(t))` — `pabcComputePartition`
+// still returns it as `fragment` and `tests/run.js` diffs it against the DSL,
+// but nothing draws it. (C++ wraps the pair as `ThrMMA::partition_fragment_A`;
+// CuTeDSL has no such wrapper, which is why this tool does not offer one.)
 //
 // The MMA counterpart of the partition_S / partition_D tab, and deliberately
 // the same three-level picture, because the levels mean the same things:
@@ -266,13 +267,13 @@ function pabcComputePartition(atom, atomLayout, perm, which, tensor, thrIdx) {
 //  The tab
 // ═══════════════════════════════════════════════════════
 
-/** The four input sections both partition tabs take, and the operand toggle
- *  above them. Shared because `partition_fragment_X` IS `partition_X` plus a
- *  step — the two tabs cannot legitimately disagree about a single input, and
- *  the sections are 80 lines of markup that would otherwise drift.
+/** The four input sections this tab takes, and the operand toggle above them.
+ *  Still parameterized by `p` / `fn` rather than inlined: it was shared with a
+ *  second tab, and the next MMA tab to take a TiledMMA plus a tensor will want
+ *  the same 80 lines of markup rather than a near-copy of them.
  *
- *  `p` is the id prefix ('pabc' / 'pfab'); `fn` names the call in the toggle's
- *  buttons ('partition' / 'partition_fragment'). */
+ *  `p` is the id prefix ('pabc'); `fn` names the call in the toggle's buttons
+ *  ('partition'). */
 function pabcInputSections({ id, p, fn, render, setOp, setOperand }) {
   return `
         <div class="form-group">
@@ -316,7 +317,8 @@ function pabcInputSections({ id, p, fn, render, setOp, setOperand }) {
           <div class="cuo-section-body">
             ${layoutInputField({
               id: `${id}-${p}-atomlayout-input`, label: 'atom_layout_mnk', value: '(2, 2, 1)',
-              hint: 'Rank 3 &mdash; how many warps along M, N and K.',
+              placeholder: '(1, 1, 1)',
+              hint: 'Rank 3 &mdash; how many warps along M, N and K. Blank = (1, 1, 1), CuTeDSL\'s own default.',
             })}
             ${layoutInputField({
               id: `${id}-${p}-perm-input`, label: 'permutation_mnk', value: '',
@@ -430,12 +432,12 @@ ${pabcInputSections({ id, p: 'pabc', fn: 'partition', render: 'renderPartitionAB
           CuTe's <code>slice</code> splices a sliced tuple mode into its parent
           &mdash; which is why CUTLASS's GEMMs write <code>tCgA(_,_,_,k)</code>.
           <br><br>
-          <b>What the thread holds in REGISTERS is the next tab.</b>
-          <code>partition_fragment_A/B/C</code> &mdash; the wrapper a kernel
-          writes, <code>make_fragment_A(partition_A(t))</code> &mdash; takes this
-          tab's output and gives the register array. It is a separate concern
-          (and a separate question: the fragment's mode order depends on the
-          <em>source's</em> majorness), so it has its own tab.<br><br>
+          <b>What the thread holds in REGISTERS is one more step.</b>
+          <code>make_fragment_A(partition_A(t))</code> takes this tab's output
+          and gives the register array &mdash; a separate question, since the
+          fragment's mode order follows the <em>source's</em> majorness. Not
+          drawn here; CuTeDSL exposes it as
+          <code>MmaAtom.make_fragment_A</code>.<br><br>
           See the <b>make_tiled_mma</b> tab for all six grids of the TiledMMA
           itself; this tab is one operand of it, against a tensor.
         </div>

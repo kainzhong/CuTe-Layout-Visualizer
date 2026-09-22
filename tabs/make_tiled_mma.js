@@ -91,7 +91,11 @@ function mtmCompactStride(shape) {
  *  a mode. */
 function mtmParseAtomLayout(raw) {
   const s = (raw || '').trim();
-  if (!s) throw new Error('atom_layout_mnk is empty — give it a rank-3 shape like (2, 2, 1).');
+  // Blank means the argument was OMITTED, and CuTeDSL's signature defaults it to
+  // (1, 1, 1) — `make_tiled_mma(op_or_atom, atom_layout_mnk=(1,1,1), ...)`. That
+  // is also the reading `permutation_mnk`'s blank already gets in this tab, and
+  // the two boxes are both optional arguments, so they should agree.
+  if (!s) return new Layout([1, 1, 1], mtmCompactStride([1, 1, 1]));
   const ci = topLevelColon(s);
   const shape = parseValue(ci === -1 ? s : s.slice(0, ci).trim());
   const stride = ci === -1 ? mtmCompactStride(shape) : parseValue(s.slice(ci + 1).trim());
@@ -558,7 +562,8 @@ function generateMakeTiledMmaTabContent(id) {
           <div class="cuo-section-body">
             ${layoutInputField({
               id: `${id}-mtm-atomlayout-input`, label: 'atom_layout_mnk', value: '(2, 2, 1)',
-              hint: 'Rank 3 — how many warps along M, N and K. A stride reorders which warp is which: (2,2,1):(2,1,4).',
+              placeholder: '(1, 1, 1)',
+              hint: 'Rank 3 — how many warps along M, N and K. A stride reorders which warp is which: (2,2,1):(2,1,4). Blank = (1, 1, 1), CuTeDSL\'s own default: one warp, which makes this identical to make_mma_atom.',
             })}
             ${layoutInputField({
               id: `${id}-mtm-perm-input`, label: 'permutation_mnk', value: '(32, 32, 16)',

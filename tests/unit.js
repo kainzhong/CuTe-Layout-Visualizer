@@ -195,39 +195,6 @@ function runUnitTests(V, T) {
           true);
   });
 
-  // ── pfabRegisterOrder: the load-order analysis, which CuTe does not do ────
-  //  CuTe builds the fragment to promote vectorization but never reports how far
-  //  it got. Counting the runs of consecutive source elements is this tool's
-  //  own reading of the result, so it has no oracle — the expectations come from
-  //  the layouts CuTeDSL confirmed in the partition_abc corpus.
-  setSection('unit/pfabRegisterOrder');
-  const RO = (fragStr, partStr, rest) => {
-    const r = V.pfabRegisterOrder(parseExact(V, fragStr), parseExact(V, partStr), rest);
-    return `${r.src.length} regs, ${r.runs.length} runs, longest ${r.maxRun}`;
-  };
-  guard('row-major-A-pairs-up', () => {
-    // A_2x2x1: FrgV strides (1,384,8) — v0 and v1 ARE adjacent in the source, so
-    // registers pair up and a 32-bit load covers each pair.
-    check('row-major-A-pairs-up', 'runs of 2',
-          RO('((2,2,2),2,3):((1,2,4),24,8)', '((2,2,2),2,3):((1,384,8),1536,16)', [2, 3]),
-          '48 regs, 24 runs, longest 2');
-  });
-  guard('col-major-A-is-scalar', () => {
-    // A_colmajor: nothing is adjacent, so every load is scalar. Same TiledMMA,
-    // same register count — only the source's majorness changed.
-    check('col-major-A-is-scalar', 'runs of 1',
-          RO('((2,2,2),2,3):((1,2,4),8,16)', '((2,2,2),2,3):((64,8,512),32,1024)', [2, 3]),
-          '48 regs, 48 runs, longest 1');
-  });
-  guard('every-register-is-assigned', () => {
-    // The fragment is a bijection onto 0..N-1, so inverting it must leave no
-    // hole — a null here would draw a blank cell rather than fail.
-    const r = V.pfabRegisterOrder(parseExact(V, '((2,2),2,2):((1,2),4,8)'),
-                                 parseExact(V, '((2,2),2,2):((1,256),1024,16)'), [2, 2]);
-    check('every-register-is-assigned', 'no unassigned register',
-          r.src.filter(x => x === null).length, 0);
-  });
-
   // ── parseSwizzleSpec ───────────────────────────────────────────────────────
   setSection('unit/parseSwizzleSpec');
   const SW = (s) => { const r = V.parseSwizzleSpec(s); return r ? `${r.B},${r.M},${r.S}` : 'null'; };
@@ -677,13 +644,25 @@ function runUnitTests(V, T) {
     check('atom-layout-parse', 'explicit stride kept', AL('(2,2,1):(2,1,4)'), '(2,2,1):(2,1,4)');
     check('atom-layout-parse', 'whitespace', AL(' (2, 2, 1) '), '(2,2,1):(1,2,0)');
   });
+  guard('atom-layout-blank-is-the-api-default', () => {
+    // Both atom_layout_mnk and permutation_mnk are OPTIONAL arguments of
+    // cute.make_tiled_mma, so a blank box means "omitted" for both. The DSL
+    // signature defaults this one to (1,1,1); permutation_mnk's blank already
+    // meant None, and the two boxes should not disagree about what empty means.
+    for (const blank of ['', '   ', undefined, null]) {
+      check('atom-layout-blank-is-the-api-default', JSON.stringify(blank),
+            AL(blank), '(1,1,1):(0,0,0)');
+    }
+    // ... and it is genuinely the same object an explicit (1,1,1) gives.
+    check('atom-layout-blank-is-the-api-default', 'same as explicit',
+          AL(''), AL('(1, 1, 1)'));
+  });
   guard('atom-layout-refusals', () => {
     const why = (s) => { try { V.mtmParseAtomLayout(s); return null; } catch (e) { return e.message; } };
     // parseLayout would pad "(2,2)" out to rank 2 and silently invent a mode;
     // rank 3 is what CuTeDSL requires ("expects rank-3 MNK atom layout").
     check('atom-layout-refusals', 'rank 2 rejected', /must be rank 3/.test(why('(2,2)')), true);
     check('atom-layout-refusals', 'rank 4 rejected', /must be rank 3/.test(why('(2,2,1,1)')), true);
-    check('atom-layout-refusals', 'empty rejected', /empty/.test(why('  ')), true);
     check('atom-layout-refusals', 'stride rank mismatch',
           /stride must be rank 3/.test(why('(2,2,1):(1,2)')), true);
   });

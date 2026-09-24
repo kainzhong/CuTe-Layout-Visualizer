@@ -41,7 +41,7 @@ verifies every case was evaluated before accepting the run, and fails otherwise.
 | Section | Under test | Oracle |
 |---|---|---|
 | `layout_ops` | `coalesce`, `filter`, `composition`, `complement`, the inverses, the whole divide / product family, `blocked_product`, `raked_product`, `slice_and_offset`, `size`/`cosize`, `crd2idx`/`idx2crd`, `shape_div`, `product_each` | the same call in `cutlass.cute` |
-| `basis_ops` | the same ops over **coordinate (scaled-basis) layouts** — only the ones CuTe defines for them (see the table in `CLAUDE.md`) | ditto |
+| `basis_ops` | the same ops over **coordinate (scaled-basis) layouts** — only the ones CuTe defines for them (see the table in [`docs/architecture.md`](../docs/architecture.md)) | ditto |
 | `make_layout_tv` | `make_layout_tv(thr, val)`, the `make_tiled_copy_tv` tab's derivation | `cute.make_layout_tv` **and** the `TiledCopy` that `cute.make_tiled_copy_tv` builds |
 | `make_tiled_copy` | the tab's reading of `(layout_tv, Tiler_MN)` — `mtcParseTiler` and `parseLayout` | what `cute.make_tiled_copy` reports back |
 | `copy_atom` | `ui.js`'s `DTYPE_BITS` and the ValLayout it implies | `cute.make_copy_atom` |
@@ -59,7 +59,7 @@ value is always a real bug.
 
 Some of this tool's checks exist precisely because CuTe does *not* perform them: the
 configuration compiles, runs, and is silently wrong (see "Validation that CuTe itself
-skips" in `CLAUDE.md`). Those live in `unit.js`, with expectations derived from the C++
+skips" in [`docs/architecture.md`](../docs/architecture.md)). Those live in `unit.js`, with expectations derived from the C++
 preconditions they encode — `mtcCoverageCheck`, `mtcVectorizationCheck`,
 `mtcRequireCompact`, the TMA host-`assert()` issues, and `tpComputePartition`'s
 permutation / divisibility guards.
@@ -81,7 +81,7 @@ If a new tab's operation has no `cutlass.cute` entry point, first check whether 
 
 ## Adding a tab
 
-**Every new tab needs tests here.** See "Testing" in `CLAUDE.md` for the checklist.
+**Every new tab needs tests here.** See "Testing" in [`docs/architecture.md`](../docs/architecture.md) for the checklist.
 
 ## Note on the harness
 
@@ -89,4 +89,4 @@ If a new tab's operation has no `cutlass.cute` entry point, first check whether 
 `const`/`let`/`class` names onto `globalThis`, because those never reach the global
 object the way function declarations do. It also fails loudly on a duplicate top-level
 lexical name across files — in the browser that would silently shadow, which is the
-load-order hazard `CLAUDE.md` warns about.
+load-order hazard [`docs/architecture.md`](../docs/architecture.md) warns about.

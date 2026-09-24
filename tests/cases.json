@@ -501,7 +501,7 @@
   "_comment_basis": [
     "Coordinate (scaled-basis) layouts. CuTe defines composition and the divide",
     "family over them; complement / inverses / products are rejected (see the table",
-    "in CLAUDE.md). Only the 'yes' half appears here."
+    "in docs/architecture.md). Only the 'yes' half appears here."
   ],
   "basis_ops": [
     {
@@ -1806,7 +1806,7 @@
     "(basis-strided) tensor the iterator IS the origin coordinate, read off directly.",
     "'tiler' and 'coord' are the raw strings the tab's fields take -- several lines is",
     "a Tiler tuple, one line with a colon a single layout tiler, one without a Shape",
-    "tiler (CLAUDE.md) -- so the parser is exercised on the way in.",
+    "tiler (docs/architecture.md) -- so the parser is exercised on the way in.",
     "An 'equiv' block gives the same call with proj already applied by hand; run.js",
     "requires the two to agree, which turns the tab's claim that proj is nothing but",
     "dicing into something enforced rather than asserted."

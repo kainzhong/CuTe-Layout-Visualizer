@@ -374,6 +374,7 @@ ${pabcInputSections({ id, p: 'pabc', fn: 'partition', render: 'renderPartitionAB
         ${statusDivs(`${id}-pabc`)}
         <button class="btn btn-render" onclick="renderPartitionABC('${id}')">Render</button>
         <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-pabc-export" onclick="exportPABC('${id}')">Export URL</button>
+        <div id="${id}-pabc-result" class="cuo-result"></div>
 
         <div class="presets">
           <h3>Presets</h3>
@@ -561,6 +562,7 @@ function pabcReadInputs(tabId, p) {
 function renderPartitionABC(tabId) {
   showErr(`${tabId}-pabc-error`, '');
   showWarn(`${tabId}-pabc-warning`, '');
+  document.getElementById(`${tabId}-pabc-result`).innerHTML = '';
   const prev = pabcState[tabId] || {};
   const which = prev.which || 'A';
   pabcSyncOperandField(tabId, which);
@@ -568,6 +570,9 @@ function renderPartitionABC(tabId) {
     const inp = pabcReadInputs(tabId, 'pabc');
     const r = pabcComputePartition(inp.atom, inp.atomLayout, inp.perm, which, inp.tensor, inp.thrIdx);
     const { abDtype, accDtype, thrIdx } = inp;
+    const resultLayout = formatLayoutStr(r.partition.shape, r.partition.stride);
+    document.getElementById(`${tabId}-pabc-result`).innerHTML =
+      `<div class="cuo-result-line">${r.spec.fn} = <b>${resultLayout}</b></div>`;
 
     document.getElementById(`${tabId}-pabc-tiled-result`).innerHTML =
       `<div class="cuo-result-line">thr_layout_vmnk = <b>` +
@@ -588,10 +593,10 @@ function renderPartitionABC(tabId) {
     pabcRenderTileViz(tabId);
     pabcRenderSweepViz(tabId);
     pabcRenderExtraViz(tabId);
-    updateOuterTabLabel(tabId,
-      `${r.spec.fn}:${formatLayoutStr(r.partition.shape, r.partition.stride)}`);
+    updateOuterTabLabel(tabId, `${r.spec.fn}:${resultLayout}`);
   } catch (e) {
     showErr(`${tabId}-pabc-error`, e.message);
+    document.getElementById(`${tabId}-pabc-result`).innerHTML = '';
     for (const g of ['tile', 'sweep', 'extra']) {
       const el = document.getElementById(`${tabId}-pabc-${g}-svg`);
       if (el) el.innerHTML = '';

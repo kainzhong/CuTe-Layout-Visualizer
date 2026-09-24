@@ -253,6 +253,34 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     if (missed.length) throw new Error(`${missed.length} preset(s) never ran: ${missed[0].slice(0, 90)}`);
   });
 
+  // The visible result must be the complete layout returned by the selected
+  // API, including nested modes and strides. Use the committed CuTeDSL oracle
+  // so this checks the displayed result independently of the JS computation.
+  const partitionRef = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/reference.json'), 'utf8'));
+  const partitionResults = [
+    ['S', 'psd', 'partition_sd', 'basic_2x2', 'partition_S', () =>
+      ctx.setPSD(TAB, 'S', 'universal', 32, 'half_t',
+                 '((8,4),(2,2)):((16,2),(8,1))', '(8, 16)', '5', '(16, 32):(1, 16)')],
+    ['D', 'psd', 'partition_sd', 'basic_2x2_d', 'partition_D', () =>
+      ctx.setPSD(TAB, 'D', 'universal', 32, 'half_t',
+                 '((8,4),(2,2)):((16,2),(8,1))', '(8, 16)', '5', '(16, 32):(32, 1)')],
+    ...[['A', 'A_2x2x1', '(64, 48):(48, 1)'],
+        ['B', 'B_2x2x1', '(32, 48):(48, 1)'],
+        ['C', 'C_2x2x1', '(64, 32):(32, 1)']].map(([which, ref, tensor]) =>
+      [which, 'pabc', 'partition_abc', ref, `partition_${which}`, () =>
+        ctx.setPABC(TAB, which, 'f16bf16', 'half_t', 'float', 16,
+                    '(2, 2, 1)', '', '5', tensor)]),
+  ];
+  for (const [which, pfx, section, ref, fn, render] of partitionResults) {
+    step(`${fn} displays its returned layout`, () => {
+      render();
+      const got = els.get(`${TAB}-${pfx}-result`).innerHTML;
+      const expected = partitionRef[section][ref].layout.str;
+      if (!got.includes(`${fn} = <b>${expected}</b>`))
+        throw new Error(`result = ${got}, expected ${fn} = ${expected}`);
+    }, paneIds.filter(id => id.startsWith(`${TAB}-${pfx}-`)));
+  }
+
   // ── the two partition tabs' thread box accepts BLANK = every thread ──────
   // The presets all pass a concrete id, so nothing else here reaches the
   // unfocused path — and it is a whole branch of both grid-1 renderers.
@@ -270,7 +298,12 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
       // Both tabs blank their grids on an error, unlike make_tiled_mma (whose
       // focus box re-reads on every keystroke and must survive typing). So the
       // pane check applies only to the steps expected to succeed.
-      step(`${render} thread ${label}`, () => { field.value = v; ctx[render](TAB); },
+      step(`${render} thread ${label}`, () => {
+        field.value = v;
+        ctx[render](TAB);
+        if (opts && els.get(`${TAB}-${pfx}-result`).innerHTML)
+          throw new Error('stale returned layout remains after an invalid input');
+      },
            opts ? [] : svgs, opts);
     }
   }

@@ -8,7 +8,7 @@
 //   2. VALIDATION CUTE SKIPS. mtcCoverageCheck / mtcVectorizationCheck /
 //      mtcRequireCompact catch configurations that CuTe compiles and runs while
 //      being silently wrong (see "Validation that CuTe itself skips" in
-//      CLAUDE.md). By definition the DSL cannot be the oracle for these — the
+//      docs/architecture.md). By definition the DSL cannot be the oracle for these — the
 //      expectations are derived from the C++ preconditions they encode.
 //
 //  Everything that CAN be diffed against CuTeDSL belongs in cases.json instead.
@@ -973,7 +973,7 @@ function runUnitTests(V, T) {
     check('transpose-grid-is-exact', 'it rendered', /<svg/.test(svg), true);
   });
 
-  // ── The load-order hazard CLAUDE.md warns about ────────────────────────────
+  // ── The load-order hazard docs/architecture.md warns about ────────────────
   setSection('unit/load-order');
   guard('layout-js-wins', () => {
     // layout.js loads after cute.js, so on a name clash layout.js wins silently.

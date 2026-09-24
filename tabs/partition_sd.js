@@ -424,6 +424,7 @@ ${mtcAtomSection(id, 'psd', '1. The Copy_Atom', 32)}
         ${statusDivs(`${id}-psd`)}
         <button class="btn btn-render" onclick="renderPartitionSD('${id}')">Render</button>
         <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-psd-export" onclick="exportPSD('${id}')">Export URL</button>
+        <div id="${id}-psd-result" class="cuo-result"></div>
 
         <div class="presets">
           <h3>Presets</h3>
@@ -588,6 +589,7 @@ const psdState = {};
 function renderPartitionSD(tabId) {
   showErr(`${tabId}-psd-error`, '');
   showWarn(`${tabId}-psd-warning`, '');
+  document.getElementById(`${tabId}-psd-result`).innerHTML = '';
   const prev = psdState[tabId] || {};
   const side = prev.side || 'S';
   psdSyncSideField(tabId, side);
@@ -638,6 +640,9 @@ function renderPartitionSD(tabId) {
     const r = psdComputePartition(layout_tv, tiler, tensor, atom.atomNumVal, thrIdx, side);
 
     const spec = PSD_SIDE[side];
+    const resultLayout = formatLayoutStr(r.partition.shape, r.partition.stride);
+    document.getElementById(`${tabId}-psd-result`).innerHTML =
+      `<div class="cuo-result-line">${spec.fn} = <b>${resultLayout}</b></div>`;
     const [srcSpace, dstSpace] = copyMove(tabId, 'psd');
     const space = side === 'S' ? srcSpace : dstSpace;
     document.getElementById(`${tabId}-psd-tiled-result`).innerHTML =
@@ -663,12 +668,10 @@ function renderPartitionSD(tabId) {
     psdRenderTileViz(tabId);
     psdRenderSweepViz(tabId);
     psdRenderExtraViz(tabId);
-    // The returned layout has no result box any more, so the outer tab label
-    // carries it — the same place Divide / LocalTile put theirs.
-    updateOuterTabLabel(tabId,
-      `${spec.fn}:${formatLayoutStr(r.partition.shape, r.partition.stride)}`);
+    updateOuterTabLabel(tabId, `${spec.fn}:${resultLayout}`);
   } catch (e) {
     showErr(`${tabId}-psd-error`, e.message);
+    document.getElementById(`${tabId}-psd-result`).innerHTML = '';
     for (const k of ['tile', 'sweep', 'extra']) {
       const el = document.getElementById(`${tabId}-psd-${k}-svg`);
       if (el) el.innerHTML = '';

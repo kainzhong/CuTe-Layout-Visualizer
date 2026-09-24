@@ -75,7 +75,7 @@ function assertNoDuplicateLexicals(files) {
       'Duplicate top-level const/let/class across source files:\n  ' +
       dups.join('\n  ') +
       '\nIn the browser the second declaration silently overwrites the first ' +
-      '(see the load-order warning in CLAUDE.md). Rename one of them.');
+      '(see the load-order warning in docs/architecture.md). Rename one of them.');
   }
   return [...seen.keys()];
 }

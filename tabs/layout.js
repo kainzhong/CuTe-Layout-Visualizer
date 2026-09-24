@@ -71,7 +71,7 @@ function renderLayout(tabId) {
     updateRankWarning(`${tabId}-layout-warning`, [['Layout', inputVal]]);
     // This is the one tab that accepts CuTe's basis strides (`k@i`) and the
     // `<origin> o <layout>` coordinate-tensor printout — see the "Coordinate
-    // layouts" note in CLAUDE.md. Everywhere else parseLayout rejects them.
+    // layouts" note in docs/architecture.md. Everywhere else parseLayout rejects them.
     let { shape, stride, basis, origin, ndim } = parseLayout(inputVal, { basis: true });
     const [M, N] = productEach(shape);
 

@@ -1154,7 +1154,7 @@ function collectHighRank(inputs) {
 //  ANY tab that accepts a layout/shape string should use `layoutInputField()`
 //  to render the input, follow it with `statusDivs()` for the error + warning
 //  panels, and call `updateRankWarning()` in its render function to flag
-//  rank > 2 inputs. See CLAUDE.md for the full convention.
+//  rank > 2 inputs. See docs/architecture.md for the full convention.
 // ═══════════════════════════════════════════════════════
 
 /** HTML for a layout-aware input field.
@@ -1210,7 +1210,7 @@ function statusDivs(prefix) {
  *  its old `mtc` prefix because the third consumer is in a different SCOPE, and
  *  a highlight that behaved differently per tab is exactly the drift
  *  SIMT_COPY_OPS was moved here to stop. See "Highlighting a thread" in
- *  CLAUDE.md for the rule the callers have to keep: a dimmed cell keeps its
+ *  docs/architecture.md for the rule the callers have to keep: a dimmed cell keeps its
  *  T/V labels, because highlighting is a focus, not a mask. */
 function readHighlightTid(tabId, p, thrSize) {
   const raw = (document.getElementById(`${tabId}-${p}-highlight-tid`).value || '').trim();
@@ -1501,7 +1501,7 @@ ${pane('dst')}
 
 /** Render every tab once with its shipped defaults, so switching to a tab shows
  *  a picture instead of an empty box. Safe because every tab's defaults are a
- *  working configuration — the same rule that governs presets (see CLAUDE.md).
+ *  working configuration — the same rule that governs presets (see docs/architecture.md).
  *  The active tab is rendered LAST so its `updateOuterTabLabel` call is the one
  *  that sticks, and each render is isolated so one failure can't block the rest. */
 function renderAllTabs(tabId, activeTab) {

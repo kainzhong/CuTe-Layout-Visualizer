@@ -414,16 +414,23 @@ textarea:focus { outline: none; border-color: #3b82f6; }
   letter-spacing: 1px;
   color: #6b7280;
 }
-.copy-pane-space {
+.memory-space-badge {
+  display: inline-block;
   background: #111827;
   border: 1px solid #374151;
   border-radius: 4px;
   padding: 2px 7px;
-  color: #6ee7b7;
+  color: #9ca3af;
   font-family: 'SFMono-Regular', Consolas, monospace;
   font-size: 0.76rem;
   font-weight: 600;
+  line-height: 1.2;
 }
+.memory-space-badge[data-space="GMEM"] { color: #93c5fd; background: #172554; border-color: #3b82f6; }
+.memory-space-badge[data-space="SMEM"] { color: #6ee7b7; background: #064e3b; border-color: #10b981; }
+.memory-space-badge[data-space="RMEM"] { color: #fcd34d; background: #451a03; border-color: #d97706; }
+.memory-space-badge[data-space="TMEM"] { color: #d8b4fe; background: #3b0764; border-color: #a855f7; }
+.comp-viz-title { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 7px; min-width: 0; }
 .copy-arrow {
   align-self: center;
   flex: 0 0 auto;
@@ -813,16 +820,14 @@ textarea:focus { outline: none; border-color: #3b82f6; }
   border: 1px solid #334155;
   border-radius: 7px;
 }
-.seg-control .mode-btn,
-.seg-control .mode-btn:first-child,
-.seg-control .mode-btn:last-child,
-.seg-control .mode-btn:not(:first-child):not(:last-child) {
+.seg-control .mode-btn {
   border-radius: 5px;
   padding: 5px 12px;
   font-size: 0.75rem;
   border-color: transparent;
   background: transparent;
 }
+.seg-control .mode-btn:not(:first-child):not(:last-child) { border-radius: 5px; }
 .seg-control .mode-btn:hover { background: #1e293b; color: #93c5fd; }
 .seg-control .mode-btn.active { background: #1e3a5f; color: #60a5fa; border-color: #3b82f6; }
 

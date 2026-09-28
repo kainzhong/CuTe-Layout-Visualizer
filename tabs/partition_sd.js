@@ -503,7 +503,7 @@ ${mtcAtomSection(id, 'psd', '1. The Copy_Atom', 32)}
       <div class="comp-results" style="grid-template-columns:1fr">
         <div class="comp-viz-item">
           <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-psd-tile-title">1. The TiledCopy over one tile</span>
+            <span class="comp-viz-title"><span class="comp-viz-label" id="${id}-psd-tile-title">1. The TiledCopy over one tile</span>${memorySpaceBadge(`${id}-psd-tile-space`, 'GMEM')}</span>
             <span style="display:flex;align-items:center;gap:4px">
               <span class="mode-btn-group" id="${id}-psd-tile-mode-btns">
                 <button class="mode-btn" onclick="setPsdMode('${id}','tile','value')">value</button>
@@ -528,7 +528,7 @@ ${mtcAtomSection(id, 'psd', '1. The Copy_Atom', 32)}
         </div>
         <div class="comp-viz-item">
           <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-psd-sweep-title">2. The tile over the (M, N) plane</span>
+            <span class="comp-viz-title"><span class="comp-viz-label" id="${id}-psd-sweep-title">2. The tile over the (M, N) plane</span>${memorySpaceBadge(`${id}-psd-sweep-space`, 'GMEM')}</span>
             <span style="display:flex;align-items:center;gap:4px">
               <span class="mode-btn-group" id="${id}-psd-sweep-mode-btns">
                 <button class="mode-btn" onclick="setPsdMode('${id}','sweep','value')">value</button>
@@ -554,7 +554,7 @@ ${mtcAtomSection(id, 'psd', '1. The Copy_Atom', 32)}
         </div>
         <div class="comp-viz-item" id="${id}-psd-extra-item">
           <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-psd-extra-title">3. The plane over the whole tensor</span>
+            <span class="comp-viz-title"><span class="comp-viz-label" id="${id}-psd-extra-title">3. The plane over the whole tensor</span>${memorySpaceBadge(`${id}-psd-extra-space`, 'GMEM')}</span>
             <span style="display:flex;align-items:center;gap:4px">
               <span class="mode-btn-group" id="${id}-psd-extra-mode-btns">
                 <button class="mode-btn" onclick="setPsdMode('${id}','extra','value')">value</button>
@@ -593,6 +593,7 @@ function renderPartitionSD(tabId) {
   const prev = psdState[tabId] || {};
   const side = prev.side || 'S';
   psdSyncSideField(tabId, side);
+  psdSyncSpaceBadges(tabId);
   try {
     const atom = mtcReadAtom(tabId, 'psd');
 
@@ -643,8 +644,6 @@ function renderPartitionSD(tabId) {
     const resultLayout = formatLayoutStr(r.partition.shape, r.partition.stride);
     document.getElementById(`${tabId}-psd-result`).innerHTML =
       `<div class="cuo-result-line">${spec.fn} = <b>${resultLayout}</b></div>`;
-    const [srcSpace, dstSpace] = copyMove(tabId, 'psd');
-    const space = side === 'S' ? srcSpace : dstSpace;
     document.getElementById(`${tabId}-psd-tiled-result`).innerHTML =
       `<div class="cuo-result-line">layout_tv = <b>${formatLayoutStr(layout_tv.shape, layout_tv.stride)}</b></div>` +
       `<div class="cuo-result-line">Tiler_MN  = <b>(${tiler.map(l => formatLayoutStr(l.shape, l.stride)).join(', ')})</b></div>` +
@@ -836,6 +835,16 @@ function psdSyncSideField(tabId, side) {
   const group = document.getElementById(`${tabId}-psd-side-btns`);
   if (group) group.querySelectorAll('.mode-btn').forEach(b =>
     b.classList.toggle('active', b.textContent.trim() === spec.fn));
+}
+
+/** The three views all depict the selected S or D tensor, so each title names
+ * that side's space. This also runs when the move picker changes without a
+ * full partition recomputation. */
+function psdSyncSpaceBadges(tabId) {
+  const [src, dst] = copyMove(tabId, 'psd');
+  const space = (psdState[tabId] || {}).side === 'D' ? dst : src;
+  for (const level of ['tile', 'sweep', 'extra'])
+    setMemorySpaceBadge(`${tabId}-psd-${level}-space`, space);
 }
 
 function setPsdSide(tabId, side) {

@@ -720,6 +720,7 @@ const TAB_RENDER_FN = {
   make_mma_atom:      'renderMakeMmaAtom',
   make_tiled_mma:     'renderMakeTiledMma',
   partition_abc:      'renderPartitionABC',
+  make_fragment_abc:  'renderMakeFragmentABC',
 };
 
 /** True on Apple platforms, where the modifier is ⌘ rather than Ctrl. */
@@ -800,7 +801,7 @@ function generateTabContent(id) {
         </div>
         <div class="tab-scope-btn" data-scope="mma" onclick="switchTabGroup('${id}', 'mma')">
           <span class="tab-scope-icon">\u2B21</span>MMA
-          <span class="tab-scope-count">3</span>
+          <span class="tab-scope-count">4</span>
         </div>
       </div>
     <div class="tab-bar" data-scope="basics">
@@ -825,6 +826,7 @@ function generateTabContent(id) {
       <div data-tab="make_mma_atom" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_mma_atom')">make_mma_atom</div>
       <div data-tab="make_tiled_mma" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_tiled_mma')">make_tiled_mma</div>
       <div data-tab="partition_abc" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'partition_abc')">partition_A / B / C</div>
+      <div data-tab="make_fragment_abc" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_fragment_abc')">make_fragment_A / B / C</div>
     </div>
     </div>
     ${generateLayoutTabContent(id)}
@@ -848,6 +850,7 @@ function generateTabContent(id) {
     ${generateMakeMmaAtomTabContent(id)}
     ${generateMakeTiledMmaTabContent(id)}
     ${generatePartitionABCTabContent(id)}
+    ${generateMakeFragmentABCTabContent(id)}
   </div>`;
 }
 
@@ -1076,7 +1079,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_tma_atom: 15, tma_partition: 16, partition_sd: 17, make_mma_atom: 18, make_tiled_mma: 19, partition_abc: 20 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_tma_atom: 15, tma_partition: 16, partition_sd: 17, make_mma_atom: 18, make_tiled_mma: 19, partition_abc: 20, make_fragment_abc: 21 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1427,6 +1430,7 @@ function syncCopyMoves(tabId, p, opKey) {
   sel.value = moves.some(([a, b]) => `${a}>${b}` === want) ? want : `${moves[0][0]}>${moves[0][1]}`;
   sel.disabled = moves.length === 1;
   updateCopyPaneTitles(tabId, p);
+  if (p === 'psd') psdSyncSpaceBadges(tabId);
 }
 
 /** The selected movement as [src, dst]. */
@@ -1436,7 +1440,24 @@ function copyMove(tabId, p) {
   return v.split('>');
 }
 
-function setCopyMove(tabId, p) { updateCopyPaneTitles(tabId, p); }
+function setCopyMove(tabId, p) {
+  updateCopyPaneTitles(tabId, p);
+  if (p === 'psd') psdSyncSpaceBadges(tabId);
+}
+
+/** A memory badge belongs to a title, not the SVG: cell colors encode which
+ * thread/value owns a position and must stay comparable across memory spaces. */
+function memorySpaceBadge(id, space) {
+  return `<span class="memory-space-badge" id="${id}" data-space="${space}">${space}</span>`;
+}
+
+function setMemorySpaceBadge(id, space) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.textContent = space;
+    el.setAttribute('data-space', space);
+  }
+}
 
 /** Push the selected movement onto a pane pair's headers. `p` is the pane
  *  prefix, which is usually the tab prefix but need not be: the tiled-copy tabs
@@ -1454,8 +1475,8 @@ function updateCopyPaneTitles(tabId, p, moveFrom) {
   const [src, dst] = copyMove(tabId, moveFrom || p);
   const a = document.getElementById(`${tabId}-${p}-src-space`);
   const b = document.getElementById(`${tabId}-${p}-dst-space`);
-  if (a) a.textContent = src;
-  if (b) b.textContent = dst;
+  if (a) setMemorySpaceBadge(a.id, src);
+  if (b) setMemorySpaceBadge(b.id, dst);
 }
 
 /** The SRC / DST / BOTH button group. Switching is pure CSS — both SVGs are
@@ -1487,7 +1508,7 @@ function copyPanes(id, p) {
         <div class="copy-pane" data-side="${side}">
           <div class="copy-pane-head">
             <span class="copy-pane-side">${side.toUpperCase()}</span>
-            <span class="copy-pane-space" id="${id}-${p}-${side}-space">&mdash;</span>
+            <span class="copy-pane-space memory-space-badge" id="${id}-${p}-${side}-space">&mdash;</span>
           </div>
           <div class="viz-box"><div id="${id}-${p}-${side}-svg"></div></div>
         </div>`;
@@ -1746,6 +1767,7 @@ const FEATURE_SPEC = {
   make_mma_atom:   { inputs: 4 },  // op, ab_dtype, acc_dtype, K
   make_tiled_mma:  { inputs: 6 },  // op, ab_dtype, acc_dtype, K, atom_layout_mnk, permutation_mnk
   partition_abc:   { inputs: 9 },  // operand, op, ab, acc, K, atom_layout_mnk, perm, thr, tensor
+  make_fragment_abc: { inputs: 6, optional: 1 }, // operand, op, ab, acc, K, partitioned layout [, thread]
 };
 
 function parseKeyParam() {
@@ -1934,6 +1956,12 @@ function applyKeyParam(tabId) {
       document.getElementById(`${tabId}-pabc-tensor-input`).value     = inputs[8];
       switchInnerTab(tabId, 'partition_abc');
       renderPartitionABC(tabId);
+      break;
+    }
+    case 'make_fragment_abc': {
+      setMfrag(tabId, inputs[0], inputs[1], inputs[2], inputs[3], inputs[4], inputs[5],
+               inputs[6] === undefined ? 0 : inputs[6]);
+      switchInnerTab(tabId, 'make_fragment_abc');
       break;
     }
     case 'make_tiled_copy':

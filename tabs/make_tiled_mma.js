@@ -492,7 +492,7 @@ function generateMakeTiledMmaTabContent(id) {
   const vizItem = (stage, side, label) => `
         <div class="comp-viz-item" data-q="${side}">
           <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-mtm-${stage}-${side}-title">${label}</span>
+            <span class="comp-viz-title"><span class="comp-viz-label" id="${id}-mtm-${stage}-${side}-title">${label}</span>${memorySpaceBadge(`${id}-mtm-${stage}-${side}-space`, 'RMEM')}</span>
             <span style="display:flex;align-items:center;gap:4px">
               <button class="mode-btn" id="${id}-mtm-${stage}-${side}-val-btn" onclick="toggleMtmValue('${id}')">value</button>
               <button class="mode-btn" id="${id}-mtm-${stage}-${side}-svg-zoom" onclick="toggleZoom('${id}-mtm-${stage}-${side}-svg')">Zoom in</button>

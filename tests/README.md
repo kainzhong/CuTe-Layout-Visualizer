@@ -47,6 +47,7 @@ verifies every case was evaluated before accepting the run, and fails otherwise.
 | `copy_atom` | `ui.js`'s `DTYPE_BITS` and the ValLayout it implies | `cute.make_copy_atom` |
 | `tma_atom` | `tmaComputeAtom` — inferred box size, `num_bits_per_tma`, the returned TMA coordinate tensor | `cpasync.make_tiled_tma_atom` |
 | `tma_partition` | `tpComputePartition` — `tAsA` and `tAgA`, fed the tensors CuTe itself produced | `cpasync.tma_partition` |
+| `make_fragment_abc` | `mfragCompute` on a directly entered partition result; scalar register-slot layout and source-position grouping | `MmaAtom.make_fragment_A/B/C` on the same already partitioned layout |
 | `swizzle` | `applySwizzleOffset` | `cute::Swizzle<B,M,S>` through a `ComposedLayout` |
 | `unit` | parsers and the validation CuTe skips (below) | none — expectations encode the C++ preconditions |
 

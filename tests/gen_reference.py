@@ -589,6 +589,19 @@ def run_partition_abc(c):
     }
 
 
+def run_make_fragment_abc(c):
+    """The tab's direct input: a layout that has already been partitioned."""
+    op_cfg = {"ab_dtype": c.get("ab") or "half_t",
+              "acc_dtype": c.get("acc") or "float", "k": c["k"]}
+    atom = cute.make_mma_atom(MMA_OPS[c["op"]](op_cfg))
+    part = parse_layout(c["partition"])
+    dtype = c["acc"] if c["which"] == "C" else c["ab"]
+    tensor = cute.make_tensor(cute.make_ptr(DTYPES[dtype], 0,
+                                            cute.AddressSpace.gmem), part)
+    frag = getattr(atom, "make_fragment_" + c["which"])(tensor).layout
+    return record(frag)
+
+
 def _smem_layout(spec, sw):
     base = parse_layout(spec)
     if sw is None:
@@ -670,6 +683,7 @@ SECTIONS = [
     ("tma_partition", run_tma_partition),
     ("partition_sd", run_partition_sd),
     ("partition_abc", run_partition_abc),
+    ("make_fragment_abc", run_make_fragment_abc),
     ("local_tile", run_local_tile),
     ("swizzle", run_swizzle),
 ]

@@ -80,6 +80,7 @@ Run the narrowest relevant test while iterating and `npm test` before handoff. A
 - Copy movement legality lives in `COPY_OP_MOVES`; Copy tabs must not offer arbitrary memory-space pairs.
 - SIMT Copy Op definitions live in `SIMT_COPY_OPS` so `make_copy_atom`, `make_tiled_copy`, and `make_tiled_copy_tv` cannot drift.
 - Copy SRC/DST pane behavior lives in `copyPanes` and related `ui.js` helpers. `partition_sd` and `tma_partition` intentionally do not use those panes because they visualize partitions, not transfers.
+- Visualization title badges name the operand's actual memory space, using the shared GMEM/SMEM/RMEM/TMEM palette in `style.css`. Copy badges follow the selected move; `partition_sd` badges follow the selected S/D tensor. Current warp MMA A/B/C fragments are all RMEM. Do not infer a partitioned tensor's space from its layout or recolor SVG ownership cells to indicate memory space.
 - Thread highlighting uses `readHighlightTid` where the UI means "focus this thread." `make_tiled_mma` is intentionally different: its focus unit follows the TVs/warps mode and masks other units.
 - MMA atom layouts are a lookup table derived from CuTeDSL/CUTLASS hardware traits, not an algebraic derivation. Extend the table from the oracle and add exhaustive cases.
 - The MMA alternative view reorders existing panes and transposes B only for display; it must not change the underlying layout.
@@ -126,5 +127,6 @@ Pointwise agreement is the decisive layout check. Two printed layouts can differ
 - `make_mma_atom`: one warp-level instruction's A/B/C fragments.
 - `make_tiled_mma`: replication of the atom across warps and permutation.
 - `partition_abc`: one thread's TiledMMA partition over A/B/C tensors.
+- `make_fragment_abc`: register layout produced by `MmaAtom.make_fragment_A/B/C` from an already partitioned warp MMA operand. It labels source offsets, not runtime values; Hopper descriptors and Blackwell TMEM are outside this tab.
 
 If a proposed control cannot change a drawn cell, prefer a label or explanatory note. Keep constructor parameters, derived tiling, tensor partitioning, and access analysis in their respective layers instead of growing an all-purpose tab.

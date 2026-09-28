@@ -168,7 +168,7 @@ function generateMakeMmaAtomTabContent(id) {
   const vizItem = (side, label) => `
         <div class="comp-viz-item" data-q="${side}">
           <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-mma-${side}-title">${label}</span>
+            <span class="comp-viz-title"><span class="comp-viz-label" id="${id}-mma-${side}-title">${label}</span>${memorySpaceBadge(`${id}-mma-${side}-space`, 'RMEM')}</span>
             <span style="display:flex;align-items:center;gap:4px">
               <button class="mode-btn" id="${id}-mma-${side}-val-btn" onclick="toggleMmaValue('${id}')">value</button>
               <button class="mode-btn" id="${id}-mma-${side}-svg-zoom" onclick="toggleZoom('${id}-mma-${side}-svg')">Zoom in</button>

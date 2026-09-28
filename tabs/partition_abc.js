@@ -3,11 +3,9 @@
 //   ThrMMA thr  = tiled_mma.get_slice(thr_idx);
 //   Tensor tCgA = thr.partition_A(gA);      // or partition_B / partition_C
 //
-// This tab stops at the partition. What a thread then holds in REGISTERS is
-// CuTeDSL's `MmaAtom.make_fragment_A(partition_A(t))` — `pabcComputePartition`
-// still returns it as `fragment` and `tests/run.js` diffs it against the DSL,
-// but nothing draws it. (C++ wraps the pair as `ThrMMA::partition_fragment_A`;
-// CuTeDSL has no such wrapper, which is why this tool does not offer one.)
+// The make_fragment_A/B/C tab takes this tab's returned partition layout and
+// draws its register mapping. The model here also returns that fragment, so
+// both tabs use the same CuTeDSL-checked derivation.
 //
 // The MMA counterpart of the partition_S / partition_D tab, and deliberately
 // the same three-level picture, because the levels mean the same things:
@@ -374,6 +372,7 @@ ${pabcInputSections({ id, p: 'pabc', fn: 'partition', render: 'renderPartitionAB
         ${statusDivs(`${id}-pabc`)}
         <button class="btn btn-render" onclick="renderPartitionABC('${id}')">Render</button>
         <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-pabc-export" onclick="exportPABC('${id}')">Export URL</button>
+        <button class="btn btn-render" style="margin-top:6px" id="${id}-pabc-make-fragment" onclick="pabcOpenFragment('${id}')">make_fragment</button>
         <div id="${id}-pabc-result" class="cuo-result"></div>
 
         <div class="presets">
@@ -434,11 +433,9 @@ ${pabcInputSections({ id, p: 'pabc', fn: 'partition', render: 'renderPartitionAB
           &mdash; which is why CUTLASS's GEMMs write <code>tCgA(_,_,_,k)</code>.
           <br><br>
           <b>What the thread holds in REGISTERS is one more step.</b>
-          <code>make_fragment_A(partition_A(t))</code> takes this tab's output
-          and gives the register array &mdash; a separate question, since the
-          fragment's mode order follows the <em>source's</em> majorness. Not
-          drawn here; CuTeDSL exposes it as
-          <code>MmaAtom.make_fragment_A</code>.<br><br>
+          Use the <b>make_fragment</b> button above to pass this returned layout
+          to the register view. A/B fragment mode order follows the
+          <em>source's</em> majorness; C is compact.<br><br>
           See the <b>make_tiled_mma</b> tab for all six grids of the TiledMMA
           itself; this tab is one operand of it, against a tensor.
         </div>
@@ -782,4 +779,17 @@ function exportPABC(tabId) {
     document.getElementById(`${tabId}-pabc-perm-input`).value || 'na',
     document.getElementById(`${tabId}-pabc-thr-input`).value,
     document.getElementById(`${tabId}-pabc-tensor-input`).value);
+}
+
+function pabcOpenFragment(tabId) {
+  // Recompute from current inputs so the button cannot hand off a stale result
+  // after the user edits a field without pressing Render.
+  renderPartitionABC(tabId);
+  const s = pabcState[tabId];
+  const result = document.getElementById(`${tabId}-pabc-result`);
+  if (!s || !result.innerHTML) return;
+  const layout = formatLayoutStr(s.partition.shape, s.partition.stride);
+  setMfrag(tabId, s.which, s.opKey, s.abDtype, s.accDtype, s.k, layout,
+           s.thrIdx === null ? 0 : s.thrIdx);
+  switchInnerTab(tabId, 'make_fragment_abc');
 }

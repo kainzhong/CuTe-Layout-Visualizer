@@ -62,6 +62,9 @@ tabs/
                         `partition_A/B/C` from mma_atom.hpp by reusing `mtmThrfrg` /
                         `mtmComputeTiledMma` with a TENSOR instead of one tile, and
                         `mtmOperandGrid` / `mtmBuildSVG` for grid 1. Prefix `pabc`.
+  make_fragment_abc.js  "make_fragment_A / B / C" tab (MMA scope) — one warp MMA
+                        thread's register words from an already partitioned
+                        operand layout. Reuses `pabcMakeFragment`. Prefix `mfrag`.
   partition_sd.js       "partition_S / partition_D" tab (COPY scope) — the ThrCopy slice.
                         Takes a whole TiledCopy (reuses make_tiled_copy's `mtcAtomSection` /
                         `mtcReadAtom` with prefix `psd`), a thread index and the tensor, and
@@ -223,6 +226,7 @@ produce hierarchical coordinates this 2-D grid cannot draw.
   ~330px, wider than a 4x4 grid's entire 280px canvas. Malformed or degenerate input comes back
   untouched rather than mangled.
 - **Copy SRC/DST panes**: `COPY_OP_MOVES`, `copyMoveField`, `syncCopyMoves`, `copyMove`, `setCopyMove`, `updateCopyPaneTitles`, `COPY_PANE_PREFIXES`, `initCopyPanes`, `copyDirButtons`, `copyPanes`, `setCopyDir`, `copyDir`, `toggleCopyZoom` — the side-by-side view shared by all four Copy tabs. Both SVGs are always in the DOM; `data-dir` on `.copy-panes` decides visibility, so SRC/DST/BOTH is pure CSS and needs no re-render. In BOTH mode the panes are equal flex children, which halves each SVG's width while `width:100%;height:auto` preserves its ratio. Note `attachVizFullscreenButtons` iterates **every** `.viz-box` inside a `.comp-viz-item`, not just the first — the Copy tabs put two panes in one item, and taking the first left DST without a button.
+  **Memory-space badges** use `memorySpaceBadge` / `setMemorySpaceBadge` and one CSS palette keyed by `data-space`: GMEM blue, SMEM green, RMEM amber, TMEM violet. `updateCopyPaneTitles` sets the Copy badges from the selected legal move; `partition_sd` names the currently selected S or D tensor on each of its three grid titles and updates on side or move changes. These badge colors identify storage only. SVG cell colors continue to encode thread/value ownership and stay comparable across spaces. The current `make_mma_atom` and `make_tiled_mma` Ops are warp MMA, so all A/B/C fragment titles read **RMEM**. Do not infer an MMA fragment's space from its source tensor or hard-code RMEM when Hopper/Blackwell Ops are added: use the Op's actual operand/accumulator storage. `partition_abc` takes an arbitrary tensor layout without a memory-space input, so its partition grids do not claim a storage space.
   **Not every Copy tab has panes.** `tma_partition` stacks two results and `partition_sd` draws one
   side at a time, so neither declares `-src-space` / `-dst-space`. `copyPanes(id, p)` registers its
   prefix in `COPY_PANE_PREFIXES` as the markup is generated, and `updateCopyPaneTitles` returns early
@@ -622,7 +626,7 @@ The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. E
   CuTeDSL is not the oracle for this one: its MLIR `crd2idx` cannot infer a result type for that
   coord/layout pair at all, so the case lives in `tests/unit.js`.
 - `copy` — the copy-construction pipeline: `make_copy_atom` (one instruction), then `make_tiled_copy` / `make_tiled_copy_tv` (replicate it over a tile), then `partition_sd` (hand that TiledCopy a tensor and one thread), plus `make_tiled_tma_atom` and `tma_partition` (the TMA path, which bypasses threads entirely). Accent color: emerald (`#10b981`).
-- `mma` — the MMA side: `make_mma_atom`, then `make_tiled_mma`, then `partition_abc` (hand that TiledMMA a tensor and one thread). Accent color: amber (`#f59e0b`). The natural next tab is `make_tiled_copy_A/B/C`, which is where the copy and MMA scopes finally meet — a TiledMMA's `tv_layout_A` is literally the `layout_tv` they hand a copy.
+- `mma` — the MMA side: `make_mma_atom`, then `make_tiled_mma`, then `partition_abc` (hand that TiledMMA a tensor and one thread), then `make_fragment_abc` (the register layout produced from that partition). Accent color: amber (`#f59e0b`). The natural next tab is `make_tiled_copy_A/B/C`, which is where the copy and MMA scopes finally meet — a TiledMMA's `tv_layout_A` is literally the `layout_tv` they hand a copy.
 
 ### How scopes are wired
 
@@ -1602,13 +1606,28 @@ question here — an MMA operand always spans exactly two axes, which `PABC_OPER
 the tensor is fully drawn between grids 2 and 3 (partition_sd's reason). That leaves nothing the
 warning could truthfully say.
 
-**`make_fragment_A|B|C` is derived but NOT drawn.** `pabcComputePartition` returns `fragment`, and
-`run.js` diffs it against CuTeDSL's `MmaAtom.make_fragment_A/B/C`, but no tab renders it. It briefly
-had one, built around C++'s `ThrMMA::partition_fragment_A` — **which CuTeDSL does not expose**. The
-DSL ships both halves (`ThrMma.partition_A` and `MmaAtom.make_fragment_A`, the latter an MLIR op
-taking a tensor *or* a bare shape for TMEM) and no wrapper composing them, and this tool follows the
-DSL's surface. The derivation and its differential coverage stay because `make_fragment_X` is itself
-a real DSL call; only the tab went.
+**`make_fragment_A|B|C` has its own tab.** It accepts the exact layout returned by
+`partition_A/B/C`, or receives it from that tab's make_fragment button. The button re-renders the
+partition first, so an edited tensor field never hands off stale state. `mfragCompute` calls the
+same `pabcMakeFragment` used by `pabcComputePartition`, checks that input mode 0 has the selected
+warp MMA atom's value count, then enumerates every fragment coordinate. Each output scalar offset
+is grouped into a 32-bit register word by dtype (two half/bfloat16 values or four FP8 values per
+word). The drawing expands every Rest position from `partition_abc`'s level-2 grid into one
+cell per atom value. It uses that grid's `colorHighlight(i + j * Rest0)` palette and `(i,j)`
+coordinate, draws one outline around each expanded block, and labels scalar cells `T#V#`
+with the logical register `R#` below. Register numbers repeat for values packed into the same
+word. Rows flatten the atom value mode with the first Rest mode; columns flatten later Rest modes.
+The partition layout does not encode a thread ID, so the tab has a thread-label field; the
+partition tab passes its selected ID through the handoff, and old six-field URLs default to T0.
+The labels describe mapping rather than runtime data or final physical register allocation.
+CuTeDSL's direct `MmaAtom.make_fragment_A/B/C` output is the layout oracle; it
+does not expose C++'s `ThrMMA::partition_fragment_A` wrapper. The register-word grouping follows
+the output layout and dtype and is tested separately from the oracle layout.
+
+The input rank is at least 3 by the API's own contract. `updateRankWarning` does not apply: every
+mode is enumerated into scalar cells, with no flattening to an operand plane. Hopper/Blackwell
+fragments can be descriptors or TMEM tensors, so this tab deliberately offers only the existing
+`cute.nvgpu.warp` Ops whose A/B/C fragments are registers.
 
 `tests/run.js` pins this tab the same indirect-but-complete way as `partition_sd` — every thread's
 layout and base offset — plus `tile_mnk` and `thr_layout_vmnk`. The two permutation cases are the

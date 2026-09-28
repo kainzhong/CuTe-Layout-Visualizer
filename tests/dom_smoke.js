@@ -188,6 +188,57 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
   step('initCopyPanes', () => ctx.initCopyPanes(TAB));
   step('renderAllTabs (every tab, shipped defaults)', () => ctx.renderAllTabs(TAB, 'layout'), paneIds);
 
+  // Space badges describe where the displayed operand lives; their colors are
+  // CSS keyed by data-space, while SVG cell colors still identify threads.
+  const badge = id => els.get(`${TAB}-${id}-space`);
+  const expectBadge = (id, space) => {
+    const el = badge(id);
+    if (!el || el.textContent !== space || el.getAttribute('data-space') !== space)
+      throw new Error(`${id} badge = ${el && el.textContent}/${el && el.getAttribute('data-space')}, expected ${space}`);
+  };
+  step('Copy atom badges follow the memory movement', () => {
+    els.get(`${TAB}-mca-move`).value = 'RMEM>SMEM';
+    ctx.setCopyMove(TAB, 'mca');
+    expectBadge('mca-src', 'RMEM');
+    expectBadge('mca-dst', 'SMEM');
+    els.get(`${TAB}-mca-move`).value = 'GMEM>RMEM';
+    ctx.setCopyMove(TAB, 'mca');
+    expectBadge('mca-src', 'GMEM');
+    expectBadge('mca-dst', 'RMEM');
+  });
+  step('MMA atom and tiled fragment titles name RMEM', () => {
+    for (const side of ['a', 'b', 'c']) {
+      for (const prefix of [`mma-${side}`, `mtm-warp-${side}`, `mtm-perm-${side}`]) {
+        if (!html.includes(`id="${TAB}-${prefix}-space" data-space="RMEM">RMEM</span>`))
+          throw new Error(`${prefix} has no RMEM badge`);
+      }
+    }
+  });
+  step('memory-space badges have four distinct text colors', () => {
+    const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
+    const colors = ['GMEM', 'SMEM', 'RMEM', 'TMEM'].map(space => {
+      const rule = new RegExp(`\\.memory-space-badge\\[data-space="${space}"\\]\\s*\\{([^}]+)\\}`).exec(css);
+      const color = rule && /\bcolor:\s*(#[0-9a-f]+)/i.exec(rule[1]);
+      if (!color) throw new Error(`${space} has no badge color`);
+      return color[1];
+    });
+    if (new Set(colors).size !== colors.length) throw new Error(`badge colors collide: ${colors}`);
+  });
+  step('partition_S/D badges follow the selected tensor and move', () => {
+    const move = els.get(`${TAB}-psd-move`);
+    move.value = 'GMEM>SMEM';
+    ctx.setCopyMove(TAB, 'psd');
+    ctx.setPsdSide(TAB, 'S');
+    for (const level of ['tile', 'sweep', 'extra']) expectBadge(`psd-${level}`, 'GMEM');
+    ctx.setPsdSide(TAB, 'D');
+    for (const level of ['tile', 'sweep', 'extra']) expectBadge(`psd-${level}`, 'SMEM');
+    move.value = 'RMEM>GMEM';
+    ctx.setCopyMove(TAB, 'psd');
+    for (const level of ['tile', 'sweep', 'extra']) expectBadge(`psd-${level}`, 'GMEM');
+    ctx.setPsdSide(TAB, 'S');
+    for (const level of ['tile', 'sweep', 'extra']) expectBadge(`psd-${level}`, 'RMEM');
+  }, paneIds.filter(id => id.startsWith(`${TAB}-psd-`)));
+
   // ── every inline handler must at least PARSE ─────────────────────────────
   // A handler that is not valid JS is dead on the page: the browser reports a
   // SyntaxError and the button silently does nothing. Two local_tile presets
@@ -234,7 +285,8 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     const fnName = hit[1];
     const pfx = { setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm',
                   setPSD: 'psd', setPsdSide: 'psd', setPsdMode: 'psd',
-                  setPABC: 'pabc', setPabcOperand: 'pabc', setPabcMode: 'pabc' }[fnName];
+                  setPABC: 'pabc', setPabcOperand: 'pabc', setPabcMode: 'pabc',
+                  setMfrag: 'mfrag', setMfragOperand: 'mfrag' }[fnName];
     const svgs = pfx ? paneIds.filter(id => id.startsWith(`${TAB}-${pfx}-`)) : [];
     let args;
     try { args = handlerArgs(ctx, src, fnName); } catch (e) { args = null; }
@@ -280,6 +332,97 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
         throw new Error(`result = ${got}, expected ${fn} = ${expected}`);
     }, paneIds.filter(id => id.startsWith(`${TAB}-${pfx}-`)));
   }
+
+  // The handoff reads the CURRENT partition controls, not cached state from
+  // the last Render. The DOM shim has no real tab-bar tree, so capture the
+  // navigation call while running both real render paths.
+  step('partition_A make_fragment button passes its current result and opens the tab', () => {
+    ctx.setPABC(TAB, 'A', 'f16bf16', 'half_t', 'float', 16,
+                '(2, 2, 1)', '', '5', '(64, 48):(48, 1)');
+    els.get(`${TAB}-pabc-tensor-input`).value = '(64, 48):(1, 64)';
+    const realSwitch = ctx.switchInnerTab;
+    let switched = '';
+    ctx.switchInnerTab = (_, mode) => { switched = mode; };
+    try { ctx.pabcOpenFragment(TAB); } finally { ctx.switchInnerTab = realSwitch; }
+    const want = partitionRef.partition_abc.A_colmajor.layout.str;
+    if (switched !== 'make_fragment_abc') throw new Error(`opened ${switched}`);
+    if (els.get(`${TAB}-mfrag-partition-input`).value !== want)
+      throw new Error('make_fragment did not receive the newly partitioned layout');
+    if (els.get(`${TAB}-mfrag-thr-input`).value !== '5')
+      throw new Error('make_fragment did not receive the selected thread ID');
+    if (!els.get(`${TAB}-mfrag-svg`).innerHTML.includes('>T5V0</text>'))
+      throw new Error('make_fragment did not label the selected thread');
+    if (!els.get(`${TAB}-mfrag-result`).innerHTML.includes(partitionRef.partition_abc.A_colmajor.fragment.str))
+      throw new Error('make_fragment displayed the wrong returned layout');
+  }, [`${TAB}-pabc-tile-svg`, `${TAB}-mfrag-svg`]);
+  step('make_fragment rejects a non-partitioned operand layout', () => {
+    els.get(`${TAB}-mfrag-partition-input`).value = '(16, 16):(1, 16)';
+    ctx.renderMakeFragmentABC(TAB);
+  }, [], { expectError: /already-partitioned layout/ });
+  step('make_fragment recovers after a bad input', () => {
+    ctx.setMfrag(TAB, 'A', 'f16bf16', 'half_t', 'float', 16,
+                 partitionRef.partition_abc.A_2x2x1.layout.str);
+    const regs = ctx.mfragState[TAB].registers;
+    if (regs.length !== 24 || regs[0].slots.map(s => s.source).join(',') !== '0,1' ||
+        regs[1].slots.map(s => s.source).join(',') !== '384,385')
+      throw new Error('32-bit word packing lost the source positions');
+  }, [`${TAB}-mfrag-svg`]);
+  step('make_fragment URL imports operand, Op and partitioned layout', () => {
+    const key = 'make_fragment_abc-B-fp8-float_e4m3_t-float-32-((4,2),2,3):((1,16),1536,32)';
+    ctx.location.search = `?key=${encodeURIComponent(key)}`;
+    const realSwitch = ctx.switchInnerTab;
+    let switched = '';
+    ctx.switchInnerTab = (_, mode) => { switched = mode; };
+    try { ctx.applyKeyParam(TAB); } finally { ctx.switchInnerTab = realSwitch; }
+    if (switched !== 'make_fragment_abc') throw new Error(`opened ${switched}`);
+    if (ctx.mfragState[TAB].which !== 'B' || ctx.mfragState[TAB].dtype !== 'float_e4m3_t')
+      throw new Error('fragment URL lost operand or dtype');
+    if (ctx.mfragState[TAB].registers[0].slots.map(s => s.source).join(',') !== '0,1,2,3')
+      throw new Error('FP8 register did not pack four scalar values');
+    if (!els.get(`${TAB}-mfrag-result`).innerHTML.includes(
+      JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/reference.json'), 'utf8')).make_fragment_abc.B_fp8.str))
+      throw new Error('fragment URL displayed the wrong layout');
+    ctx.location.search = '';
+  }, [`${TAB}-mfrag-svg`]);
+  step('make_fragment B link shows one cell per scalar value', () => {
+    const key = 'make_fragment_abc-B-f16bf16-bfloat16_t-float-16-((2,2),2,3):((1,8),768,16)';
+    ctx.location.search = `?key=${encodeURIComponent(key)}`;
+    const realSwitch = ctx.switchInnerTab;
+    ctx.switchInnerTab = () => {};
+    try { ctx.applyKeyParam(TAB); } finally { ctx.switchInnerTab = realSwitch; }
+    const grid = ctx.mfragValueGrid(ctx.mfragState[TAB]);
+    if (grid.rows !== 8 || grid.cols !== 3 || grid.cells.length !== 24)
+      throw new Error(`expected an 8×3 scalar grid, got ${grid.rows}×${grid.cols}`);
+    const at = (m, n) => grid.cells[m + n * grid.rows];
+    if (at(0, 0).register !== 0 || at(0, 0).source !== 0 ||
+        at(1, 0).register !== 0 || at(1, 0).source !== 1 ||
+        at(4, 0).register !== 6 || at(4, 0).source !== 768 ||
+        at(0, 1).register !== 2 || at(0, 1).source !== 16 ||
+        at(4, 0).rest !== 1 || at(0, 1).rest !== 2)
+      throw new Error('B scalar cells do not match the CuTeDSL fragment mapping');
+    const svg = els.get(`${TAB}-mfrag-svg`).innerHTML;
+    if (!svg.includes('>(0,0)</text>') || !svg.includes('>T0V0</text>') ||
+        !svg.includes('>T0V1</text>') || !svg.includes('>R0</text>') ||
+        !svg.includes('>R6</text>') || !svg.includes('>(1,0)</text>'))
+      throw new Error('B tile coordinates, T/V labels, or registers did not render');
+    for (let r = 0; r < 6; r++) {
+      const color = ctx.colorHighlight(r);
+      const count = [...svg.matchAll(new RegExp(`<rect[^>]*fill="${color}"`, 'g'))].length;
+      if (count !== 4) throw new Error(`Rest block ${r} has ${count} cells in its partition color`);
+    }
+    ctx.location.search = '';
+  }, [`${TAB}-mfrag-svg`]);
+  step('make_fragment URL preserves an explicit thread label', () => {
+    const key = 'make_fragment_abc-B-f16bf16-bfloat16_t-float-16-((2,2),2,3):((1,8),768,16)-7';
+    ctx.location.search = `?key=${encodeURIComponent(key)}`;
+    const realSwitch = ctx.switchInnerTab;
+    ctx.switchInnerTab = () => {};
+    try { ctx.applyKeyParam(TAB); } finally { ctx.switchInnerTab = realSwitch; }
+    if (els.get(`${TAB}-mfrag-thr-input`).value !== '7' ||
+        !els.get(`${TAB}-mfrag-svg`).innerHTML.includes('>T7V0</text>'))
+      throw new Error('thread ID was lost in the fragment URL');
+    ctx.location.search = '';
+  }, [`${TAB}-mfrag-svg`]);
 
   // ── the two partition tabs' thread box accepts BLANK = every thread ──────
   // The presets all pass a concrete id, so nothing else here reaches the
@@ -454,6 +597,8 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     'partition_sd-D-cpasync-128-half_t-((8,16),8):((128,1),16)-(16, 64)-3-(16, 64):(64, 1)',
     'partition_abc-A-f16bf16-half_t-float-16-(2, 2, 1)-na-5-(64, 48):(48, 1)',
     'partition_abc-C-tf32-na-na-8-(2, 2, 1)-(32, 16, 8)-3-(64, 32):(32, 1)',
+    'make_fragment_abc-A-f16bf16-half_t-float-16-((2,2,2),2,3):((1,384,8),1536,16)',
+    'make_fragment_abc-B-f16bf16-bfloat16_t-float-16-((2,2),2,3):((1,8),768,16)-7',
   ]) {
     step(`?key=${key}`, () => {
       ctx.location.search = `?key=${key}`;

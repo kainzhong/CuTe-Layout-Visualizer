@@ -603,6 +603,31 @@ if (section('partition_abc')) {
   }
 }
 
+if (section('make_fragment_abc')) {
+  for (const c of CASES.make_fragment_abc) {
+    const ref = refFor('make_fragment_abc', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const p = parseExact(V, c.partition);
+      const r = V.mfragCompute(p, c.which, c.op, c.k, c.ab, c.acc);
+      checkLayout(c.id, r.fragment, ref);
+      const covered = r.registers.flatMap(reg => reg.slots.filter(Boolean));
+      check(c.id, 'register slots', covered.length, p.size());
+      for (const slot of covered)
+        check(c.id, 'source position', slot.source,
+              V.crd2idx(slot.coord, p.shape, p.stride));
+      const grid = V.mfragValueGrid(r);
+      check(c.id, 'scalar cells', grid.cells.length, ref.eval.length);
+      for (let i = 0; i < grid.cells.length; i++) {
+        check(c.id, `cell ${i} register`, grid.cells[i].register,
+              Math.floor(Number(ref.eval[i]) / r.pack));
+        check(c.id, `cell ${i} source`, grid.cells[i].source,
+              V.crd2idx(V.unflatten(i, p.shape), p.shape, p.stride));
+      }
+    });
+  }
+}
+
 // The two claims make_fragment_X makes good on, as a diff between
 // cases rather than an assertion: A's fragment mode order follows the SOURCE's
 // majorness, C's ignores it. Each pair differs only in the tensor's strides, so

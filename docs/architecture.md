@@ -324,7 +324,7 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=raked_product-(2,2):(1,2)-(3,3):(1,3)
 ?key=make_copy_atom-universal-128-half_t
 ?key=make_copy_atom-ldmatrix-128-half_t-4-1   # ldmatrix adds num_matrices, transpose
-?key=make_copy_atom-ldmatrix16x16x8b-128-int8_t-2-1-6   # the 8b Ops add unpack_bits
+?key=make_copy_atom-ldmatrix16x16x8b-128-int8_t-2-1   # unpack_bits is fixed to None
 ?key=make_tiled_copy-cpasync-128-half_t-((8,16),8):((128,1),16)-(16, 64)
 ?key=make_tiled_copy_tv-cpasync-128-half_t-(16,8):(8,1)-(1,8):(1,1)
 ?key=swizzle-(8, 8):(8, 1)-3, 0, 3
@@ -339,10 +339,10 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ```
 - Parsing is in `parseKeyParam()` (driven by `FEATURE_SPEC` in ui.js).
 - A feature may declare `optional: N` alongside `inputs`, accepting `inputs .. inputs+N` values. That
-  is how `make_copy_atom` grew `num_matrices` / `transpose` for ldmatrix, then `unpack_bits` for the
-  8-bit Ops, **without invalidating the shorter links already shared**; `exportMCA` emits each part of
-  the tail only for the Ops that have it, so a `CopyUniversalOp` link stays 3 inputs and an
-  `LdMatrix8x8x16bOp` link stays 5.
+  is how `make_copy_atom` grew `num_matrices` / `transpose` for ldmatrix without
+  invalidating shorter links. `exportMCA` emits 3 inputs for SIMT Ops and 5 for
+  LdMatrix Ops. The legacy sixth `unpack_bits` input is accepted but ignored;
+  imports normalize it to `None`, and new exports omit it.
 - **A `<select>` whose options are rebuilt per Op must be repopulated BEFORE the value is assigned.**
   `sel.value = '2'` on a select still holding the previous Op's options is a silent no-op, and the
   render then runs with a stale parameter. `setMCA` and `applyKeyParam` both call `mcaRenderOpParams`
@@ -733,8 +733,8 @@ three. `MCA_OPS` entries just name a spec via `ldsm`.
 | `LdMatrix16x16x8bOp` | 16x16 | 8 | 256 | 1, 2 | **required** | None, 4, 6 |
 
 The domains are enforced by `__post_init__`, so `mcaSyncLdsmControls` rebuilds the `num_matrices`
-options per Op, pins-and-disables `transpose` where it is mandatory, and hides `unpack_bits` where it
-is rejected — an out-of-domain control could only ever produce an error box.
+options per Op and pins-and-disables `transpose` where it is mandatory.
+`unpack_bits` is fixed to `None` for every Op; no selector or packed-source preset is exposed.
 
 **`matrixBytes/16` is the load-bearing constant.** A lane addresses 16 B, so it is simultaneously the
 rows per matrix and the lanes one matrix consumes, which is why `liveLanes === tile rows` always
@@ -753,8 +753,10 @@ visualization rather than a table row.
 `u4x16p64to8` / `u6x16p32to8`), i.e. the PTX qualifier and the packed source container — 16x4b with
 64b padding, or 16x6b with 32b padding, widened into 8-bit registers. Verified identical across all
 **156** accepted combinations of the two 8-bit Ops, which is why it is not a parameter of
-`mcaLdmatrixAtom` at all; the render path reads it only to label the instruction and to say plainly
-that the picture is unchanged. Pinned by `unpack_bits` cases in `tests/cases.json`.
+`mcaLdmatrixAtom` at all; the render path stores `null` (CuTeDSL `None`) and explains why
+unpacking has no selector. The UI now fixes it to `None`: a selector cannot change any
+drawn cell, and packed-source interpretation is outside this tab. The differential
+`unpack_bits` cases in `tests/cases.json` retain evidence for the unchanged-layout claim.
 
 **`num_matrices` decides how many lanes' addresses the hardware CONSUMES, not how much a lane
 addresses.** A lane always covers one 128-bit row; it consumes `(matrixBytes/16) * num_matrices` of

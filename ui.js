@@ -1757,7 +1757,7 @@ const FEATURE_SPEC = {
   zipped_product:  { inputs: 2 },
   blocked_product: { inputs: 2 },
   raked_product:   { inputs: 2 },
-  make_copy_atom:     { inputs: 3, optional: 3 },  // op, bits, dtype [, num_matrices, transpose [, unpack_bits]]
+  make_copy_atom:     { inputs: 3, optional: 3 },  // op, bits, dtype [, num_matrices, transpose]; accept legacy unpack_bits tail
   make_tiled_copy:    { inputs: 5 },  // op, bits, dtype, layout_tv, tiler_mn
   make_tiled_copy_tv: { inputs: 5 },  // op, bits, dtype, thr, val
   make_tiled_tma_atom: { inputs: 5 },  // dtype, gmem, swizzle, smem, tiler
@@ -1908,9 +1908,7 @@ function applyKeyParam(tabId) {
         document.getElementById(`${tabId}-mca-nm-input`).value = inputs[3];
       if (inputs[4] !== undefined)
         document.getElementById(`${tabId}-mca-trans-input`).value = inputs[4];
-      // Only the two 8-bit LdMatrix Ops accept unpack_bits.
-      if (inputs[5] !== undefined)
-        document.getElementById(`${tabId}-mca-ub-input`).value = inputs[5];
+      // Legacy unpack_bits tails are accepted but ignored: this tab fixes it to None.
       switchInnerTab(tabId, 'make_copy_atom');
       renderMakeCopyAtom(tabId);
       break;

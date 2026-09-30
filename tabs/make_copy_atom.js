@@ -49,11 +49,11 @@ const MCA_OPS = {
   },
   ldmatrix16x8x8b: {
     label: 'warp.LdMatrix16x8x8bOp',
-    ctor: 'cute.nvgpu.warp.LdMatrix16x8x8bOp(transpose, num_matrices, unpack_bits)',
+    ctor: 'cute.nvgpu.warp.LdMatrix16x8x8bOp(transpose, num_matrices, unpack_bits=None)',
     kind: 'ldmatrix',
     ldsm: 'ldsm16x8x8b',
     cpasync: false,
-    params: ['transpose', 'num_matrices', 'unpack_bits'],
+    params: ['transpose', 'num_matrices'],
     note: 'No direct PTX form &mdash; it lowers to <code>.m16n16</code> plus address and ' +
           'value permutations chosen to match <code>stmatrix.m16n8.trans</code>, which is ' +
           'what makes its <code>ValLayoutSrc</code> a rank-4 thread mode. Useful for ' +
@@ -61,11 +61,11 @@ const MCA_OPS = {
   },
   ldmatrix16x16x8b: {
     label: 'warp.LdMatrix16x16x8bOp',
-    ctor: 'cute.nvgpu.warp.LdMatrix16x16x8bOp(transpose, num_matrices, unpack_bits)',
+    ctor: 'cute.nvgpu.warp.LdMatrix16x16x8bOp(transpose, num_matrices, unpack_bits=None)',
     kind: 'ldmatrix',
     ldsm: 'ldsm16x16x8b',
     cpasync: false,
-    params: ['transpose', 'num_matrices', 'unpack_bits'],
+    params: ['transpose', 'num_matrices'],
     note: 'PTX <code>.m16n16</code> with the <code>.b8</code> / <code>.b4x16_p64</code> / ' +
           '<code>.b6x16_p32</code> qualifiers. A 256-byte matrix, so it consumes 16 lanes ' +
           'per matrix rather than 8.',
@@ -153,11 +153,9 @@ const MCA_PRESETS = [
   { op: 'ldmatrix', bits: 128, dtype: 'float',  nm: 4, tr: 1, label: '.x4.trans float &mdash; element wider than the unit' },
   { op: 'ldmatrix16x8x8b', bits: 128, dtype: 'int8_t', nm: 2, tr: 1, label: '.x2 int8_t &mdash; permuted addressing, 16 lanes' },
   { op: 'ldmatrix16x8x8b', bits: 128, dtype: 'int8_t', nm: 4, tr: 1, label: '.x4 int8_t &mdash; all 32 lanes' },
-  { op: 'ldmatrix16x8x8b', bits: 128, dtype: 'int8_t', nm: 2, tr: 1, ub: 4, label: '.x2 unpack_bits=4 &mdash; layouts unchanged' },
   { op: 'ldmatrix16x8x8b', bits: 128, dtype: 'half_t', nm: 4, tr: 1, label: '.x4 half_t &mdash; element wider than the 8b unit' },
   { op: 'ldmatrix16x16x8b', bits: 128, dtype: 'int8_t', nm: 1, tr: 1, label: '.x1 int8_t &mdash; 16 lanes per matrix' },
   { op: 'ldmatrix16x16x8b', bits: 128, dtype: 'int8_t', nm: 2, tr: 1, label: '.x2 int8_t &mdash; all 32 lanes' },
-  { op: 'ldmatrix16x16x8b', bits: 128, dtype: 'int8_t', nm: 1, tr: 1, ub: 6, label: '.x1 unpack_bits=6 &mdash; layouts unchanged' },
   { op: 'ldmatrix16x16x8b', bits: 128, dtype: 'half_t', nm: 2, tr: 1, label: '.x2 half_t &mdash; 32x8 tile' },
 ];
 
@@ -167,7 +165,6 @@ function mcaPresetButtons(id) {
   return MCA_PRESETS.map(p => {
     const args = [`'${id}'`, `'${p.op}'`, p.bits, `'${p.dtype}'`];
     if (p.nm !== undefined) args.push(p.nm, p.tr);
-    if (p.ub !== undefined) args.push(p.ub);
     return `<button class="preset-btn" data-op="${p.op}" ` +
            `onclick="setMCA(${args.join(',')})">${p.label}</button>`;
   }).join('\n            ');
@@ -336,14 +333,6 @@ ${copyMoveField(id, 'mca')}
                   <option value="1">True</option>
                 </select>
               </div>
-              <div class="form-group" id="${id}-mca-ub-group" style="display:none">
-                <label>unpack_bits<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; packed source container, widened to 8 b</span></label>
-                <select id="${id}-mca-ub-input" onchange="renderMakeCopyAtom('${id}')">
-                  <option value="0" selected>None &mdash; .b8</option>
-                  <option value="4">4 &mdash; .b4x16_p64 (16x4b + 64b pad)</option>
-                  <option value="6">6 &mdash; .b6x16_p32 (16x6b + 32b pad)</option>
-                </select>
-              </div>
             </div>
             <div id="${id}-mca-op-params" class="cuo-result"></div>
           </div>
@@ -426,19 +415,12 @@ ${copyMoveField(id, 'mca')}
           <code>ValLayoutSrc</code> a rank-4 thread mode. Lane <i>t</i> does
           <em>not</em> address row <i>t</i> for this Op &mdash; the SRC pane
           shows the permutation directly.<br><br>
-          <b>unpack_bits changes the instruction, not the layouts.</b> It exists
-          on the two 8-bit Ops (<code>LdMatrix8x8x16bOp</code> rejects it &mdash;
-          <code>__post_init__</code> raises
-          <code>"Op doesn't support unpacking"</code>), where
-          <code>unpack_bits &isin; {4, 6}</code> selects the
-          <code>.b4x16_p64</code> / <code>.b6x16_p32</code> qualifiers: a packed
-          4- or 6-bit source container widened into 8-bit registers on the way
-          out. It picks the <code>LdsmSzPattern</code> the DSL hands to MLIR and
-          leaves every layout untouched &mdash; verified identical across all
-          156 accepted combinations &mdash; so toggling it here changes the
-          labels and nothing in the picture. <code>LdMatrix8x16x8bOp</code> and
-          the <code>StMatrix*</code> set are the family members still
-          missing.<br><br>
+          <b>unpack_bits is fixed to None.</b> Packed 4- or 6-bit source
+          unpacking is outside this layout visualization. On the supported
+          8-bit Ops it changes the instruction's data interpretation, while
+          leaving the SRC/DST ownership layouts unchanged. The 16-bit Op
+          rejects unpacking. <code>LdMatrix8x16x8bOp</code> and the
+          <code>StMatrix*</code> set are the family members still missing.<br><br>
           <b>num_bits_per_copy is ignored by ldmatrix.</b> The instruction's
           width is fixed by the Op, so <code>_make_trait</code> never reads the
           argument &mdash; you can pass one and it changes nothing. The field is
@@ -579,8 +561,7 @@ function mcaRenderLdmatrix(tabId, opKey, op, dtype, elemBits, prev) {
   const nm = parseInt(document.getElementById(`${tabId}-mca-nm-input`).value, 10);
   const transpose = spec.transpose === 'required' ||
                     document.getElementById(`${tabId}-mca-trans-input`).value === '1';
-  const ubEl = document.getElementById(`${tabId}-mca-ub-input`);
-  const unpackBits = spec.unpackBits ? parseInt(ubEl.value, 10) : 0;
+  const unpackBits = null; // CuTeDSL unpack_bits=None; packed-source unpacking is not exposed.
   const a = mcaLdmatrixAtom(op.ldsm, elemBits, nm, transpose);
 
   // Validation CuTe skips. `.trans` moves whole `unitBits` units, so the layout
@@ -609,15 +590,6 @@ function mcaRenderLdmatrix(tabId, opKey, op, dtype, elemBits, prev) {
       `${product(a.src.shape[0]) * product(a.src.shape[1])} against cosize = ` +
       `${a.tile.shape[0] * a.tile.shape[1]}. They are drawn in transparent grey.`);
   }
-  if (unpackBits) {
-    notes.push(
-      `unpack_bits=${unpackBits} selects the ` +
-      `${unpackBits === 4 ? '.b4x16_p64' : '.b6x16_p32'} qualifier, i.e. a packed ` +
-      `${unpackBits}-bit source container widened into 8-bit registers. It changes the ` +
-      `LdsmSzPattern the DSL hands to MLIR and NOTHING about the Atom's layouts — ` +
-      `verified identical across every accepted combination — so this picture is the same ` +
-      `as with unpack_bits=None.`);
-  }
   if (notes.length) showWarn(`${tabId}-mca-warning`, notes.join('  '));
 
   const numValSrc = product(a.src.shape[1]);
@@ -627,8 +599,7 @@ function mcaRenderLdmatrix(tabId, opKey, op, dtype, elemBits, prev) {
     numValSrc, numValDst, unpackBits, showValue: !!prev.showValue,
   };
 
-  const q = `.x${nm}${transpose ? '.trans' : ''}` +
-            (unpackBits ? (unpackBits === 4 ? '.b4x16_p64' : '.b6x16_p32') : '');
+  const q = `.x${nm}${transpose ? '.trans' : ''}`;
   document.getElementById(`${tabId}-mca-atom-result`).innerHTML =
     `<div class="cuo-result-line"><b>Copy_Atom&lt;${spec.op}${q}, ${dtype}&gt;</b></div>` +
     `<div class="cuo-result-line" style="color:#9ca3af">${spec.ptx}</div>` +
@@ -670,11 +641,10 @@ function mcaRenderLdmatrix(tabId, opKey, op, dtype, elemBits, prev) {
   updateOuterTabLabel(tabId, `make_copy_atom:${spec.matrix}${q}/${dtype}`);
 }
 
-/** Rebuild the LdMatrix controls for `spec`. The three Ops disagree on all
- *  three parameters, and an illegal combination must not be reachable:
+/** Rebuild the LdMatrix controls for `spec`. The three Ops disagree on the
+ *  selectable parameters, and an illegal combination must not be reachable:
  *  num_matrices is {1,2,4} / {2,4} / {1,2}, transpose is optional on the b16 Op
- *  and MANDATORY on both 8-bit ones, and unpack_bits exists only on the 8-bit
- *  ones (the b16 Op raises "Op doesn't support unpacking"). Selections are kept
+ *  and MANDATORY on both 8-bit ones. unpack_bits is fixed to None. Selections are kept
  *  across an Op change when the new Op still permits them. */
 function mcaSyncLdsmControls(tabId, spec) {
   const nmSel = document.getElementById(`${tabId}-mca-nm-input`);
@@ -699,8 +669,6 @@ function mcaSyncLdsmControls(tabId, spec) {
     trSel.title = required ? `${spec.op} only supports transpose` : '';
   }
 
-  const ubGroup = document.getElementById(`${tabId}-mca-ub-group`);
-  if (ubGroup) ubGroup.style.display = spec.unpackBits ? '' : 'none';
 }
 
 // Section 1's body. The two SIMT Ops are parameterless, so this states that;
@@ -742,7 +710,7 @@ function mcaRenderOpParams(tabId, op) {
         (op.ldsm && !MCA_LDSM_SPECS[op.ldsm].unpackBits
           ? ` <code>unpack_bits</code> is inherited from <code>BaseOp</code> but rejected ` +
             `by this Op &mdash; it belongs to the two 8-bit LdMatrix variants.`
-          : '') +
+          : (op.ldsm ? ` <code>unpack_bits=None</code> is fixed in this visualizer.` : '')) +
         `</div>` +
         (op.ldsm
           ? `<div class="cuo-result-line" style="color:#9ca3af">PTX: ` +
@@ -839,7 +807,7 @@ function mcaDrawLdmatrix(tabId, s) {
 }
 
 
-function setMCA(tabId, opKey, bits, dtype, nm, tr, ub) {
+function setMCA(tabId, opKey, bits, dtype, nm, tr) {
   document.getElementById(`${tabId}-mca-op-input`).value    = opKey;
   document.getElementById(`${tabId}-mca-bits-input`).value  = bits;
   document.getElementById(`${tabId}-mca-dtype-input`).value = dtype;
@@ -850,7 +818,6 @@ function setMCA(tabId, opKey, bits, dtype, nm, tr, ub) {
   mcaRenderOpParams(tabId, op);
   if (nm !== undefined) document.getElementById(`${tabId}-mca-nm-input`).value = String(nm);
   if (tr !== undefined) document.getElementById(`${tabId}-mca-trans-input`).value = String(tr);
-  if (ub !== undefined) document.getElementById(`${tabId}-mca-ub-input`).value = String(ub);
   renderMakeCopyAtom(tabId);
 }
 
@@ -862,14 +829,11 @@ function exportMCA(tabId) {
     document.getElementById(`${tabId}-mca-dtype-input`).value,
   ];
   // Only the LdMatrix Ops carry the extra parameters, so a CopyUniversalOp link
-  // keeps the 3-input form it has always had. unpack_bits is appended only for
-  // the Ops that accept it, so an 8x8x16b link keeps its 5-input form too.
+  // keeps its 3-input form. All LdMatrix links use 5 inputs; unpack_bits is fixed to None.
   const op = MCA_OPS[opKey] || {};
   if (op.kind === 'ldmatrix') {
     base.push(document.getElementById(`${tabId}-mca-nm-input`).value);
     base.push(document.getElementById(`${tabId}-mca-trans-input`).value);
-    if (MCA_LDSM_SPECS[op.ldsm].unpackBits)
-      base.push(document.getElementById(`${tabId}-mca-ub-input`).value);
   }
   exportURL(`${tabId}-mca-export`, 'make_copy_atom', ...base);
 }

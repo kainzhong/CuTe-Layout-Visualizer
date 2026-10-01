@@ -44,6 +44,7 @@ verifies every case was evaluated before accepting the run, and fails otherwise.
 | `basis_ops` | the same ops over **coordinate (scaled-basis) layouts** — only the ones CuTe defines for them (see the table in [`docs/architecture.md`](../docs/architecture.md)) | ditto |
 | `make_layout_tv` | `make_layout_tv(thr, val)`, the `make_tiled_copy_tv` tab's derivation | `cute.make_layout_tv` **and** the `TiledCopy` that `cute.make_tiled_copy_tv` builds |
 | `make_tiled_copy` | the tab's reading of `(layout_tv, Tiler_MN)` — `mtcParseTiler` and `parseLayout` | what `cute.make_tiled_copy` reports back |
+| `make_tiled_copy_ab` | `mcabComputeTiledCopy`, atom traits, tiled SRC/DST and reference layouts, and every displayed grid entry | `cute.make_tiled_copy_A/B` with the same TiledMMA and CopyAtom |
 | `copy_atom` | `ui.js`'s `DTYPE_BITS` and the ValLayout it implies | `cute.make_copy_atom` |
 | `tma_atom` | `tmaComputeAtom` — inferred box size, `num_bits_per_tma`, the returned TMA coordinate tensor | `cpasync.make_tiled_tma_atom` |
 | `tma_partition` | `tpComputePartition` — `tAsA` and `tAgA`, fed the tensors CuTe itself produced | `cpasync.tma_partition` |

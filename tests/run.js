@@ -391,6 +391,45 @@ if (section('tiled_mma')) {
   }
 }
 
+// make_tiled_copy_A/B: constructor, atom traits, and every tiled SRC/DST point.
+if (section('make_tiled_copy_ab')) {
+  for (const c of CASES.make_tiled_copy_ab) {
+    const ref = refFor('make_tiled_copy_ab', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const mma = V.mtmComputeTiledMma(V.mmaWarpAtom(c.op, c.k),
+        V.mtmParseAtomLayout(c.atom_layout), V.mtmParsePerm(c.perm || ''));
+      const atom = V.mcabCopyAtom(c.copy_op, c.ab_dtype, c.num_matrices, c.transpose, c.bits);
+      const r = V.mcabComputeTiledCopy(mma, c.operand, atom);
+      check(c.id, 'tile', r.tile.join(','), ref.tile.join(','));
+      check(c.id, 'tiler_mn', `(${r.tile.map(n => `${n}:1`).join(',')})`, ref.tiler_mn);
+      checkLayout(`${c.id}/atom_src`, atom.src, ref.atom_src);
+      checkLayout(`${c.id}/atom_dst`, atom.dst, ref.atom_dst);
+      for (const side of ['tv', 'src', 'dst']) checkLayout(`${c.id}/${side}`, r[side], ref[side]);
+      checkLayout(`${c.id}/mma_tv`, r.mmaOperand.tv, ref.mma_tv);
+      // This comparison covers the grids' axis convention and thread/value
+      // flattening independently of the textual layouts.
+      for (const side of ['src', 'dst']) {
+        const grid = V.mcabSideGrid(r, side);
+        const L = r[side], nT = V.product(L.shape[0]), nV = V.product(L.shape[1]);
+        const oracle = ref[side].eval;
+        let valid = true, entries = 0;
+        for (let m = 0; m < r.tile[0]; m++) for (let n = 0; n < r.tile[1]; n++) {
+          if (!grid[m][n].entries.length) valid = false;
+          for (const e of grid[m][n].entries) {
+            entries++;
+            if (Number(oracle[e.t + nT * e.v]) !== m + r.tile[0] * n) valid = false;
+            if (side === 'src' && atom.threads === 32 && e.t % 32 >= atom.liveLanes) valid = false;
+          }
+        }
+        const active = side === 'src' && atom.threads === 32 ? atom.liveLanes / 32 : 1;
+        check(c.id, `${side} grid follows oracle with no holes`, valid, true);
+        check(c.id, `${side} grid entries`, entries, nT * nV * active);
+      }
+    });
+  }
+}
+
 // ═══════════════════════════════════════════════════════
 //  5. make_tiled_tma_atom  (tmaComputeAtom)
 // ═══════════════════════════════════════════════════════

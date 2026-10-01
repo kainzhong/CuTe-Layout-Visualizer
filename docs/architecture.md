@@ -57,6 +57,9 @@ tabs/
                         which takes an id prefix for this reason) and adds the two tiling arguments.
                         Draws SIX grids in two rows: atom_layout_mnk applied on top, the permuted
                         TiledMMA below. A port of TiledMMA::thrfrg_A/B/C, not a table. Prefix `mtm`.
+  make_tiled_copy_ab.js "make_tiled_copy_A / B" tab (Copy scope) — matched CopyAtom and
+                        TiledMMA operand layouts, SRC/DST above and MMA/reference below.
+                        Reuses partition and MMA render helpers. Prefix `mcab`.
   partition_abc.js      "partition_A / B / C" tab (MMA scope) — the ThrMMA slice. The MMA
                         twin of partition_sd, same three levels. Ports `thrfrg_A/B/C` +
                         `partition_A/B/C` from mma_atom.hpp by reusing `mtmThrfrg` /
@@ -331,6 +334,7 @@ The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link int
 ?key=make_mma_atom-f16bf16-half_t-float-16   # op, ab_dtype, acc_dtype, K
 ?key=make_mma_atom-tf32-na-na-8             # 'na' where the Op takes no dtype
 ?key=make_tiled_mma-f16bf16-half_t-float-16-(2, 2, 1)-(32, 32, 16)
+?key=make_tiled_copy_ab-A-f16bf16-half_t-float-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-tv-0
 ?key=make_tiled_mma-tf32-na-na-8-(2, 2, 1)-na   # 'na' is also "no permutation_mnk"
 ?key=make_tiled_tma_atom-half_t-(256, 128):(128, 1)-3,4,3-(64, 64):(64, 1)-(64, 64)
 ?key=tma_partition-1024-float-3,4,3-(8, 32):(32, 1)-(4, 2)
@@ -625,7 +629,7 @@ The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. E
   coordinate. Comparing structurally selected **zero** tiles and left `kept[0]` undefined.
   CuTeDSL is not the oracle for this one: its MLIR `crd2idx` cannot infer a result type for that
   coord/layout pair at all, so the case lives in `tests/unit.js`.
-- `copy` — the copy-construction pipeline: `make_copy_atom` (one instruction), then `make_tiled_copy` / `make_tiled_copy_tv` (replicate it over a tile), then `partition_sd` (hand that TiledCopy a tensor and one thread), plus `make_tiled_tma_atom` and `tma_partition` (the TMA path, which bypasses threads entirely). Accent color: emerald (`#10b981`).
+- `copy` — the copy-construction pipeline: `make_copy_atom` (one instruction), then `make_tiled_copy` / `make_tiled_copy_tv` (replicate it over a tile), `make_tiled_copy_A/B` (match a copy to an MMA operand), then `partition_sd` (hand that TiledCopy a tensor and one thread), plus `make_tiled_tma_atom` and `tma_partition` (the TMA path, which bypasses threads entirely). Accent color: emerald (`#10b981`).
 - `mma` — the MMA side: `make_mma_atom`, then `make_tiled_mma`, then `partition_abc` (hand that TiledMMA a tensor and one thread), then `make_fragment_abc` (the register layout produced from that partition). Accent color: amber (`#f59e0b`). The natural next tab is `make_tiled_copy_A/B/C`, which is where the copy and MMA scopes finally meet — a TiledMMA's `tv_layout_A` is literally the `layout_tv` they hand a copy.
 
 ### How scopes are wired
@@ -669,6 +673,7 @@ adding new copy atoms.
 | Deriving (layout_tv, Tiler_MN) from a thr/val pair | `make_tiled_copy_tv` | `copy` | One of several ways to compute the primitive's arguments |
 | What one TMA instruction moves, and the descriptor behind it | `make_tiled_tma_atom` | `copy` | A property of (tensor, smem layout, tiler) — no threads involved |
 | How a tile is split into instruction-sized chunks | `tma_partition` | `copy` | Needs only the atom's element count and the SMEM order |
+| Matching copy instruction ownership to a TiledMMA operand | `make_tiled_copy_ab` | `copy` | Uses the MMA operand TV layout as the copy target; no tensor partitioning |
 | What ONE THREAD of a TiledCopy gets, over a whole tensor | `partition_sd` | `copy` | The only thing a `ThrCopy` does; needs a tensor, which no other copy tab takes |
 | Whether the access pattern is coalesced / bank-conflict-free | `tv` | `basics` | A property of (TV layout, **data layout**) — no atom involved |
 
@@ -754,8 +759,8 @@ visualization rather than a table row.
 64b padding, or 16x6b with 32b padding, widened into 8-bit registers. Verified identical across all
 **156** accepted combinations of the two 8-bit Ops, which is why it is not a parameter of
 `mcaLdmatrixAtom` at all; the render path stores `null` (CuTeDSL `None`) and explains why
-unpacking has no selector. The UI now fixes it to `None`: a selector cannot change any
-drawn cell, and packed-source interpretation is outside this tab. The differential
+unpacking has no selector. A selector cannot change any drawn cell, and packed-source
+interpretation is outside this tab. The differential
 `unpack_bits` cases in `tests/cases.json` retain evidence for the unchanged-layout claim.
 
 **`num_matrices` decides how many lanes' addresses the hardware CONSUMES, not how much a lane
@@ -1546,6 +1551,49 @@ every operand covers its whole tile (a hole would mean `mtmOperandGrid` dropped 
 offset and the picture is quietly incomplete). Both go through **one writer** at the end of
 `mtmRenderViz`; `mtmReadHighlight` returns its message rather than writing it, because two functions
 racing for one element is how a warning goes missing.
+
+### make_tiled_copy_A / B
+
+`tabs/make_tiled_copy_ab.js` bridges the MMA and Copy constructors. It takes the existing
+warp MMA Op, `atom_layout_mnk`, `permutation_mnk`, operand A/B, and an existing SMEM→RMEM
+CopyAtom. Copy dtype follows the MMA input dtype. No tensor layout or partitioning is involved.
+
+`mcabComputeTiledCopy(mma, operand, atom)` uses the operand's TV layout as
+`layout_tv_tiled` and its M×K / N×K tile as `Tiler_MN`, exactly like CuTe's constructors.
+To derive each side it calls the shared `psdTile2ThrFrg` with a compact logical tile and
+`right_inverse(atom.ref).compose(atom.src|dst)`. For ldmatrix the reference is DST;
+for SIMT copies SRC, DST and reference agree. Both thread and value counts must be multiples
+of the copy atom's counts. Every SRC/DST domain point is compared with CuTeDSL accessors,
+including smaller atoms, expanded tiles, nontrivial permutations, reordered warps and K splits.
+
+The comparison uses shared `copyPanes` inside a `.comp-viz-item.comp-viz-span`
+wrapper. The `.comp-viz-item` class is required for shared fullscreen button discovery
+on both panes. SRC is the row-address ownership map,
+not physical SMEM offsets: lanes whose addresses ldmatrix ignores are omitted from that
+picture, while the full aliased layout remains in the printed result and differential tests.
+DST shows the receiving register slots and stays on the right in both comparisons. The Compare
+segmented picker uses the same `.seg-control` styling as Cell labels and switches the left pane between SRC and the original MMA operand TV map. Shared pane
+label IDs allow the titles to follow the comparison. Both panes reuse `mtmOperandGrid` and
+`mtmBuildSVG`, including the thread/warp palette and focus masking. `mtmReadFocus`,
+`mtmSyncFocusField`, and `mcaSyncLdsmControls` accept an optional tab prefix to share controls
+without duplicating their behavior.
+
+Badges follow `COPY_OP_MOVES`: SMEM for SRC and RMEM for DST. In MMA/COPY mode the left MMA pane names RMEM.
+`unpack_bits` remains fixed to None. Source tensor contiguity/alignment and copying runtime values
+are outside this tab. The view rejects element widths that split transpose units and produce
+fewer than 32 destination lanes; this is a visualization limit, not a claim that CuTeDSL rejects
+the CopyAtom. The MMA inputs are rank-3 constructor parameters rather than flattened tensors,
+so this tab is exempt from the shared rank warning for the same reason as `make_tiled_mma`.
+
+The Copy scope includes this tab after `make_tiled_copy_tv`; the internal feature name is `make_tiled_copy_ab`.
+Its URL takes operand, MMA Op/ab/acc/K, atom layout, permutation, copy Op/matrix count/transpose/
+bits, view, optional focus, and optional comparison (`src_dst` or `mma_copy`). Older URLs default to SRC/DST. Dynamic controls are rebuilt before imported values are assigned.
+Each constructor section has a Decode from Pasteboard button. It reads a copied URL or query
+through shared `parseKeyParam(search)`, rebuilds dependent options, and fills only that constructor.
+Copy dtype must match the MMA operand; unsupported Copy Ops are rejected before changing inputs.
+Clipboard denial falls back to a paste dialog for direct-file browsers.
+Defaults, all presets, constructor imports, both modes, focus errors, invalid copy widths, both SVG hosts, comparison switching with an unchanged right pane, memory
+badges and URL round trips are covered by DOM smoke tests. No new hardware Op is introduced.
 
 ### partition_A / partition_B / partition_C
 

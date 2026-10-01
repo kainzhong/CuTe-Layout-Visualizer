@@ -721,6 +721,7 @@ const TAB_RENDER_FN = {
   make_tiled_mma:     'renderMakeTiledMma',
   partition_abc:      'renderPartitionABC',
   make_fragment_abc:  'renderMakeFragmentABC',
+  make_tiled_copy_ab: 'renderMakeTiledCopyAB',
 };
 
 /** True on Apple platforms, where the modifier is ⌘ rather than Ctrl. */
@@ -797,7 +798,7 @@ function generateTabContent(id) {
         </div>
         <div class="tab-scope-btn" data-scope="copy" onclick="switchTabGroup('${id}', 'copy')">
           <span class="tab-scope-icon">⇄</span>Copy
-          <span class="tab-scope-count">6</span>
+          <span class="tab-scope-count">7</span>
         </div>
         <div class="tab-scope-btn" data-scope="mma" onclick="switchTabGroup('${id}', 'mma')">
           <span class="tab-scope-icon">\u2B21</span>MMA
@@ -820,6 +821,7 @@ function generateTabContent(id) {
       <div data-tab="make_copy_atom" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_copy_atom')">make_copy_atom</div>
       <div data-tab="make_tiled_copy" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy')">make_tiled_copy</div>
       <div data-tab="make_tiled_copy_tv" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy_tv')">make_tiled_copy_tv</div>
+      <div data-tab="make_tiled_copy_ab" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy_ab')">make_tiled_copy_A / B</div>
       <div data-tab="make_tiled_tma_atom" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_tma_atom')">make_tiled_tma_atom</div>
       <div data-tab="tma_partition" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'tma_partition')">tma_partition</div>
       <div data-tab="partition_sd" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'partition_sd')">partition_S/D</div>
@@ -844,6 +846,7 @@ function generateTabContent(id) {
     ${generateMakeCopyAtomTabContent(id)}
     ${generateMakeTiledCopyTabContent(id)}
     ${generateMakeTiledCopyTvTabContent(id)}
+    ${generateMakeTiledCopyABTabContent(id)}
     ${generateMakeTiledTmaAtomTabContent(id)}
     ${generateTmaPartitionTabContent(id)}
     ${generatePartitionSDTabContent(id)}
@@ -1079,7 +1082,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_tma_atom: 15, tma_partition: 16, partition_sd: 17, make_mma_atom: 18, make_tiled_mma: 19, partition_abc: 20, make_fragment_abc: 21 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_copy_ab: 15, make_tiled_tma_atom: 16, tma_partition: 17, partition_sd: 18, make_mma_atom: 19, make_tiled_mma: 20, partition_abc: 21, make_fragment_abc: 22 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1507,7 +1510,7 @@ function copyPanes(id, p) {
   const pane = (side) => `
         <div class="copy-pane" data-side="${side}">
           <div class="copy-pane-head">
-            <span class="copy-pane-side">${side.toUpperCase()}</span>
+            <span class="copy-pane-side" id="${id}-${p}-${side}-label">${side.toUpperCase()}</span>
             <span class="copy-pane-space memory-space-badge" id="${id}-${p}-${side}-space">&mdash;</span>
           </div>
           <div class="viz-box"><div id="${id}-${p}-${side}-svg"></div></div>
@@ -1765,13 +1768,14 @@ const FEATURE_SPEC = {
   partition_sd:        { inputs: 8 },  // side, op, bits, dtype, layout_tv, tiler, thr, tensor
   swizzle:         { inputs: 2 },
   make_mma_atom:   { inputs: 4 },  // op, ab_dtype, acc_dtype, K
+  make_tiled_copy_ab: { inputs: 12, optional: 2 }, // operand, MMA op/ab/acc/K, atom layout, perm, copy Op/nm/trans/bits, view [, focus, compare]
   make_tiled_mma:  { inputs: 6 },  // op, ab_dtype, acc_dtype, K, atom_layout_mnk, permutation_mnk
   partition_abc:   { inputs: 9 },  // operand, op, ab, acc, K, atom_layout_mnk, perm, thr, tensor
   make_fragment_abc: { inputs: 6, optional: 1 }, // operand, op, ab, acc, K, partitioned layout [, thread]
 };
 
-function parseKeyParam() {
-  const key = new URLSearchParams(location.search).get('key');
+function parseKeyParam(search = location.search) {
+  const key = new URLSearchParams(search).get('key');
   if (!key) return null;
   const parts = key.split('-');
   if (parts.length < 2) return null;
@@ -1924,6 +1928,10 @@ function applyKeyParam(tabId) {
       renderMakeMmaAtom(tabId);
       break;
     }
+    case 'make_tiled_copy_ab':
+      setMCAB(tabId, ...inputs);
+      switchInnerTab(tabId, 'make_tiled_copy_ab');
+      break;
     case 'make_tiled_mma': {
       document.getElementById(`${tabId}-mtm-op-input`).value = inputs[0];
       // Rebuild the per-Op options BEFORE assigning into them — see mmaSyncControls.

@@ -195,6 +195,29 @@ function runUnitTests(V, T) {
           true);
   });
 
+  setSection('unit/make_tiled_copy_ab');
+  guard('reject-split-transpose-elements', () => {
+    let msg = '';
+    try { V.mcabCopyAtom('ldmatrix', 'tfloat32_t', 1, true, 32); }
+    catch (e) { msg = e.message; }
+    check('reject-split-transpose-elements', 'explains visualization limit',
+      /requires a full 32-lane element mapping/.test(msg), true);
+  });
+  guard('reject-copy-operation-and-width', () => {
+    for (const [op, bits, want] of [['cpasync', 16, /Unsupported SMEM/], ['s2r', 7, /positive multiple/]]) {
+      let msg = '';
+      try { V.mcabCopyAtom(op, 'half_t', 1, false, bits); }
+      catch (e) { msg = e.message; }
+      check('reject-copy-operation-and-width', `${op}/${bits}`, want.test(msg), true);
+    }
+  });
+  guard('reject-unsupported-operand', () => {
+    let msg = '';
+    try { V.mcabComputeTiledCopy({}, 'C', {}); }
+    catch (e) { msg = e.message; }
+    check('reject-unsupported-operand', 'names supported operands', /Operand must be A or B/.test(msg), true);
+  });
+
   // ── parseSwizzleSpec ───────────────────────────────────────────────────────
   setSection('unit/parseSwizzleSpec');
   const SW = (s) => { const r = V.parseSwizzleSpec(s); return r ? `${r.B},${r.M},${r.S}` : 'null'; };

@@ -120,7 +120,7 @@ const MCA_LDSM_SPECS = {
   },
   ldsm16x16x8b: {
     op: 'LdMatrix16x16x8bOp',
-    ptx: 'ldmatrix.sync.aligned.m16n16.x{1,2}.trans[.b8|.b4x16_p64|.b6x16_p32].shared',
+    ptx: 'ldmatrix.sync.aligned.m16n16.x{1,2}.trans.shared.b8',
     matrix: '16x16', unitBits: 8, matrixBytes: 256,
     numMatrices: [1, 2],
     transpose: 'required',
@@ -646,8 +646,9 @@ function mcaRenderLdmatrix(tabId, opKey, op, dtype, elemBits, prev) {
  *  num_matrices is {1,2,4} / {2,4} / {1,2}, transpose is optional on the b16 Op
  *  and MANDATORY on both 8-bit ones. unpack_bits is fixed to None. Selections are kept
  *  across an Op change when the new Op still permits them. */
-function mcaSyncLdsmControls(tabId, spec) {
-  const nmSel = document.getElementById(`${tabId}-mca-nm-input`);
+function mcaSyncLdsmControls(tabId, spec, p) {
+  p = p || 'mca';
+  const nmSel = document.getElementById(`${tabId}-${p}-nm-input`);
   if (nmSel) {
     const want = nmSel.value;
     nmSel.innerHTML = spec.numMatrices.map(k => {
@@ -661,7 +662,7 @@ function mcaSyncLdsmControls(tabId, spec) {
 
   // A required transpose is pinned to True and disabled — offering a False the
   // constructor throws on would be a control that only produces errors.
-  const trSel = document.getElementById(`${tabId}-mca-trans-input`);
+  const trSel = document.getElementById(`${tabId}-${p}-trans-input`);
   if (trSel) {
     const required = spec.transpose === 'required';
     if (required) trSel.value = '1';

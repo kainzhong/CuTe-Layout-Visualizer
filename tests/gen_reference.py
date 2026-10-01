@@ -543,6 +543,29 @@ def run_tiled_mma(c):
     }
 
 
+def run_make_tiled_copy_ab(c):
+    tmma = cute.make_tiled_mma(
+        cute.make_mma_atom(MMA_OPS[c["op"]](c)),
+        parse_layout(c["atom_layout"]), parse_tiled_mma_perm(c["perm"]),
+    )
+    dtype = DTYPES[c["ab_dtype"]]
+    if c["copy_op"] == "s2r":
+        atom = cute.make_copy_atom(common.CopyUniversalOp(), dtype,
+                                   num_bits_per_copy=c["bits"])
+    else:
+        key = {"ldmatrix": "ldsm8x8x16b", "ldmatrix16x8x8b": "ldsm16x8x8b",
+               "ldmatrix16x16x8b": "ldsm16x16x8b"}[c["copy_op"]]
+        atom = cute.make_copy_atom(LDSM_OPS[key](
+            transpose=c["transpose"], num_matrices=c["num_matrices"]), dtype)
+    tc = getattr(cute, "make_tiled_copy_" + c["operand"])(atom, tmma)
+    tile = [int(tmma.get_tile_size(i)) for i in ([0, 2] if c["operand"] == "A" else [1, 2])]
+    return {"tv": record(tc.layout_tv_tiled), "src": record(tc.layout_src_tv_tiled),
+            "dst": record(tc.layout_dst_tv_tiled), "tiler_mn": canon(tc.tiler_mn),
+            "tile": tile, "atom_src": record(atom.layout_src_tv),
+            "atom_dst": record(atom.layout_dst_tv),
+            "mma_tv": record(getattr(tmma, "tv_layout_" + c["operand"] + "_tiled"))}
+
+
 def run_partition_abc(c):
     """One TiledMMA, one operand, one tensor, EVERY thread.
 
@@ -679,6 +702,7 @@ SECTIONS = [
     ("ldmatrix_atom", run_ldmatrix_atom),
     ("mma_atom", run_mma_atom),
     ("tiled_mma", run_tiled_mma),
+    ("make_tiled_copy_ab", run_make_tiled_copy_ab),
     ("tma_atom", run_tma_atom),
     ("tma_partition", run_tma_partition),
     ("partition_sd", run_partition_sd),

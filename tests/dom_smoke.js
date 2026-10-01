@@ -127,7 +127,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
   const errorIds = [...html.matchAll(/id="([^"]*-(?:error|warning))"/g)].map(m => m[1]);
   // Every viz host a render is expected to fill: the Copy tabs' src/dst panes,
   // the MMA tabs' a/b/c grids, and partition_sd's two stacked results.
-  const paneIds = [...html.matchAll(/id="([^"]*-(?:src|dst|tile|sweep|extra|frag|strip|[abc])-svg)"/g)].map(m => m[1]);
+  const paneIds = [...html.matchAll(/id="([^"]*-(?:src|dst|tile|sweep|extra|frag|strip|mma|copy|[abc])-svg)"/g)].map(m => m[1]);
 
   // Seed every control with the default the markup declares. A real browser does
   // this for free; without it the tabs render from empty strings and every
@@ -275,6 +275,46 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     }
   });
 
+  step('TiledCopy SRC/DST get fullscreen buttons targeting their SVG hosts', () => {
+    const markup = ctx.generateMakeTiledCopyABTabContent(TAB);
+    if (!/<div class="comp-viz-item comp-viz-span">\s*<div class="comp-viz-header"><span class="comp-viz-title" id="tab1-mcab-transfer-title"/.test(markup))
+      throw new Error('transfer wrapper is excluded from fullscreen setup');
+    const boxes = ['src', 'dst'].map(side => {
+      const children = [];
+      return {
+        style: {}, children,
+        querySelector(selector) {
+          if (selector === 'div[id]') return els.get(`${TAB}-mcab-${side}-svg`);
+          if (selector === ':scope > .viz-fullscreen-btn') return children[0] || null;
+          return null;
+        },
+        appendChild(child) { children.push(child); },
+      };
+    });
+    const item = { querySelectorAll: selector => selector === '.viz-box' ? boxes : [] };
+    const root = { querySelectorAll: selector => selector === '.comp-viz-item' ? [item] : [] };
+    const realCreate = ctx.document.createElement;
+    const realView = ctx.viewFullscreen;
+    const opened = [];
+    ctx.document.createElement = () => ({ style: {}, handlers: {},
+      addEventListener(event, fn) { this.handlers[event] = fn; } });
+    ctx.viewFullscreen = id => opened.push(id);
+    try {
+      ctx.attachVizFullscreenButtons(root);
+      ctx.attachVizFullscreenButtons(root);
+      for (const box of boxes) {
+        if (box.children.length !== 1 || box.children[0].className !== 'viz-fullscreen-btn')
+          throw new Error('fullscreen button missing or duplicated');
+        box.children[0].handlers.click({ stopPropagation() {} });
+      }
+      if (opened.join(',') !== `${TAB}-mcab-src-svg,${TAB}-mcab-dst-svg`)
+        throw new Error('fullscreen buttons opened incorrect hosts');
+    } finally {
+      ctx.document.createElement = realCreate;
+      ctx.viewFullscreen = realView;
+    }
+  });
+
   // ── every preset button in the generated markup ──────────────────────────
   const presetSrc = new Set(
     [...html.matchAll(/class="preset-btn"[^>]*onclick="([\s\S]*?)"/g)].map(m => decodeEntities(m[1])));
@@ -283,7 +323,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     const hit = /^\s*(set[A-Z][A-Za-z]*)\('tab1'\s*,/.exec(src);
     if (!hit || typeof ctx[hit[1]] !== 'function') continue;
     const fnName = hit[1];
-    const pfx = { setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm',
+    const pfx = { setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm', setMCAB: 'mcab',
                   setPSD: 'psd', setPsdSide: 'psd', setPsdMode: 'psd',
                   setPABC: 'pabc', setPabcOperand: 'pabc', setPabcMode: 'pabc',
                   setMfrag: 'mfrag', setMfragOperand: 'mfrag' }[fnName];
@@ -423,6 +463,134 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
       throw new Error('thread ID was lost in the fragment URL');
     ctx.location.search = '';
   }, [`${TAB}-mfrag-svg`]);
+
+  // The operand views are identical, while ldmatrix's actual address and
+  // destination ownership differ. Toggle and focus must update all four panes.
+  const mcabPanes = paneIds.filter(id => id.startsWith(`${TAB}-mcab-`));
+  for (const operand of ['A', 'B']) {
+    step(`make_tiled_copy_${operand}: TVs and SMEM/RMEM badges`, () => {
+      ctx.setMCAB(TAB, operand, 'f16bf16', 'half_t', 'float', 16,
+        '(2,2,1)', '(32,32,16)', 'ldmatrix', 4, 0, 16, 'tv');
+      expectBadge('mcab-src', 'SMEM');
+      expectBadge('mcab-dst', 'RMEM');
+      const dstSvg = els.get(`${TAB}-mcab-dst-svg`).innerHTML;
+      if (!dstSvg.includes('T0/V0')) throw new Error('TV labels did not render');
+      if (els.get(`${TAB}-mcab-src-svg`).innerHTML === dstSvg)
+        throw new Error('ldmatrix SRC and DST incorrectly agree');
+      ctx.setMcabCompare(TAB, 'mma_copy');
+      expectBadge('mcab-src', 'RMEM');
+      if (els.get(`${TAB}-mcab-dst-svg`).innerHTML !== dstSvg)
+        throw new Error('comparison changed the right pane');
+      const r = ctx.mcabState[TAB].result;
+      const expectedMma = ctx.mtmBuildSVG(ctx.mtmOperandGrid(r.mmaOperand), ...r.tile, { mode: 'tv', focus: null });
+      if (els.get(`${TAB}-mcab-src-svg`).innerHTML !== expectedMma)
+        throw new Error('left pane does not show the MMA operand');
+      if (els.get(`${TAB}-mcab-src-label`).textContent !== 'TiledMMA' ||
+          els.get(`${TAB}-mcab-dst-label`).textContent !== 'TiledCopy (DST)')
+        throw new Error('comparison labels incorrect');
+    }, mcabPanes);
+    for (const [mode, focus] of [['warp', '2'], ['tv', '1']]) {
+      step(`make_tiled_copy_${operand}: ${mode} focus`, () => {
+        els.get(`${TAB}-mcab-focus-input`).value = focus;
+        ctx.setMcabMode(TAB, mode);
+        const label = els.get(`${TAB}-mcab-focus-label`).textContent;
+        if (label !== (mode === 'tv' ? 'Thread ID' : 'Warp id')) throw new Error(`focus label = ${label}`);
+        for (const key of ['src', 'dst']) {
+          const svg = els.get(`${TAB}-mcab-${key}-svg`).innerHTML;
+          if (!svg.includes(mode === 'tv' ? '>T1</text>' : '>W2</text>'))
+            throw new Error(`${key} lost the focused ${mode}`);
+        }
+      }, mcabPanes);
+    }
+  }
+  step('make_tiled_copy_AB: constructor paste buttons are wired', () => {
+    for (const [section, feature] of [['mma', 'make_tiled_mma'], ['copy', 'make_copy_atom']]) {
+      if (!html.includes(`id="${TAB}-mcab-decode-${section}" onclick="mcabDecodePasteboard('${TAB}','${feature}')">Decode from Pasteboard`))
+        throw new Error(`missing ${section} paste button handler`);
+    }
+  });
+  step('make_tiled_copy_AB: decode TiledMMA URL rebuilds dtype/K options', () => {
+    ctx.setMCAB(TAB, 'B', 'f16bf16', 'half_t', 'float', 16,
+      '(2,2,1)', '(32,32,16)', 's2r', 1, 0, 32, 'tv', '3', 'mma_copy');
+    const key = 'make_tiled_mma-tf32-tfloat32_t-float-8-(2,2,1)-na';
+    ctx.mcabImportConstructor(TAB, 'make_tiled_mma', `file:///other/index.html?key=${encodeURIComponent(key)}#anchor`);
+    for (const [field, expected] of [['op', 'tf32'], ['ab', 'tfloat32_t'], ['k', '8'], ['perm', ''], ['operand', 'B'], ['copy', 's2r']]) {
+      if (els.get(`${TAB}-mcab-${field}-input`).value !== expected) throw new Error(`import lost ${field}`);
+    }
+    if (ctx.mcabState[TAB].mode !== 'tv' || ctx.mcabState[TAB].compare !== 'mma_copy' || ctx.mcabState[TAB].focus !== 3)
+      throw new Error('constructor paste changed comparison/focus');
+  }, mcabPanes);
+  step('make_tiled_copy_AB: decode CopyUniversalOp query', () => {
+    ctx.mcabImportConstructor(TAB, 'make_copy_atom', '?key=make_copy_atom-universal-64-tfloat32_t');
+    if (els.get(`${TAB}-mcab-copy-input`).value !== 's2r' || els.get(`${TAB}-mcab-bits-input`).value !== '64')
+      throw new Error('universal copy parameters not imported');
+  }, mcabPanes);
+  step('make_tiled_copy_AB: decode ldmatrix query rebuilds matrix/transpose options', () => {
+    ctx.mcabImportConstructor(TAB, 'make_tiled_mma', 'key=make_tiled_mma-fp8-float_e4m3_t-float-32-(2,2,1)-(32,32,32)');
+    ctx.mcabImportConstructor(TAB, 'make_copy_atom', '?key=make_copy_atom-ldmatrix16x16x8b-128-float_e4m3_t-2-1');
+    if (els.get(`${TAB}-mcab-nm-input`).value !== '2' || els.get(`${TAB}-mcab-trans-input`).value !== '1' ||
+        !els.get(`${TAB}-mcab-trans-input`).disabled) throw new Error('ldmatrix parameters not imported');
+  }, mcabPanes);
+  step('make_tiled_copy_AB: bad constructor pastes leave inputs intact', () => {
+    const saved = els.get(`${TAB}-mcab-copy-input`).value;
+    for (const [feature, text, reason] of [
+      ['make_tiled_mma', '?key=make_copy_atom-universal-32-half_t', /Paste a make_tiled_mma/],
+      ['make_copy_atom', '?key=make_copy_atom-cpasync-128-float_e4m3_t', /not supported/],
+      ['make_copy_atom', '?key=make_copy_atom-ldmatrix-128-half_t-4-0', /does not match/],
+      ['make_tiled_mma', 'not a URL', /Paste a/],
+    ]) {
+      let error;
+      try { ctx.mcabImportConstructor(TAB, feature, text); } catch (e) { error = e.message; }
+      if (!reason.test(error || '')) throw new Error(`unexpected paste result: ${error}`);
+      if (els.get(`${TAB}-mcab-copy-input`).value !== saved) throw new Error('bad paste mutated copy input');
+    }
+  }, mcabPanes);
+  step('make_tiled_copy_AB: invalid copy width clears all panes', () => {
+    ctx.setMCAB(TAB, 'B', 'f16bf16', 'half_t', 'float', 16,
+      '(1,1,1)', '', 'ldmatrix', 4, 0, 16);
+    if (els.get(`${TAB}-mcab-result`).innerHTML ||
+        mcabPanes.some(id => els.get(id).innerHTML)) throw new Error('stale result survived invalid input');
+  }, [], { expectError: /too few vals/ });
+  step('make_tiled_copy_AB: invalid focus is reported', () => {
+    ctx.setMCAB(TAB, 'A', 'f16bf16', 'half_t', 'float', 16,
+      '(2,2,1)', '(32,32,16)', 'ldmatrix', 4, 0, 16, 'warp', '99');
+  }, mcabPanes, { expectError: /out of range/ });
+  step('make_tiled_copy_AB: URL export/import restores B, copy options, view and focus', () => {
+    ctx.setMCAB(TAB, 'B', 'f16bf16', 'half_t', 'float', 16,
+      '(2,2,1):(2,1,4)', '(32,32,16)', 'ldmatrix', 2, 1, 16, 'tv', '3', 'mma_copy');
+    const expected = mcabPanes.map(id => els.get(id).innerHTML);
+    const realExport = ctx.exportURL, realSwitch = ctx.switchInnerTab;
+    let args;
+    ctx.exportURL = (btn, feature, ...inputs) => { args = [feature, ...inputs]; };
+    ctx.switchInnerTab = () => {};
+    try {
+      ctx.exportMCAB(TAB);
+      ctx.setMCAB(TAB, 'A', 'tf32', null, null, 8, '(1,1,1)', '', 's2r', 1, 0, 32);
+      ctx.location.search = `?key=${encodeURIComponent(args.join('-'))}`;
+      ctx.applyKeyParam(TAB);
+      if (mcabPanes.some((id, i) => els.get(id).innerHTML !== expected[i]))
+        throw new Error('URL changed the ownership picture');
+      if (els.get(`${TAB}-mcab-operand-input`).value !== 'B' ||
+          ctx.mcabState[TAB].mode !== 'tv' || ctx.mcabState[TAB].focus !== 3 ||
+          ctx.mcabState[TAB].compare !== 'mma_copy')
+        throw new Error('URL lost operand, mode, focus or comparison');
+    } finally {
+      ctx.exportURL = realExport;
+      ctx.switchInnerTab = realSwitch;
+      ctx.location.search = '';
+    }
+  }, mcabPanes);
+  step('make_tiled_copy_AB: SIMT and required-transpose imports rebuild options', () => {
+    const realSwitch = ctx.switchInnerTab;
+    ctx.switchInnerTab = () => {};
+    try {
+      ctx.location.search = '?key=make_tiled_copy_ab-A-fp8-float_e5m2_t-float-32-(2,2,1)-(32,32,32)-ldmatrix16x16x8b-1-1-8-warp';
+      ctx.applyKeyParam(TAB);
+      if (els.get(`${TAB}-mcab-nm-input`).value !== '1' || !els.get(`${TAB}-mcab-trans-input`).disabled)
+        throw new Error('copy-dependent controls were not rebuilt');
+      if (ctx.mcabState[TAB].compare !== 'src_dst') throw new Error('legacy URL lost default comparison');
+    } finally { ctx.switchInnerTab = realSwitch; ctx.location.search = ''; }
+  }, mcabPanes);
 
   // ── the two partition tabs' thread box accepts BLANK = every thread ──────
   // The presets all pass a concrete id, so nothing else here reaches the
@@ -579,6 +747,50 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
       field.value = was;
       ctx[render](TAB);
     }, svgs);
+  }
+
+  // Packed-source unpacking is fixed to None. Legacy URLs must still open,
+  // render both panes, and export the current five-input form.
+  step('make_copy_atom has no unpack selector or unpack presets', () => {
+    const markup = ctx.generateMakeCopyAtomTabContent(TAB);
+    if (markup.includes('mca-ub-input') || markup.includes('mca-ub-group'))
+      throw new Error('unpack selector remains in the template');
+    if (ctx.MCA_PRESETS.some(p => p.ub !== undefined))
+      throw new Error('packed-source unpacking preset remains');
+  });
+  for (const op of ['ldmatrix16x8x8b', 'ldmatrix16x16x8b']) {
+    for (const legacyBits of [4, 6]) {
+      step(`${op}: legacy unpack_bits=${legacyBits} normalizes to None`, () => {
+        const key = `make_copy_atom-${op}-128-int8_t-2-1-${legacyBits}`;
+        const realSwitch = ctx.switchInnerTab;
+        const realExport = ctx.exportURL;
+        ctx.switchInnerTab = () => {};
+        try {
+          ctx.location.search = `?key=${encodeURIComponent(key)}`;
+          ctx.applyKeyParam(TAB);
+          if (ctx.mcaState[TAB].unpackBits !== null)
+            throw new Error('legacy URL restored an unpacking mode');
+          const result = els.get(`${TAB}-mca-atom-result`).innerHTML;
+          if (/b4x16_p64|b6x16_p32/.test(result))
+            throw new Error('packed-source qualifier remains in the result');
+          let exported;
+          ctx.exportURL = (btn, feature, ...inputs) => { exported = {feature, inputs}; };
+          ctx.exportMCA(TAB);
+          if (!exported || exported.feature !== 'make_copy_atom' ||
+              exported.inputs.join('-') !== `${op}-128-int8_t-2-1`)
+            throw new Error('export did not omit legacy unpack_bits');
+          ctx.location.search = `?key=${encodeURIComponent(
+            [exported.feature, ...exported.inputs].join('-'))}`;
+          ctx.applyKeyParam(TAB);
+          if (ctx.mcaState[TAB].unpackBits !== null || ctx.mcaState[TAB].opKey !== op)
+            throw new Error('canonical URL did not round trip');
+        } finally {
+          ctx.switchInnerTab = realSwitch;
+          ctx.exportURL = realExport;
+          ctx.location.search = '';
+        }
+      }, paneIds.filter(id => id.startsWith(`${TAB}-mca-`)));
+    }
   }
 
   // ── URL round-trip: every ?key= form must parse ──────────────────────────

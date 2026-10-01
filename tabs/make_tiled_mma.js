@@ -754,10 +754,11 @@ const MTM_FOCUS = {
  *  Returns the message rather than writing it, so the error box has exactly one
  *  author (mtmRenderViz); two functions racing for one element is how a message
  *  goes missing. */
-function mtmReadFocus(tabId, mode, warps, threads) {
+function mtmReadFocus(tabId, mode, warps, threads, p) {
+  p = p || 'mtm';
   const spec = MTM_FOCUS[mode] || MTM_FOCUS.warp;
   const limit = mode === 'tv' ? threads : warps;
-  const raw = (document.getElementById(`${tabId}-mtm-focus-input`).value || '').trim();
+  const raw = (document.getElementById(`${tabId}-${p}-focus-input`).value || '').trim();
   if (raw === '') return { focus: null, focusErr: '' };
   if (!/^\d+$/.test(raw))
     return {
@@ -779,16 +780,17 @@ function mtmReadFocus(tabId, mode, warps, threads) {
 /** Relabel the focus box for the active mode. The control is one box whose
  *  UNIT changes, so the label has to move with the toggle or it would name the
  *  wrong thing. */
-function mtmSyncFocusField(tabId, mode) {
+function mtmSyncFocusField(tabId, mode, p, hintText) {
+  p = p || 'mtm';
   const spec = MTM_FOCUS[mode] || MTM_FOCUS.warp;
-  const label = document.getElementById(`${tabId}-mtm-focus-label`);
-  const input = document.getElementById(`${tabId}-mtm-focus-input`);
-  const hint = document.getElementById(`${tabId}-mtm-focus-hint`);
+  const label = document.getElementById(`${tabId}-${p}-focus-label`);
+  const input = document.getElementById(`${tabId}-${p}-focus-input`);
+  const hint = document.getElementById(`${tabId}-${p}-focus-hint`);
   if (label) label.textContent = spec.label;
   if (input) input.placeholder = spec.placeholder;
   // setAttribute, not innerHTML: the bubble is `content: attr(data-tooltip)`,
   // and going through the DOM means the text needs no escaping of its own.
-  if (hint) hint.setAttribute('data-tooltip', spec.hint);
+  if (hint) hint.setAttribute('data-tooltip', hintText || spec.hint);
 }
 
 // The three view controls all re-enter renderMakeTiledMma rather than calling

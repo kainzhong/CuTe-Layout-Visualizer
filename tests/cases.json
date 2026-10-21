@@ -8,6 +8,7 @@
     "(a by-mode Tiler, i.e. a tuple of layouts)."
   ],
   "layout_ops": [
+    {"id":"rinv-broadcast","op":"right_inverse","a":"(4,2,8):(1,0,4)"},
     {
       "id": "coalesce-basic",
       "op": "coalesce",
@@ -1964,6 +1965,130 @@
   "_comment_partition_sd": "ThrCopy::partition_S / partition_D -- copy_atom.hpp:368/378, via tidfrg_S/D (:221/:242) and tile2thrfrg (:257). Oracle is CuTeDSL's own tiled_copy.get_slice(t).partition_S(tensor). The intermediate tidfrg is not public, so it is pinned INDIRECTLY: the reference records the partition layout plus the base offset of EVERY thread, and run.js requires the port's tidfrg to reproduce all of them -- which is exactly what tidfrg's thread mode is. `offsets` come from the identity tensor (an ordinary tensor's iterator is a runtime pointer), the layout from a pointer tensor so its strides are integers.",
   "partition_sd": [
     {
+      "id": "url_A_x1_S",
+      "copy_url": "?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-1-0-16-warp",
+      "side": "S",
+      "tensor": "(128,32,4):(32,1,4096)"
+    },
+    {
+      "id": "url_A_x1_D",
+      "copy_url": "?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-1-0-16-warp",
+      "side": "D",
+      "tensor": "(128,32,4):(32,1,4096)"
+    },
+    {
+      "id": "url_A_x2_S",
+      "copy_url": "?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-2-0-16-warp",
+      "side": "S",
+      "tensor": "(128,32,4):(32,1,4096)"
+    },
+    {
+      "id": "url_A_x2_D",
+      "copy_url": "?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-2-0-16-warp",
+      "side": "D",
+      "tensor": "(128,32,4):(32,1,4096)"
+    },
+    {
+      "id": "url_A_x4_S",
+      "copy_url": "?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp",
+      "side": "S",
+      "tensor": "(128,32,4):(32,1,4096)"
+    },
+    {
+      "id": "url_A_x4_D",
+      "copy_url": "?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp",
+      "side": "D",
+      "tensor": "(128,32,4):(32,1,4096)"
+    },
+    {
+      "id": "url_B_x1_S",
+      "copy_url": "?key=make_tiled_copy_ab-B-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-1-0-16-warp",
+      "side": "S",
+      "tensor": "(128,32,4):(32,1,4096)"
+    },
+    {
+      "id": "url_B_x1_D",
+      "copy_url": "?key=make_tiled_copy_ab-B-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-1-0-16-warp",
+      "side": "D",
+      "tensor": "(128,32,4):(32,1,4096)"
+    },
+    {
+      "id": "url_B_x2_S",
+      "copy_url": "?key=make_tiled_copy_ab-B-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-2-0-16-warp",
+      "side": "S",
+      "tensor": "(128,32,4):(32,1,4096)"
+    },
+    {
+      "id": "url_B_x2_D",
+      "copy_url": "?key=make_tiled_copy_ab-B-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-2-0-16-warp",
+      "side": "D",
+      "tensor": "(128,32,4):(32,1,4096)"
+    },
+    {
+      "id": "url_B_x4_S",
+      "copy_url": "?key=make_tiled_copy_ab-B-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp",
+      "side": "S",
+      "tensor": "(128,32,4):(32,1,4096)"
+    },
+    {
+      "id": "url_B_x4_D",
+      "copy_url": "?key=make_tiled_copy_ab-B-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp",
+      "side": "D",
+      "tensor": "(128,32,4):(32,1,4096)"
+    },
+    {
+      "id": "url_B_trans_S",
+      "copy_url": "?key=make_tiled_copy_ab-B-f16bf16-half_t-float-16-(2,2,1)-(32,32,16)-ldmatrix-2-1-16-warp",
+      "side": "S",
+      "tensor": "(64,32):(1,64)"
+    },
+    {
+      "id": "url_A_fp8_S",
+      "copy_url": "?key=make_tiled_copy_ab-A-fp8-float_e4m3_t-float-32-(2,2,1)-(32,32,32)-ldmatrix16x16x8b-2-1-8-warp",
+      "side": "S",
+      "tensor": "(64,64):(64,1)"
+    },
+    {
+      "id": "url_B_trans_D",
+      "copy_url": "?key=make_tiled_copy_ab-B-f16bf16-half_t-float-16-(2,2,1)-(32,32,16)-ldmatrix-2-1-16-warp",
+      "side": "D",
+      "tensor": "(64,32):(1,64)"
+    },
+    {
+      "id": "url_A_fp8_D",
+      "copy_url": "?key=make_tiled_copy_ab-A-fp8-float_e4m3_t-float-32-(2,2,1)-(32,32,32)-ldmatrix16x16x8b-2-1-8-warp",
+      "side": "D",
+      "tensor": "(64,64):(64,1)"
+    },
+    {
+      "id": "url_derived_simt",
+      "copy_url": "?key=make_tiled_copy_tv-universal-32-half_t-(8,4):(1,8)-(2,2):(1,2)",
+      "side": "S",
+      "tensor": "(32,32):(32,1)"
+    },
+    {
+      "id": "url_strided_tiler",
+      "copy_url": "?key=make_tiled_copy-universal-16-half_t-((4,4),4):((4,16),1)-(4:1,16:2)",
+      "side": "S",
+      "tensor": "(4,32):(1,4)"
+    },
+    {
+      "id": "cute_nondividing",
+      "bits": 32,
+      "dtype": "half_t",
+      "tv": "((8,4),(2,2)):((16,2),(8,1))",
+      "tiler": "(8,16)",
+      "tensor": "(12,32):(1,12)"
+    },
+    {
+      "id": "cute_unvectorizable",
+      "bits": 64,
+      "dtype": "half_t",
+      "tv": "((8,4),(2,2)):((16,2),(8,1))",
+      "tiler": "(8,16)",
+      "tensor": "(16,32):(1,16)"
+    },
+    {
       "id": "basic_2x2",
       "side": "S",
       "bits": 32,
@@ -2068,6 +2193,101 @@
   "_comment_make_fragment_abc": "Direct MmaAtom.make_fragment_A/B/C calls on already partitioned layouts. The output layout maps fragment value coordinates to scalar register slots; the UI packs those slots into 32-bit register words according to dtype. These cases also check parsing the partition result as a standalone input.",
   "make_fragment_abc": [
     {
+      "id": "A_slice_auto_stage0",
+      "which": "A",
+      "op": "f16bf16",
+      "k": 16,
+      "ab": "half_t",
+      "acc": "float",
+      "partition": "((2,2,2),4,2,4):((1,256,8),1024,16,4096)",
+      "slice": [
+        null,
+        null,
+        null,
+        0
+      ],
+      "auto_slice": true
+    },
+    {
+      "id": "A_slice_stage2",
+      "which": "A",
+      "op": "f16bf16",
+      "k": 16,
+      "ab": "half_t",
+      "acc": "float",
+      "partition": "((2,2,2),4,2,4):((1,256,8),1024,16,4096)",
+      "slice": [
+        null,
+        null,
+        null,
+        2
+      ]
+    },
+    {
+      "id": "A_slice_nested",
+      "which": "A",
+      "op": "f16bf16",
+      "k": 16,
+      "ab": "half_t",
+      "acc": "float",
+      "partition": "((2,2,2),(2,2),3,4):((1,192,8),(768,3072),16,6144)",
+      "slice": [
+        null,
+        [
+          null,
+          1
+        ],
+        null,
+        2
+      ]
+    },
+    {
+      "id": "A_slice_outer_modes",
+      "which": "A",
+      "op": "f16bf16",
+      "k": 16,
+      "ab": "half_t",
+      "acc": "float",
+      "partition": "((2,2,2),2,3,4,2):((1,384,8),1536,16,3072,12288)",
+      "slice": [
+        null,
+        null,
+        null,
+        1,
+        0
+      ]
+    },
+    {
+      "id": "B_slice_stage1",
+      "which": "B",
+      "op": "f16bf16",
+      "k": 16,
+      "ab": "half_t",
+      "acc": "float",
+      "partition": "((2,2),2,3,2):((1,8),768,16,1536)",
+      "slice": [
+        null,
+        null,
+        null,
+        1
+      ]
+    },
+    {
+      "id": "C_slice_stage2",
+      "which": "C",
+      "op": "f16bf16",
+      "k": 16,
+      "ab": "half_t",
+      "acc": "float",
+      "partition": "((2,2),2,2,3):((1,256),1024,16,4096)",
+      "slice": [
+        null,
+        null,
+        null,
+        2
+      ]
+    },
+    {
       "id": "A_row",
       "which": "A",
       "op": "f16bf16",
@@ -2129,6 +2349,227 @@
       "ab": "float_e4m3_t",
       "acc": "float",
       "partition": "((4,2),2,3):((1,16),1536,32)"
+    }
+  ],
+  "retile": [
+    {
+      "id": "A_plain_x1",
+      "op": "ldmatrix",
+      "dtype": "half_t",
+      "nm": 1,
+      "transpose": false,
+      "tv": "((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))",
+      "tile": [
+        32,
+        16
+      ],
+      "input": "((2,2,2),4,4):((1,2,4),32,8)"
+    },
+    {
+      "id": "A_plain_x2",
+      "op": "ldmatrix",
+      "dtype": "half_t",
+      "nm": 2,
+      "transpose": false,
+      "tv": "((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))",
+      "tile": [
+        32,
+        16
+      ],
+      "input": "((2,2,2),4,4):((1,2,4),32,8)"
+    },
+    {
+      "id": "A_plain_x4",
+      "op": "ldmatrix",
+      "dtype": "half_t",
+      "nm": 4,
+      "transpose": false,
+      "tv": "((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))",
+      "tile": [
+        32,
+        16
+      ],
+      "input": "((2,2,2),4,4):((1,2,4),32,8)"
+    },
+    {
+      "id": "A_expanded_x1",
+      "op": "ldmatrix",
+      "dtype": "half_t",
+      "nm": 1,
+      "transpose": false,
+      "tv": "((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))",
+      "tile": [
+        32,
+        16
+      ],
+      "input": "((2,2,2),4,4):((1,2,4),32,8)"
+    },
+    {
+      "id": "A_expanded_x2",
+      "op": "ldmatrix",
+      "dtype": "half_t",
+      "nm": 2,
+      "transpose": false,
+      "tv": "((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))",
+      "tile": [
+        32,
+        16
+      ],
+      "input": "((2,2,2),4,4):((1,2,4),32,8)"
+    },
+    {
+      "id": "A_expanded_x4",
+      "op": "ldmatrix",
+      "dtype": "half_t",
+      "nm": 4,
+      "transpose": false,
+      "tv": "((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))",
+      "tile": [
+        32,
+        16
+      ],
+      "input": "((2,2,2),4,4):((1,2,4),32,8)"
+    },
+    {
+      "id": "B_plain_x1",
+      "op": "ldmatrix",
+      "dtype": "half_t",
+      "nm": 1,
+      "transpose": false,
+      "tv": "((4,8,2,2),((2,2),(1,1))):((32,1,0,8),((16,128),(0,0)))",
+      "tile": [
+        16,
+        16
+      ],
+      "input": "((2,2),8,4):((1,2),16,4)"
+    },
+    {
+      "id": "B_plain_x2",
+      "op": "ldmatrix",
+      "dtype": "half_t",
+      "nm": 2,
+      "transpose": false,
+      "tv": "((4,8,2,2),((2,2),(1,1))):((32,1,0,8),((16,128),(0,0)))",
+      "tile": [
+        16,
+        16
+      ],
+      "input": "((2,2),8,4):((1,2),16,4)"
+    },
+    {
+      "id": "B_expanded_x1",
+      "op": "ldmatrix",
+      "dtype": "half_t",
+      "nm": 1,
+      "transpose": false,
+      "tv": "((4,8,2,2),((2,2),(2,1))):((64,1,0,8),((32,256),(16,0)))",
+      "tile": [
+        32,
+        16
+      ],
+      "input": "((2,2),8,4):((1,2),16,4)"
+    },
+    {
+      "id": "B_expanded_x2",
+      "op": "ldmatrix",
+      "dtype": "half_t",
+      "nm": 2,
+      "transpose": false,
+      "tv": "((4,8,2,2),((2,2),(2,1))):((64,1,0,8),((32,256),(16,0)))",
+      "tile": [
+        32,
+        16
+      ],
+      "input": "((2,2),8,4):((1,2),16,4)"
+    },
+    {
+      "id": "B_expanded_x4",
+      "op": "ldmatrix",
+      "dtype": "half_t",
+      "nm": 4,
+      "transpose": false,
+      "tv": "((4,8,2,2),((2,2),(2,1))):((64,1,0,8),((32,256),(16,0)))",
+      "tile": [
+        32,
+        16
+      ],
+      "input": "((2,2),8,4):((1,2),16,4)"
+    },
+    {
+      "id": "simt_half_t",
+      "op": "universal",
+      "dtype": "half_t",
+      "bits": 32,
+      "tv": "(4,4):(1,4)",
+      "tile": [
+        4,
+        4
+      ],
+      "input": "(2,2,2):(1,2,4)"
+    },
+    {
+      "id": "simt_float",
+      "op": "universal",
+      "dtype": "float",
+      "bits": 64,
+      "tv": "(4,4):(1,4)",
+      "tile": [
+        4,
+        4
+      ],
+      "input": "(2,2,2):(1,2,4)"
+    },
+    {
+      "id": "staged_A",
+      "op": "ldmatrix",
+      "dtype": "half_t",
+      "nm": 4,
+      "transpose": false,
+      "tv": "((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))",
+      "tile": [
+        32,
+        16
+      ],
+      "input": "((2,2,2),4,2,3):((1,2,4),16,8,64)"
+    },
+    {
+      "id": "column_order_A",
+      "op": "ldmatrix",
+      "dtype": "half_t",
+      "nm": 4,
+      "transpose": false,
+      "tv": "((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))",
+      "tile": [
+        32,
+        16
+      ],
+      "input": "((2,2,2),4,2):((32,8,1),2,16)"
+    },
+    {
+      "id": "A_fp8",
+      "op": "ldmatrix16x16x8b",
+      "dtype": "float_e4m3_t",
+      "nm": 2,
+      "transpose": true,
+      "tv": "((4,8,2,2),((4,2,2),(1,1))):((128,1,16,0),((32,8,512),(0,0)))",
+      "tile": [
+        32,
+        32
+      ],
+      "input": "((4,2,2),4,2):((1,4,8),32,16)"
+    },
+    {
+      "id": "B_fp8",
+      "op": "ldmatrix16x8x8b",
+      "dtype": "float_e4m3_t",
+      "nm": 4,
+      "transpose": true,
+      "tv": "((4,8,2,2),((4,2),(2,1))):((128,1,0,8),((32,512),(16,0)))",
+      "tile": [
+        32,
+        32
+      ],
+      "input": "((4,2),8,2):((1,4),16,8)"
     }
   ],
   "_comment_partition_abc": "ThrMMA::partition_A/B/C -- mma_atom.hpp:468, via thrfrg_A/B/C (:291). Oracle is CuTeDSL's tiled_mma.get_slice(t).partition_X(tensor). Same indirect-but-complete pinning as partition_sd: the reference records the returned layout plus EVERY thread's base offset, and those offsets are exactly thrfrg's thread mode. The permutation cases are the point of the section -- permutation_mnk folds into the returned Rest, flat when it is a plain multiple and NESTED when it is a layout, which is the one structural way partition_A differs from partition_S. The `fragment` field also checks make_fragment_X on the returned partition. `A_colmajor` vs `A_2x2x1` pins that A's fragment mode order follows the SOURCE's majorness; `C_colmajor` vs `C_2x2x1` pins that C's does not.",

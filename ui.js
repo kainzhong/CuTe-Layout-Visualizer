@@ -722,6 +722,7 @@ const TAB_RENDER_FN = {
   partition_abc:      'renderPartitionABC',
   make_fragment_abc:  'renderMakeFragmentABC',
   make_tiled_copy_ab: 'renderMakeTiledCopyAB',
+  retile: 'renderRetile',
 };
 
 /** True on Apple platforms, where the modifier is ⌘ rather than Ctrl. */
@@ -798,7 +799,7 @@ function generateTabContent(id) {
         </div>
         <div class="tab-scope-btn" data-scope="copy" onclick="switchTabGroup('${id}', 'copy')">
           <span class="tab-scope-icon">⇄</span>Copy
-          <span class="tab-scope-count">7</span>
+          <span class="tab-scope-count">8</span>
         </div>
         <div class="tab-scope-btn" data-scope="mma" onclick="switchTabGroup('${id}', 'mma')">
           <span class="tab-scope-icon">\u2B21</span>MMA
@@ -822,6 +823,7 @@ function generateTabContent(id) {
       <div data-tab="make_tiled_copy" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy')">make_tiled_copy</div>
       <div data-tab="make_tiled_copy_tv" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy_tv')">make_tiled_copy_tv</div>
       <div data-tab="make_tiled_copy_ab" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy_ab')">make_tiled_copy_A / B</div>
+      <div data-tab="retile" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'retile')">retile</div>
       <div data-tab="make_tiled_tma_atom" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_tma_atom')">make_tiled_tma_atom</div>
       <div data-tab="tma_partition" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'tma_partition')">tma_partition</div>
       <div data-tab="partition_sd" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'partition_sd')">partition_S/D</div>
@@ -847,6 +849,7 @@ function generateTabContent(id) {
     ${generateMakeTiledCopyTabContent(id)}
     ${generateMakeTiledCopyTvTabContent(id)}
     ${generateMakeTiledCopyABTabContent(id)}
+    ${generateRetileTabContent(id)}
     ${generateMakeTiledTmaAtomTabContent(id)}
     ${generateTmaPartitionTabContent(id)}
     ${generatePartitionSDTabContent(id)}
@@ -1082,7 +1085,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_copy_ab: 15, make_tiled_tma_atom: 16, tma_partition: 17, partition_sd: 18, make_mma_atom: 19, make_tiled_mma: 20, partition_abc: 21, make_fragment_abc: 22 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_copy_ab: 15, retile: 16, make_tiled_tma_atom: 17, tma_partition: 18, partition_sd: 19, make_mma_atom: 20, make_tiled_mma: 21, partition_abc: 22, make_fragment_abc: 23 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1541,7 +1544,7 @@ function renderAllTabs(tabId, activeTab) {
  *  first built, so the section-0 select and the SRC/DST headers are correct
  *  before the user has pressed Render. Prefixes that don't exist are skipped. */
 function initCopyPanes(tabId) {
-  for (const p of ['mca', 'mtc', 'mtv', 'tma', 'psd']) {
+  for (const p of ['mca', 'mtc', 'mtv', 'tma']) {
     const op = document.getElementById(`${tabId}-${p}-op-input`);
     if (op) syncCopyMoves(tabId, p, op.value);
   }
@@ -1765,12 +1768,13 @@ const FEATURE_SPEC = {
   make_tiled_copy_tv: { inputs: 5 },  // op, bits, dtype, thr, val
   make_tiled_tma_atom: { inputs: 5 },  // dtype, gmem, swizzle, smem, tiler
   tma_partition:       { inputs: 5 },  // values, dtype, swizzle, smem, rest
-  partition_sd:        { inputs: 8 },  // side, op, bits, dtype, layout_tv, tiler, thr, tensor
+  partition_sd:        { inputs: 4, methods: ['url'], legacyInputs: 8 },  // url: side, encoded copy URL, thread, tensor; legacy constructor fields remain accepted
   swizzle:         { inputs: 2 },
   make_mma_atom:   { inputs: 4 },  // op, ab_dtype, acc_dtype, K
   make_tiled_copy_ab: { inputs: 12, optional: 2 }, // operand, MMA op/ab/acc/K, atom layout, perm, copy Op/nm/trans/bits, view [, focus, compare]
   make_tiled_mma:  { inputs: 6 },  // op, ab_dtype, acc_dtype, K, atom_layout_mnk, permutation_mnk
-  partition_abc:   { inputs: 9 },  // operand, op, ab, acc, K, atom_layout_mnk, perm, thr, tensor
+  retile: { inputs: 6 }, // tiled TV, tiler, atom values, dtype, RMEM input, thread
+  partition_abc:   { inputs: 9, optional: 1 },  // operand, op, ab, acc, K, atom_layout_mnk, perm, thr, tensor [, fragment slice]
   make_fragment_abc: { inputs: 6, optional: 1 }, // operand, op, ab, acc, K, partitioned layout [, thread]
 };
 
@@ -1792,9 +1796,22 @@ function parseKeyParam(search = location.search) {
   // `optional` lets a feature grow inputs without invalidating already-shared
   // links: every URL exported before make_copy_atom learned about ldmatrix has
   // 3 inputs and must keep working, so the tail is accepted but not required.
-  const maxInputs = spec.inputs + (spec.optional || 0);
-  if (inputs.length < spec.inputs || inputs.length > maxInputs) return null;
+  const minInputs = !method && spec.legacyInputs ? spec.legacyInputs : spec.inputs;
+  const maxInputs = minInputs + (spec.optional || 0);
+  if (inputs.length < minInputs || inputs.length > maxInputs) return null;
   return { feature, method, inputs };
+}
+
+/** Clipboard import helpers shared by constructor and retile tabs. */
+function parsePastedKeyParam(text) {
+  const pasted = String(text).trim();
+  const query = pasted.includes('?') ? pasted.slice(pasted.indexOf('?') + 1) : pasted;
+  return parseKeyParam(query.split('#')[0]);
+}
+
+async function readPasteboardText(message) {
+  try { return await navigator.clipboard.readText(); }
+  catch (e) { return prompt(message); }
 }
 
 /** Build a shareable URL for the given feature and inputs, then copy to clipboard. */
@@ -1928,6 +1945,10 @@ function applyKeyParam(tabId) {
       renderMakeMmaAtom(tabId);
       break;
     }
+    case 'retile':
+      setRT(tabId, ...inputs);
+      switchInnerTab(tabId, 'retile');
+      break;
     case 'make_tiled_copy_ab':
       setMCAB(tabId, ...inputs);
       switchInnerTab(tabId, 'make_tiled_copy_ab');
@@ -1960,6 +1981,7 @@ function applyKeyParam(tabId) {
       document.getElementById(`${tabId}-pabc-perm-input`).value       = inputs[6] === 'na' ? '' : inputs[6];
       document.getElementById(`${tabId}-pabc-thr-input`).value        = inputs[7];
       document.getElementById(`${tabId}-pabc-tensor-input`).value     = inputs[8];
+      document.getElementById(`${tabId}-pabc-fragment-slice-input`).value = inputs[9] && inputs[9] !== 'na' ? inputs[9] : '';
       switchInnerTab(tabId, 'partition_abc');
       renderPartitionABC(tabId);
       break;
@@ -2007,18 +2029,9 @@ function applyKeyParam(tabId) {
       renderTmaPartition(tabId);
       break;
     case 'partition_sd':
-      // The S/D toggle lives in psdState, not in the DOM, so it is set through
-      // the same helper the buttons use rather than by writing an element.
-      psdState[tabId] = Object.assign(psdState[tabId] || {}, { side: inputs[0] });
-      document.getElementById(`${tabId}-psd-op-input`).value    = inputs[1];
-      document.getElementById(`${tabId}-psd-bits-input`).value  = inputs[2];
-      document.getElementById(`${tabId}-psd-dtype-input`).value = inputs[3];
-      document.getElementById(`${tabId}-psd-tv-input`).value    = inputs[4];
-      document.getElementById(`${tabId}-psd-tiler-input`).value = inputs[5];
-      document.getElementById(`${tabId}-psd-thr-input`).value    = inputs[6];
-      document.getElementById(`${tabId}-psd-tensor-input`).value = inputs[7];
-      switchInnerTab(tabId, 'partition_sd');
-      renderPartitionSD(tabId);
+      if (method === 'url') setPSDURL(tabId,inputs[0],decodeURIComponent(inputs[1]),inputs[2],inputs[3]);
+      else setPSD(tabId,...inputs);
+      switchInnerTab(tabId,'partition_sd');
       break;
     case 'swizzle':
       document.getElementById(`${tabId}-sw-layout-input`).value  = inputs[0];

@@ -57,6 +57,7 @@ tabs/
                         which takes an id prefix for this reason) and adds the two tiling arguments.
                         Draws SIX grids in two rows: atom_layout_mnk applied on top, the permuted
                         TiledMMA below. A port of TiledMMA::thrfrg_A/B/C, not a table. Prefix `mtm`.
+  retile.js            "retile" tab (Copy scope) — port of TiledCopy.retile and existing RMEM views.
   make_tiled_copy_ab.js "make_tiled_copy_A / B" tab (Copy scope) — matched CopyAtom and
                         TiledMMA operand layouts, SRC/DST above and MMA/reference below.
                         Reuses partition and MMA render helpers. Prefix `mcab`.
@@ -69,8 +70,8 @@ tabs/
                         thread's register words from an already partitioned
                         operand layout. Reuses `pabcMakeFragment`. Prefix `mfrag`.
   partition_sd.js       "partition_S / partition_D" tab (COPY scope) — the ThrCopy slice.
-                        Takes a whole TiledCopy (reuses make_tiled_copy's `mtcAtomSection` /
-                        `mtcReadAtom` with prefix `psd`), a thread index and the tensor, and
+                        Decodes a TiledCopy URL via shared `mtcDecodeURL`, takes a thread index
+                        and the tensor, and
                         ports `tidfrg_S/D` + `tile2thrfrg` from copy_atom.hpp. Draws three
                         grids, one per level: a thread's work in one tile, the tile over the
                         (M,N) plane, and that plane over the untiled modes. Prefix `psd`.
@@ -235,8 +236,8 @@ produce hierarchical coordinates this 2-D grid cannot draw.
   prefix in `COPY_PANE_PREFIXES` as the markup is generated, and `updateCopyPaneTitles` returns early
   for a prefix that is not in it — answering from the registry rather than probing for an element,
   because an id no template declares is exactly what `dom_smoke` flags and that should stay a real
-  signal. `initCopyPanes`'s prefix list still has to name the tab, since the movement `<select>` is
-  independent of the panes.
+  signal. Constructor tabs initialize their movement selectors through `initCopyPanes`; partition_S/D
+  initializes its selector from the decoded CopyOp during render, without an Op input field.
 - **One atom renderer, three tabs**: `simtAtomPaneHTML(side, layoutStr, elements, dtype)` draws the
   `(1, N):(0, 1)` value strip. `make_copy_atom` uses it for its panes; `make_tiled_copy` /
   `make_tiled_copy_tv` draw the SAME strip in a `comp-viz-item` **above** their tile viz, so the unit
@@ -673,6 +674,7 @@ adding new copy atoms.
 | Deriving (layout_tv, Tiler_MN) from a thr/val pair | `make_tiled_copy_tv` | `copy` | One of several ways to compute the primitive's arguments |
 | What one TMA instruction moves, and the descriptor behind it | `make_tiled_tma_atom` | `copy` | A property of (tensor, smem layout, tiler) — no threads involved |
 | How a tile is split into instruction-sized chunks | `tma_partition` | `copy` | Needs only the atom's element count and the SMEM order |
+| Regrouping existing register storage for a copy | `retile` | `copy` | Returns a new view of the same scalar slots; no allocation or transfer |
 | Matching copy instruction ownership to a TiledMMA operand | `make_tiled_copy_ab` | `copy` | Uses the MMA operand TV layout as the copy target; no tensor partitioning |
 | What ONE THREAD of a TiledCopy gets, over a whole tensor | `partition_sd` | `copy` | The only thing a `ThrCopy` does; needs a tensor, which no other copy tab takes |
 | Whether the access pattern is coalesced / bank-conflict-free | `tv` | `basics` | A property of (TV layout, **data layout**) — no atom involved |
@@ -1145,9 +1147,19 @@ rank > 2 tensors.
 
 `tiled_copy.get_slice(t).partition_S(tensor)` — a port of `copy_atom.hpp`'s `partition_S` (:368),
 `tidfrg_S` (:221) and `tile2thrfrg` (:257). A **TiledCopy is the only source of a ThrCopy**, so the
-tab takes a whole one: `mtcAtomSection` / `mtcReadAtom` with prefix `psd` (the same atom section
-`make_tiled_copy` uses), plus `layout_tv` and `Tiler_MN`. `psdComputePartition` is the DOM-free
-whole of the derivation; `renderPartitionSD` only parses and draws.
+tab decodes its exported URL instead of offering duplicate constructor controls. Decode from Pasteboard accepts make_tiled_copy, make_tiled_copy_tv and make_tiled_copy_A/B;
+there is no manual URL field or Decode URL button. The active source URL lives in
+`psdState.copyURL`, including a shipped default. A failed paste leaves the last valid copy intact.
+Shared DOM-free `mtcDecodeURL` preserves the atom SRC/DST/reference layouts, atom thread/value
+counts, TV map and actual tiler layouts (including their strides). The decoded constructor is
+read-only through shared `mtcDecodedSummary`: constructor name, Tiler MN, tiled/SRC/DST
+TV maps, and warp/thread/value/instruction counts match the constructor tabs. The legal memory-movement picker follows the decoded Op. `psdComputePartition` is
+the DOM-free whole of the derivation; `renderPartitionSD` only parses and draws.
+
+Export uses `partition_sd-url-<side>-<encoded copy URL>-<thread>-<tensor>`. The nested URL is
+URI-escaped including hyphens so the outer key's delimiter cannot split it. `legacyInputs`
+in FEATURE_SPEC keeps old eight-field constructor URLs working; setPSD converts those inputs
+into the equivalent primitive TiledCopy URL. No hidden constructor fields remain in the tab.
 
 **The tensor is NOT pre-divided by the tiler, and thinking it is was the first design mistake.**
 `tidfrg_S` runs `zipped_divide(tensor, Tiler_MN)` itself. The only requirement CuTe states is
@@ -1169,39 +1181,28 @@ The three modes are the three levels of repetition, in order: **FrgV** is one at
 **FrgX** is how many atoms the thread issues inside one `Tiler_MN` tile, **Rest** is how many times
 the whole TiledCopy is replayed to cover the tensor.
 
-**For every Op this tab offers, S and D differ ONLY in which tensor they are given.** The term that
-could make them differ is `right_inverse(ValLayoutRef).compose(ValLayoutSrc|Dst)` — it re-orders the
-atom's `(thr, val)` slots from the reference ordering into this side's — and every SIMT Op has
-`ValLayoutSrc == ValLayoutDst == ValLayoutRef`, so it is the identity. `psdComputePartition` still
-carries `ref2trg` through rather than dropping it, because it is the whole reason the two functions
-exist and it becomes real the moment a shuffling atom (ldmatrix) is added. The tab **says this in
-the S/D hint** instead of implying a difference that is not there.
+**Partition SRC/DST using the decoded atom's actual traits.** The conversion is
+`right_inverse(ValLayoutRef).compose(ValLayoutSrc|Dst)`, with the atom's own thread/value counts
+passed to `psdTile2ThrFrg`. SIMT maps coincide. Ldmatrix maps differ: SRC describes the address
+lanes' view and DST describes the receiving registers' view. Keep the exact aliased layouts for
+ignored address lanes; this is partitioning, not a transfer visualization that filters lanes.
+Reference cases construct the decoded CuTeDSL TiledCopy and compare the partition layout at
+every domain point plus the source base offset for every thread, for both S and D.
 
 **`psdParseTiler` returns Layouts, not extents — the tiler's strides are load-bearing here.**
 `mtcParseTiler` discards them deliberately (that tab draws a tile with no tensor under it, so a
 stride has nothing to point into). This tab has a tensor, so `(4:1, 16:2)` genuinely makes tile 0
 every other column. Same grammar otherwise, and for the same reason `parseLayout` is wrong for both:
-it rejects a colon inside parens, which is exactly how CuTeDSL prints a Tiler. Unlike
-`mtcParseTiler` a rank-3 tiler is **accepted**, since CuTe only asserts `rank(tensor) >= rank(tiler)`.
+it rejects a colon inside parens, which is exactly how CuTeDSL prints a Tiler. The parser accepts rank-3 tilers, but the partition visualization retains its explicit rank-2 tiler limit; CuTe only asserts `rank(tensor) >= rank(tiler)`.
 `parse_tiler_mn` in `tests/gen_reference.py` is the Python twin and must stay in step.
 
-**A width no atom can move is refused, and this tab is stricter than its siblings.**
-`psdComputePartition` runs `mtcVectorizationCheck` and **throws** on `kind: 'none'`, where
-`make_tiled_copy` / `make_tiled_copy_tv` report the same check as an inline diagnostic. The
-difference is what each picture claims: those tabs draw the tile's *coverage*, which stays true
-whatever atom runs over it, while grid 1 here is by definition **one atom invocation** (FrgV) — a
-4-wide FrgV that no instruction can perform is a fiction, not a caveat. The default TV layout gives
-each thread a 2x2 patch, so `num_bits_per_copy = 64` on `half_t` asks for 4 contiguous elements that
-do not exist; the message names the widths that do vectorize, the same courtesy
-`mtcRequireAtomDivides` gives. This does not conflict with the "every preset must render cleanly"
-rule — that rule is about presets, and no preset here reaches `kind: 'none'`.
-
-**A tiler that does not divide the tensor is refused, and that refusal is the tab's own.** In C++ it
-is a constexpr `shape_div` assert, so the code does not compile; CuTeDSL's dynamic path has no such
-check and returns a layout that reads past the end. Verified: `(8, 16)` on a `(12, 32)` tensor gives
-`((2,2),2,2):((12,1),8,192)` from CuTeDSL and **the identical layout** from this port, covering 388
-positions of a 384-element tensor. Pinned in `tests/unit.js` — by construction the DSL cannot be the
-oracle for a check it does not perform.
+**Partitioning matches the view CuTeDSL returns; copy execution is a separate operation.**
+The previous implementation rejected SIMT values that do not form an axis-contiguous vector,
+and rejected tilers that do not divide the tensor. Those checks changed the behavior of
+partitioning. They are now nonblocking warnings: CuTeDSL still returns a layout, even if a
+subsequent copy cannot use that width or the partition addresses beyond the tensor. The oracle
+includes both cases. Shape/atom compatibility and the visualization's explicit rank limits
+remain checked; no copy instruction is compiled or executed by this tab.
 
 **Rest is TWO different things wearing one mode, and the viz separates them.** With a rank-2 tiler,
 `zipped_divide(tensor, Tiler_MN)` puts into Rest both (a) the two modes that came from dividing
@@ -1595,6 +1596,49 @@ Clipboard denial falls back to a paste dialog for direct-file browsers.
 Defaults, all presets, constructor imports, both modes, focus errors, invalid copy widths, both SVG hosts, comparison switching with an unchanged right pane, memory
 badges and URL round trips are covered by DOM smoke tests. No new hardware Op is introduced.
 
+### retile
+
+`tabs/retile.js` ports `TiledCopy::retile` (`copy_atom.hpp:263–288`), not a generic reshape.
+The direct inputs are the tiled TV layout, two-dimensional Tiler_MN, atom values per thread,
+and the existing register tensor layout. These are precisely the layout parameters used by
+retile; a CopyOp picker would add no information. `rtComputeRetile` builds the right inverse
+of the tiled TV map over the tiler, upcasts by thread count × input mode-0 value count,
+constructs the atom-sized value divider, zipped-divides the input, composes the value map,
+and removes the leading singleton Rest coordinate. `rtUpcast` follows static layout upcast
+including nested and zero strides. No new hardware operation is offered.
+
+Retile needs right inverses of broadcast TV layouts. CuTe skips nonmatching strides while
+scanning the sorted stride list, including stride-zero modes; the old pycute-style early
+break in `right_inverse` incorrectly returned the empty inverse for those layouts. The shared
+helper now continues scanning, retaining the original domain strides. A differential layout
+case pins this behavior, and retile cases include broadcast across both warp dimensions.
+
+The two RMEM panes share `mfragBuildValueSVG` with make_fragment, so scalar labels, logical
+32-bit word packing, Rest colors, all later modes, zoom and fullscreen cannot diverge. Input
+and result have identical scalar storage footprints. Each pane's colors identify that view's Rest groups;
+regrouping therefore can change a value's color. Logical R# labels preserve storage identity
+across both views, while outlines and coordinates describe the respective grouping.
+The view rejects inputs that do not
+cover complete retile groups. Counts name logical words, not compiler register allocation.
+No memory movement or physical SMEM addresses are shown. The copy algorithm's supported
+value profile differs from an MMA value profile: CuTeDSL documents a V-mode rank limit of
+two for `cute.copy`, whereas an MMA mode such as `(2,2,2)` has rank three. Compatible existing
+copy groupings can work without retile; matching storage alone does not establish compatibility.
+
+The retile and partition_S/D tabs share `mtcDecodeURL` for constructor decoding. Both retile sections decode clipboard URLs through shared `parsePastedKeyParam` and
+`readPasteboardText` (also used by make_tiled_copy_A/B). TiledCopy imports accept primitive,
+thread/value-derived and A/B constructors. Fragment imports evaluate `mfragCompute` on the
+URL's partitioned input rather than mistaking that partition for its returned register layout.
+Fixed-dtype Ops resolve `na` before computing. The thread label follows the fragment URL.
+The `retile` feature key has six inputs: TV, tiler, atom values, dtype, RMEM layout, thread.
+
+Rank warnings do not apply: the tiled TV is a constructor parameter with two modes, the tiler
+is explicitly two-dimensional, and every register-tensor mode is enumerated by the shared
+fragment view. The CuTeDSL oracle constructs each CopyAtom/TiledCopy and calls its actual
+`retile` method, including x1/x2/x4, B gathering from other modes, FP8, column-order inputs,
+SIMT, and later-stage modes. DOM tests cover defaults, presets, both import families, both
+SVG hosts, invalid-input clearing, and URL round trips.
+
 ### partition_A / partition_B / partition_C
 
 `tiled_mma.get_slice(t).partition_A(gA)` — the MMA twin of `partition_sd`, deliberately the **same
@@ -1657,8 +1701,24 @@ the tensor is fully drawn between grids 2 and 3 (partition_sd's reason). That le
 warning could truthfully say.
 
 **`make_fragment_A|B|C` has its own tab.** It accepts the exact layout returned by
-`partition_A/B/C`, or receives it from that tab's make_fragment button. The button re-renders the
-partition first, so an edited tensor field never hands off stale state. `mfragCompute` calls the
+`partition_A/B/C`, or receives a selected slice from that tab's make_fragment button. The button
+re-renders the partition first, so an edited tensor field never hands off stale state.
+
+The mode-selection field directly above the shortcut uses CuTe slice coordinates: `_` / `None`
+keeps a mode, an integer selects an index, and nested tuples can slice nested Rest modes. Blank
+keeps the first three modes and selects index zero in every later mode, matching the common
+`tCsA[None,None,None,0]` stage selection before creating an RMEM fragment. An explicit `_` keeps
+all modes. `pabcSelectFragment` validates tuple ranks, integer bounds, the complete atom-value
+mode, and a resulting rank of at least three, then uses shared `slice_and_offset`. The preview
+reports the sliced layout, scalar count, and source offset. The handoff passes only the sliced
+layout: a source pointer's base offset does not change the new fragment's register layout.
+Partition URLs have an optional tenth field for this selector; old nine-field URLs use auto.
+CuTeDSL reference cases slice the source tensor before calling `make_fragment_A/B/C`, and record
+both `slice_and_offset` and the resulting fragment to check A/B/C, stage indices, multiple later
+modes, nested selectors, and default auto selection. DOM tests cover the shortcut, preview, URL
+round trip, and invalid selections that must not navigate.
+
+`mfragCompute` calls the
 same `pabcMakeFragment` used by `pabcComputePartition`, checks that input mode 0 has the selected
 warp MMA atom's value count, then enumerates every fragment coordinate. Each output scalar offset
 is grouped into a 32-bit register word by dtype (two half/bfloat16 values or four FP8 values per

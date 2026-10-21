@@ -372,6 +372,11 @@ ${pabcInputSections({ id, p: 'pabc', fn: 'partition', render: 'renderPartitionAB
         ${statusDivs(`${id}-pabc`)}
         <button class="btn btn-render" onclick="renderPartitionABC('${id}')">Render</button>
         <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-pabc-export" onclick="exportPABC('${id}')">Export URL</button>
+        ${layoutInputField({ id: `${id}-pabc-fragment-slice-input`, label: 'Modes to select for make_fragment', value: '',
+          placeholder: 'auto: (_, _, _, 0, ...)',
+          hint: 'Use _ or None to keep a mode, an integer to select an index. Blank keeps the first three modes and selects index 0 from every later mode. Example: (_, _, _, 0) selects one pipeline stage.',
+          oninput: `pabcRenderFragmentSelection('${id}')` })}
+        <div class="hint-inline" id="${id}-pabc-fragment-slice-preview"></div>
         <button class="btn btn-render" style="margin-top:6px" id="${id}-pabc-make-fragment" onclick="pabcOpenFragment('${id}')">make_fragment</button>
         <div id="${id}-pabc-result" class="cuo-result"></div>
 
@@ -433,8 +438,8 @@ ${pabcInputSections({ id, p: 'pabc', fn: 'partition', render: 'renderPartitionAB
           &mdash; which is why CUTLASS's GEMMs write <code>tCgA(_,_,_,k)</code>.
           <br><br>
           <b>What the thread holds in REGISTERS is one more step.</b>
-          Use the <b>make_fragment</b> button above to pass this returned layout
-          to the register view. A/B fragment mode order follows the
+          Select the modes to keep above <b>make_fragment</b>, then pass that slice
+          to the register view. Blank keeps the first three modes and selects the first later slice. A/B fragment mode order follows the
           <em>source's</em> majorness; C is compact.<br><br>
           See the <b>make_tiled_mma</b> tab for all six grids of the TiledMMA
           itself; this tab is one operand of it, against a tensor.
@@ -560,6 +565,7 @@ function renderPartitionABC(tabId) {
   showErr(`${tabId}-pabc-error`, '');
   showWarn(`${tabId}-pabc-warning`, '');
   document.getElementById(`${tabId}-pabc-result`).innerHTML = '';
+  document.getElementById(`${tabId}-pabc-fragment-slice-preview`).textContent = '';
   const prev = pabcState[tabId] || {};
   const which = prev.which || 'A';
   pabcSyncOperandField(tabId, which);
@@ -590,6 +596,7 @@ function renderPartitionABC(tabId) {
     pabcRenderTileViz(tabId);
     pabcRenderSweepViz(tabId);
     pabcRenderExtraViz(tabId);
+    pabcRenderFragmentSelection(tabId);
     updateOuterTabLabel(tabId, `${r.spec.fn}:${resultLayout}`);
   } catch (e) {
     showErr(`${tabId}-pabc-error`, e.message);
@@ -752,7 +759,8 @@ function setPabcOp(tabId) {
   renderPartitionABC(tabId);
 }
 
-function setPABC(tabId, which, opKey, ab, acc, k, atomLayout, perm, thr, tensor) {
+function setPABC(tabId, which, opKey, ab, acc, k, atomLayout, perm, thr, tensor, fragmentSlice = '') {
+  document.getElementById(`${tabId}-pabc-fragment-slice-input`).value = fragmentSlice;
   pabcState[tabId] = Object.assign(pabcState[tabId] || {}, { which });
   document.getElementById(`${tabId}-pabc-op-input`).value = opKey;
   mmaSyncControls(tabId, opKey, 'pabc');    // options BEFORE values, or the assign is a no-op
@@ -778,7 +786,8 @@ function exportPABC(tabId) {
     document.getElementById(`${tabId}-pabc-atomlayout-input`).value,
     document.getElementById(`${tabId}-pabc-perm-input`).value || 'na',
     document.getElementById(`${tabId}-pabc-thr-input`).value,
-    document.getElementById(`${tabId}-pabc-tensor-input`).value);
+    document.getElementById(`${tabId}-pabc-tensor-input`).value,
+    document.getElementById(`${tabId}-pabc-fragment-slice-input`).value || 'na');
 }
 
 function pabcOpenFragment(tabId) {
@@ -788,8 +797,64 @@ function pabcOpenFragment(tabId) {
   const s = pabcState[tabId];
   const result = document.getElementById(`${tabId}-pabc-result`);
   if (!s || !result.innerHTML) return;
-  const layout = formatLayoutStr(s.partition.shape, s.partition.stride);
-  setMfrag(tabId, s.which, s.opKey, s.abDtype, s.accDtype, s.k, layout,
-           s.thrIdx === null ? 0 : s.thrIdx);
-  switchInnerTab(tabId, 'make_fragment_abc');
+  try {
+    const selected = pabcSelectFragment(s.partition, document.getElementById(`${tabId}-pabc-fragment-slice-input`).value);
+    const layout = formatLayoutStr(selected.layout.shape, selected.layout.stride);
+    setMfrag(tabId, s.which, s.opKey, s.abDtype, s.accDtype, s.k, layout,
+             s.thrIdx === null ? 0 : s.thrIdx);
+    switchInnerTab(tabId, 'make_fragment_abc');
+  } catch (e) {
+    showErr(`${tabId}-pabc-error`, e.message);
+  }
+}
+
+/** Slice the already partitioned tensor before allocating a register fragment.
+ * The offset belongs to the source view; make_fragment uses the sliced layout. */
+function pabcSelectFragment(partition, raw) {
+  const rank = partition.rank();
+  const text = String(raw || '').trim();
+  let coord;
+  if (!text) coord = Array.from({ length: rank }, (_, i) => i < 3 ? null : 0);
+  else {
+    try {
+      coord = JSON.parse(text.replace(/\b(?:None|none|_)\b/g, 'null')
+        .replace(/\(/g, '[').replace(/\)/g, ']').replace(/,\s*]/g, ']'));
+    } catch (e) {
+      throw new Error('Invalid fragment selection. Use a tuple such as (_, _, _, 0), with _ / None or whole-number indices.');
+    }
+    if (coord === null) coord = Array(rank).fill(null);
+  }
+  if (!Array.isArray(coord) || coord.length !== rank)
+    throw new Error(`Fragment selection needs ${rank} mode coordinates for the partitioned layout.`);
+  if (coord[0] !== null) throw new Error('Keep the complete MMA value mode with _ or None in position 0.');
+  const validate = (c, shape, path) => {
+    if (c === null) return;
+    if (Array.isArray(c)) {
+      if (!Array.isArray(shape) || c.length !== shape.length)
+        throw new Error(`Fragment selection ${path} does not match the nested mode shape.`);
+      c.forEach((value, i) => validate(value, shape[i], `${path}.${i}`));
+    } else if (!Number.isSafeInteger(c) || c < 0 || c >= product(shape)) {
+      throw new Error(`Fragment selection ${path} is out of range: use _ or an integer from 0 to ${product(shape) - 1}.`);
+    }
+  };
+  coord.forEach((c, i) => validate(c, partition.shape[i], `mode ${i}`));
+  const [layout, offset] = slice_and_offset(coord, partition);
+  if (layout.rank() < 3)
+    throw new Error('The selected fragment must keep the MMA value mode and at least two Rest modes (rank at least 3).');
+  return { layout, offset, coord };
+}
+
+function pabcRenderFragmentSelection(tabId) {
+  const s = pabcState[tabId];
+  if (!s || !s.partition) return;
+  const input = document.getElementById(`${tabId}-pabc-fragment-slice-input`);
+  const preview = document.getElementById(`${tabId}-pabc-fragment-slice-preview`);
+  try {
+    const selected = pabcSelectFragment(s.partition, input.value);
+    const coord = JSON.stringify(selected.coord).replace(/null/g, '_').replace(/\[/g, '(').replace(/\]/g, ')');
+    input.placeholder = `auto: ${coord}`;
+    preview.textContent = `${input.value.trim() ? '' : 'Auto '}${coord} → ${formatLayoutStr(selected.layout.shape, selected.layout.stride)}; ${selected.layout.size()} values/thread; source offset +${selected.offset} elements.`;
+  } catch (e) {
+    preview.textContent = e.message;
+  }
 }

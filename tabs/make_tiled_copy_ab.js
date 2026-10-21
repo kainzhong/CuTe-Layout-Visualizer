@@ -160,9 +160,7 @@ function generateMakeTiledCopyABTabContent(id) {
 
 // Import constructor inputs without navigating away from this comparison.
 function mcabImportConstructor(tabId, feature, text) {
-  const pasted = String(text).trim();
-  const query = pasted.includes('?') ? pasted.slice(pasted.indexOf('?') + 1) : pasted;
-  const parsed = parseKeyParam(query.split('#')[0]);
+  const parsed = parsePastedKeyParam(text);
   if (!parsed || parsed.feature !== feature)
     throw new Error(`Paste a ${feature} URL or its query string (?key=...).`);
   const inputs = parsed.inputs;
@@ -198,13 +196,7 @@ function mcabImportConstructor(tabId, feature, text) {
 }
 
 async function mcabDecodePasteboard(tabId, feature) {
-  let pasted;
-  try {
-    pasted = await navigator.clipboard.readText();
-  } catch (e) {
-    // Direct-file browsers may deny clipboard reads; allow an ordinary paste.
-    pasted = prompt(`Paste the ${feature} URL or its query string:`);
-  }
+  const pasted = await readPasteboardText(`Paste the ${feature} URL or its query string:`);
   if (pasted === null || pasted === undefined) return;
   try {
     mcabImportConstructor(tabId, feature, pasted);
@@ -257,13 +249,10 @@ function renderMakeTiledCopyAB(tabId) {
       `<div class="cuo-result-line"><b>${copyAtom.label}</b> — ${ab}, unpack_bits=None</div>` +
       `<div class="cuo-result-line">TV Layout Src = ${fmt(copyAtom.src)}</div>` +
       `<div class="cuo-result-line">TV Layout Dst = ${fmt(copyAtom.dst)}</div>`;
-    document.getElementById(`${tabId}-mcab-result`).innerHTML =
-      `<div class="cuo-result-line"><b>make_tiled_copy_${operand}(copy_atom, tiled_mma)</b></div>` +
-      `<div class="cuo-result-line">Tiler MN = (${result.tile.map(n => `${n}:1`).join(',')})</div>` +
-      `<div class="cuo-result-line">TV Layout tiled = ${fmt(result.tv)}</div>` +
-      `<div class="cuo-result-line">TV Layout Src = ${fmt(result.src)}</div>` +
-      `<div class="cuo-result-line">TV Layout Dst = ${fmt(result.dst)}</div>` +
-      `<div class="cuo-result-line">${mma.warps} warps, ${mma.threads} threads; ${result.values} destination values/thread; ${result.copiesPerThread} copy instruction${result.copiesPerThread === 1 ? '' : 's'} per ${copyAtom.threads === 32 ? 'warp' : 'thread'}.</div>`;
+    document.getElementById(`${tabId}-mcab-result`).innerHTML = mtcDecodedSummary({
+      ...result, tiler: result.tile.map(n => new Layout(n)),
+      constructorName: `make_tiled_copy_${operand}(copy_atom, tiled_mma)`,
+    });
     mcabRenderViz(tabId);
     showErr(`${tabId}-mcab-error`, focusState.focusErr);
     if (copyAtom.atom && copyAtom.atom.transpose && copyAtom.elemBits !== MCA_LDSM_SPECS[copyAtom.atom.opKey].unitBits)

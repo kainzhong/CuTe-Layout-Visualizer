@@ -95,7 +95,7 @@ function loadVisualizer() {
   parts.push(`\n;Object.assign(globalThis, { ${lexicalNames.join(', ')} });\n`);
 
   const ctx = {
-    console,
+    console, URLSearchParams,
     document: makeDomStub(),
     navigator: { platform: 'x86_64', userAgent: 'node' },
     location: { search: '', href: 'http://localhost/' },

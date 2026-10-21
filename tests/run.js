@@ -562,14 +562,15 @@ if (section('partition_sd')) {
     const ref = refFor('partition_sd', c.id);
     if (!ref) continue;
     guard(c.id, () => {
-      const tv = parseExact(V, c.tv);
-      const tiler = V.psdParseTiler(c.tiler);
+      const decoded = c.copy_url ? V.mtcDecodeURL(V.parsePastedKeyParam(c.copy_url)) : null;
+      const tv = decoded ? decoded.tv : parseExact(V, c.tv);
+      const tiler = decoded ? decoded.tiler : V.psdParseTiler(c.tiler);
       // The tab's tiler parser must recover the same Tiler CuTe reports —
       // `(4:1, 16:2)` is how CuTeDSL prints one, and parseLayout would reject it.
       check(c.id, 'tiler_mn', '(' + tiler.map(l => fmt(V, l)).join(',') + ')', ref.tiler_mn);
 
       const tensor = parseExact(V, c.tensor);
-      const atomNumVal = c.bits / V.DTYPE_BITS[c.dtype];
+      const atomNumVal = decoded ? decoded.copyAtom : c.bits / V.DTYPE_BITS[c.dtype];
       const side = c.side || 'S';
       const first = V.psdComputePartition(tv, tiler, tensor, atomNumVal, 0, side);
       checkLayout(c.id, first.partition, ref.layout);
@@ -642,12 +643,40 @@ if (section('partition_abc')) {
   }
 }
 
+if (section('retile')) {
+  for (const c of CASES.retile) {
+    const ref = refFor('retile', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const atomValues = c.op === 'universal' ? c.bits / V.DTYPE_BITS[c.dtype] :
+        V.mcabCopyAtom(c.op, c.dtype, c.nm, c.transpose, 16).values;
+      check(c.id, 'atom values', atomValues, ref.atom_values);
+      const input = parseExact(V, c.input);
+      const r = V.rtComputeRetile(parseExact(V, c.tv), c.tile, atomValues, input);
+      checkLayout(c.id, r.layout, ref);
+      const pack = 32 / (V.DTYPE_BITS[c.dtype] || 8);
+      const grid = V.mfragValueGrid({ partition:r.layout, fragment:r.layout, pack });
+      check(c.id, 'value cells', grid.cells.length, ref.eval.length);
+      for (let i=0; i<grid.cells.length; i++)
+        check(c.id, `cell ${i} register`, grid.cells[i].register, Math.floor(Number(ref.eval[i])/pack));
+      const footprint = L => Array.from({length:L.size()},(_,i)=>L.call(i)).sort((a,b)=>a-b).join(',');
+      check(c.id, 'same storage slots', footprint(r.layout), footprint(input));
+    });
+  }
+}
+
 if (section('make_fragment_abc')) {
   for (const c of CASES.make_fragment_abc) {
     const ref = refFor('make_fragment_abc', c.id);
     if (!ref) continue;
     guard(c.id, () => {
-      const p = parseExact(V, c.partition);
+      let p = parseExact(V, c.partition);
+      if (c.slice) {
+        const selected = V.pabcSelectFragment(p, c.auto_slice ? '' : JSON.stringify(c.slice));
+        checkLayout(c.id + '/selected', selected.layout, ref.partition);
+        check(c.id, 'source slice offset', selected.offset, ref.source_offset);
+        p = selected.layout;
+      }
       const r = V.mfragCompute(p, c.which, c.op, c.k, c.ab, c.acc);
       checkLayout(c.id, r.fragment, ref);
       const covered = r.registers.flatMap(reg => reg.slots.filter(Boolean));
@@ -663,6 +692,7 @@ if (section('make_fragment_abc')) {
         check(c.id, `cell ${i} source`, grid.cells[i].source,
               V.crd2idx(V.unflatten(i, p.shape), p.shape, p.stride));
       }
+
     });
   }
 }

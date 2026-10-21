@@ -675,7 +675,9 @@ function right_inverse(layout) {
       continue;
     }
     if (current_idx !== stride) {
-      break;
+      // CuTe keeps scanning: broadcast (stride-0) modes do not prevent
+      // later contiguous modes from contributing to the right inverse.
+      continue;
     }
 
     result_shape.push(shape);

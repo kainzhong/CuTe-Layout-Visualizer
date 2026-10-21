@@ -323,8 +323,8 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     const hit = /^\s*(set[A-Z][A-Za-z]*)\('tab1'\s*,/.exec(src);
     if (!hit || typeof ctx[hit[1]] !== 'function') continue;
     const fnName = hit[1];
-    const pfx = { setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm', setMCAB: 'mcab',
-                  setPSD: 'psd', setPsdSide: 'psd', setPsdMode: 'psd',
+    const pfx = { setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm', setMCAB: 'mcab', setRT: 'rt',
+                  setPSD: 'psd', setPSDURL: 'psd', setPsdSide: 'psd', setPsdMode: 'psd',
                   setPABC: 'pabc', setPabcOperand: 'pabc', setPabcMode: 'pabc',
                   setMfrag: 'mfrag', setMfragOperand: 'mfrag' }[fnName];
     const svgs = pfx ? paneIds.filter(id => id.startsWith(`${TAB}-${pfx}-`)) : [];
@@ -395,6 +395,60 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     if (!els.get(`${TAB}-mfrag-result`).innerHTML.includes(partitionRef.partition_abc.A_colmajor.fragment.str))
       throw new Error('make_fragment displayed the wrong returned layout');
   }, [`${TAB}-pabc-tile-svg`, `${TAB}-mfrag-svg`]);
+  step('partition make_fragment selection field precedes its shortcut', () => {
+    const field = html.indexOf(`id="${TAB}-pabc-fragment-slice-input"`);
+    const button = html.indexOf(`id="${TAB}-pabc-make-fragment"`);
+    if (field < 0 || field > button) throw new Error('selection field is not above make_fragment');
+  });
+  step('partition make_fragment defaults to one stage and accepts explicit slices', () => {
+    ctx.setPABC(TAB, 'A', 'f16bf16', 'half_t', 'half_t', 16,
+      '(2,2,1)', '(32,32,16)', '0', '(128,32,4):(32,1,4096)');
+    const realSwitch = ctx.switchInnerTab;
+    ctx.switchInnerTab = () => {};
+    try {
+      ctx.pabcOpenFragment(TAB);
+      if (ctx.mfragState[TAB].registers.length !== 32 || ctx.mfragState[TAB].partition.rank() !== 3)
+        throw new Error('default handoff included every pipeline stage');
+      if (!els.get(`${TAB}-pabc-fragment-slice-preview`).textContent.includes('64 values/thread'))
+        throw new Error('slice preview did not report the selected fragment size');
+      els.get(`${TAB}-pabc-fragment-slice-input`).value = '(None, None, None, 2)';
+      ctx.pabcOpenFragment(TAB);
+      if (!els.get(`${TAB}-pabc-fragment-slice-preview`).textContent.includes('+8192 elements'))
+        throw new Error('explicit stage lost its source offset');
+      if (ctx.mfragState[TAB].registers.length !== 32) throw new Error('explicit stage fragment size wrong');
+      els.get(`${TAB}-pabc-fragment-slice-input`).value = '(_,_,_,_)';
+      ctx.pabcOpenFragment(TAB);
+      if (ctx.mfragState[TAB].registers.length !== 128) throw new Error('explicit keep-all did not retain every stage');
+    } finally { ctx.switchInnerTab = realSwitch; }
+  }, [`${TAB}-pabc-tile-svg`, `${TAB}-mfrag-svg`]);
+  step('partition slice selection survives URL export/import', () => {
+    els.get(`${TAB}-pabc-fragment-slice-input`).value = '(_, _, _, 2)';
+    const realExport = ctx.exportURL, realSwitch = ctx.switchInnerTab;
+    let args;
+    ctx.exportURL = (button, feature, ...inputs) => { args = [feature, ...inputs]; };
+    ctx.switchInnerTab = () => {};
+    try {
+      ctx.exportPABC(TAB);
+      els.get(`${TAB}-pabc-fragment-slice-input`).value = '_';
+      ctx.location.search = `?key=${encodeURIComponent(args.join('-'))}`;
+      ctx.applyKeyParam(TAB);
+      if (els.get(`${TAB}-pabc-fragment-slice-input`).value !== '(_, _, _, 2)') throw new Error('URL lost selection');
+      ctx.pabcOpenFragment(TAB);
+      if (ctx.mfragState[TAB].registers.length !== 32) throw new Error('imported selection did not affect handoff');
+      ctx.location.search = `?key=${encodeURIComponent(args.slice(0,-1).join('-'))}`;
+      ctx.applyKeyParam(TAB);
+      if (els.get(`${TAB}-pabc-fragment-slice-input`).value !== '') throw new Error('legacy URL retained stale selection');
+    } finally { ctx.exportURL = realExport; ctx.switchInnerTab = realSwitch; ctx.location.search = ''; }
+  }, [`${TAB}-pabc-tile-svg`, `${TAB}-mfrag-svg`]);
+  step('partition refuses out-of-range fragment selections without navigating', () => {
+    els.get(`${TAB}-pabc-fragment-slice-input`).value = '(_,_,_,4)';
+    const realSwitch = ctx.switchInnerTab;
+    let switched = false;
+    ctx.switchInnerTab = () => { switched = true; };
+    try { ctx.pabcOpenFragment(TAB); } finally { ctx.switchInnerTab = realSwitch; }
+    if (switched) throw new Error('invalid fragment selection navigated away');
+    els.get(`${TAB}-pabc-fragment-slice-input`).value = '';
+  }, [], { expectError: /out of range/ });
   step('make_fragment rejects a non-partitioned operand layout', () => {
     els.get(`${TAB}-mfrag-partition-input`).value = '(16, 16):(1, 16)';
     ctx.renderMakeFragmentABC(TAB);
@@ -466,6 +520,138 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
 
   // The operand views are identical, while ldmatrix's actual address and
   // destination ownership differ. Toggle and focus must update all four panes.
+  const psdPanes= paneIds.filter(id=>id.startsWith(`${TAB}-psd-`));
+  step('partition_S/D takes a TiledCopy URL instead of constructor fields',()=>{
+    for(const field of ['op','bits','dtype','tv','tiler','copy-url']) if(html.includes(`id="${TAB}-psd-${field}-input"`))
+      throw new Error(`old constructor field remains: ${field}`);
+    if(!html.includes(`onclick="psdDecodePasteboard('${TAB}')"`))throw new Error('clipboard decoder missing');
+  });
+  step('partition_S/D decodes a derived SIMT TiledCopy',()=>{
+    ctx.setPSDURL(TAB,'S','?key=make_tiled_copy_tv-universal-32-half_t-(8,4):(1,8)-(2,2):(1,2)','3','(32,32):(32,1)');
+    if(ctx.psdState[TAB].thrSize!==32 || ctx.psdState[TAB].copyAtom.threads!==1)
+      throw new Error('derived TiledCopy was not decoded');
+  },psdPanes);
+  step('partition_S/D uses the decoded ldmatrix SRC and DST layouts',()=>{
+    const url='file:///index.html?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-1-0-16-warp';
+    ctx.setPSDURL(TAB,'S',url,'20','(128,32,4):(32,1,4096)');
+    const src=ctx.formatLayoutStr(ctx.psdState[TAB].partition.shape,ctx.psdState[TAB].partition.stride);
+    if(ctx.psdState[TAB].copyAtom.threads!==32 || ctx.psdState[TAB].frgV!==8)throw new Error('source atom traits were ignored');
+    for(const level of ['tile','sweep','extra'])expectBadge(`psd-${level}`,'SMEM');
+    ctx.setPsdSide(TAB,'D');
+    const dst=ctx.formatLayoutStr(ctx.psdState[TAB].partition.shape,ctx.psdState[TAB].partition.stride);
+    if(src===dst || ctx.psdState[TAB].frgV!==2)throw new Error('ldmatrix source and destination incorrectly agree');
+    for(const level of ['tile','sweep','extra'])expectBadge(`psd-${level}`,'RMEM');
+  },psdPanes);
+  step('partition_S/D URL round trip preserves an embedded TiledCopy URL',()=>{
+    const before=psdPanes.map(id=>els.get(id).innerHTML);
+    const input=ctx.psdState[TAB].copyURL;
+    const realExport=ctx.exportURL,realSwitch=ctx.switchInnerTab;
+    let args;
+    ctx.exportURL=(button,feature,...inputs)=>{args=[feature,...inputs];};ctx.switchInnerTab=()=>{};
+    try{
+      ctx.exportPSD(TAB);
+      ctx.setPSD(TAB,'S','universal',32,'half_t','((8,4),(2,2)):((16,2),(8,1))','(8,16)','5','(16,32):(1,16)');
+      ctx.location.search=`?key=${encodeURIComponent(args.join('-'))}`;ctx.applyKeyParam(TAB);
+      if(ctx.psdState[TAB].copyURL!==input || psdPanes.some((id,i)=>els.get(id).innerHTML!==before[i]))
+        throw new Error('partition URL lost embedded copy or result');
+    }finally{ctx.exportURL=realExport;ctx.switchInnerTab=realSwitch;ctx.location.search='';}
+  },psdPanes);
+  step('partition_S/D displays CuTeDSL nondividing and unvectorizable results with warnings',()=>{
+    for(const [id,bits,tensor]of [['cute_nondividing',32,'(12,32):(1,12)'],['cute_unvectorizable',64,'(16,32):(1,16)']]){
+      ctx.setPSD(TAB,'S','universal',bits,'half_t','((8,4),(2,2)):((16,2),(8,1))','(8,16)','0',tensor);
+      const ref=partitionRef.partition_sd[id].layout.str;
+      if(!els.get(`${TAB}-psd-result`).innerHTML.includes(ref) || !els.get(`${TAB}-psd-warning`).textContent)
+        throw new Error('partition behavior differs from CuTeDSL: '+id);
+    }
+  },psdPanes);
+  step('partition_S/D failed paste leaves the last decoded copy intact',()=>{
+    const before=ctx.psdState[TAB].copyURL;
+    const summary=els.get(`${TAB}-psd-tiled-result`).innerHTML;
+    try{ctx.psdImportTiledCopy(TAB,'?key=make_copy_atom-universal-32-half_t');}
+    catch(e){ctx.showErr(`${TAB}-psd-error`,e.message);}
+    if(ctx.psdState[TAB].copyURL!==before || els.get(`${TAB}-psd-tiled-result`).innerHTML!==summary)
+      throw new Error('failed paste changed the active TiledCopy');
+  },psdPanes,{expectError:/make_tiled_copy/});
+  step('partition_S/D pasted copy shows the same summary as make_tiled_copy_A',()=>{
+    const markup=ctx.generatePartitionSDTabContent(TAB);
+    if(markup.includes('>Decode URL</button>') || markup.includes('psd-copy-url-input'))throw new Error('manual URL controls remain');
+    ctx.setMCAB(TAB,'A','f16bf16','half_t','half_t',16,'(2,2,1)','(32,32,16)','ldmatrix',4,0,16);
+    const expected=els.get(`${TAB}-mcab-result`).innerHTML;
+    ctx.psdImportTiledCopy(TAB,'?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp');
+    if(els.get(`${TAB}-psd-tiled-result`).innerHTML!==expected)throw new Error('decoded copy summary differs from its constructor tab');
+    for(const label of ['make_tiled_copy_A(copy_atom, tiled_mma)','Tiler MN = (32:1,16:1)','TV Layout tiled =','TV Layout Src =','TV Layout Dst =','4 warps, 128 threads; 8 destination values/thread; 1 copy instruction per warp.'])
+      if(!expected.includes(label))throw new Error('missing decoded summary field '+label);
+  },psdPanes);
+  step('partition_S/D recovers after invalid decode',()=>{
+    ctx.setPSD(TAB,'S','universal',32,'half_t','((8,4),(2,2)):((16,2),(8,1))','(8,16)','5','(16,32):(1,16)');
+  },psdPanes);
+
+  const rtPanes = [`${TAB}-rt-src-svg`, `${TAB}-rt-dst-svg`];
+  step('retile is in COPY and both paste buttons are wired', () => {
+    if (!html.includes('data-tab="retile" class="tab" data-scope="copy"')) throw new Error('retile missing from COPY');
+    for (const kind of ['copy','input']) if (!html.includes(`onclick="rtDecodePasteboard('${TAB}','${kind}')"`))
+      throw new Error(`missing ${kind} paste handler`);
+  });
+  step('retile imports TiledCopy A and computes a make_fragment URL', () => {
+    ctx.rtImportURL(TAB,'copy','file:///index.html?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp');
+    const key='make_fragment_abc-A-f16bf16-half_t-half_t-16-((2,2,2),4,2):((1,256,8),1024,16)-7';
+    ctx.rtImportURL(TAB,'input',`?key=${encodeURIComponent(key)}`);
+    const r=ctx.rtState[TAB];
+    const fmt=L=>ctx.formatLayoutStr(L.shape,L.stride);
+    if (fmt(r.input)!=='((2,2,2),4,2):((1,2,4),16,8)' || fmt(r.layout)!=='((8,1),4,2):((1,0),16,8)')
+      throw new Error('fragment URL was not evaluated before retiling');
+    expectBadge('rt-src','RMEM'); expectBadge('rt-dst','RMEM');
+    if (!els.get(`${TAB}-rt-dst-svg`).innerHTML.includes('>T7V0</text>')) throw new Error('thread label missing');
+    const expected=ctx.mfragBuildValueSVG({partition:r.layout,fragment:r.layout,pack:r.pack},7);
+    if (els.get(`${TAB}-rt-dst-svg`).innerHTML!==expected) throw new Error('retile does not use shared fragment drawing');
+  },rtPanes);
+  step('retile B gathers across a Rest mode', () => {
+    ctx.setRT(TAB,'((4,8,2,2),((2,2),(2,1))):((64,1,0,8),((32,256),(16,0)))','(32,16)',8,'half_t','((2,2),8,2):((1,2),8,4)',0);
+    const r=ctx.rtState[TAB];
+    if (ctx.product(r.input.shape[0])!==4 || ctx.product(r.layout.shape[0])!==8 || r.frgMN.size()<=1)
+      throw new Error('retile failed to gather outside mode 0');
+  },rtPanes);
+  step('retile imports primitive and derived SIMT TiledCopy URLs', () => {
+    ctx.setRT(TAB,'(4,4):(1,4)','(4,4)',2,'float','(2,2,2):(1,2,4)',0);
+    ctx.rtImportURL(TAB,'copy','?key=make_tiled_copy-universal-64-float-(4,4):(1,4)-(4,4)');
+    const expected=els.get(`${TAB}-rt-dst-svg`).innerHTML;
+    ctx.rtImportURL(TAB,'copy','?key=make_tiled_copy_tv-universal-64-float-(4,1):(1,0)-(1,4):(0,1)');
+    if (els.get(`${TAB}-rt-dst-svg`).innerHTML!==expected) throw new Error('derived copy import changed retile');
+  },rtPanes);
+  step('retile imports fixed-dtype fragment URLs', () => {
+    ctx.setRT(TAB,'(4,4):(1,4)','(4,4)',1,'float','((2,2),2,2):((1,2),4,8)',0);
+    ctx.rtImportURL(TAB,'input','?key=make_fragment_abc-A-tf32-na-na-8-((2,2),2,4):((256,4),1024,8)');
+    if(ctx.rtState[TAB].dtype!=='tfloat32_t')throw new Error('TF32 na dtype was not resolved');
+    ctx.rtImportURL(TAB,'input','?key=make_fragment_abc-C-fp8-float_e4m3_t-na-32-((2,2),2,2):((1,256),1024,16)');
+    if(ctx.rtState[TAB].dtype!=='float')throw new Error('fixed accumulator dtype was not resolved');
+  },rtPanes);
+  step('retile URL round trip restores both views', () => {
+    ctx.setRT(TAB,ctx.RT_DEFAULT_TV,'(32,16)',2,'half_t','((2,2,2),4,2,3):((1,2,4),16,8,64)',3);
+    const before=rtPanes.map(id=>els.get(id).innerHTML);
+    const realExport=ctx.exportURL, realSwitch=ctx.switchInnerTab;
+    let args,switched;
+    ctx.exportURL=(button,feature,...inputs)=>{args=[feature,...inputs];};
+    ctx.switchInnerTab=(_,mode)=>{switched=mode;};
+    try {
+      ctx.exportRT(TAB);
+      ctx.setRT(TAB,'(4,4):(1,4)','(4,4)',2,'float','(2,2,2):(1,2,4)',0);
+      ctx.location.search=`?key=${encodeURIComponent(args.join('-'))}`;
+      ctx.applyKeyParam(TAB);
+      if(switched!=='retile'||rtPanes.some((id,i)=>els.get(id).innerHTML!==before[i])) throw new Error('retile URL changed result');
+    } finally {ctx.exportURL=realExport;ctx.switchInnerTab=realSwitch;ctx.location.search='';}
+  },rtPanes);
+  step('retile invalid atom count clears both views', () => {
+    els.get(`${TAB}-rt-values-input`).value='3';ctx.renderRetile(TAB);
+    if(rtPanes.some(id=>els.get(id).innerHTML))throw new Error('stale retile survived invalid input');
+  },[],{expectError:/dividing/});
+  step('retile rejects an unrelated URL before changing inputs', () => {
+    const before=els.get(`${TAB}-rt-tv-input`).value;
+    let error;
+    try {ctx.rtImportURL(TAB,'copy','?key=make_copy_atom-universal-16-half_t');}catch(e){error=e.message;}
+    if(!/TiledCopy|make_tiled_copy/.test(error||'')||els.get(`${TAB}-rt-tv-input`).value!==before)throw new Error('invalid import was accepted');
+    ctx.setRT(TAB,ctx.RT_DEFAULT_TV,'(32,16)',8,'half_t','((2,2,2),4,2):((1,2,4),16,8)',0);
+  },rtPanes);
+
   const mcabPanes = paneIds.filter(id => id.startsWith(`${TAB}-mcab-`));
   for (const operand of ['A', 'B']) {
     step(`make_tiled_copy_${operand}: TVs and SMEM/RMEM badges`, () => {

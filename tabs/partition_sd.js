@@ -38,14 +38,11 @@
 // are how many times the whole TiledCopy has to be replayed to cover the
 // tensor. Three nested levels of repetition, in that order.
 //
-// Every Op this tab offers is SIMT, and for all of them
-// `ValLayoutSrc == ValLayoutDst == ValLayoutRef`, so `ref2trg` is the identity
-// and partition_S and partition_D differ ONLY in which tensor they are given.
-// The derivation below still carries ref2trg through, because that is the term
-// a shuffling atom (ldmatrix) would use, and it is the whole reason the two
-// functions exist separately.
+// The decoded atom supplies its own SRC/DST/reference layouts. SIMT sides
+// coincide; ldmatrix sides generally do not. The same CuTe composition handles both.
 
 const PSD_TILE_EDGE = '#dc2626';
+const PSD_DEFAULT_COPY_URL = '?key=make_tiled_copy-universal-32-half_t-((8,4),(2,2)):((16,2),(8,1))-(8,16)';
 
 // ═══════════════════════════════════════════════════════
 //  Tiler parsing
@@ -116,19 +113,6 @@ function psdParseTiler(str) {
 //  The derivation (DOM-free, so tests/run.js can diff it against CuTeDSL)
 // ═══════════════════════════════════════════════════════
 
-/** Divisors of n, ascending. Used only to spell out the way past a rejected
- *  tiler, so it walks to sqrt(n) rather than allocating an n-element array —
- *  a GEMM-sized tensor mode is routinely in the thousands. */
-function psdDivisors(n) {
-  const lo = [], hi = [];
-  for (let d = 1; d * d <= n; d++) {
-    if (n % d) continue;
-    lo.push(d);
-    if (d !== n / d) hi.push(n / d);
-  }
-  return lo.concat(hi.reverse());
-}
-
 /** CuTe's `zip` on a single layout: ((a,b),(c,d)) -> ((a,c),(b,d)). */
 function psdZip(layout) {
   return new Layout(zip_tuple(layout.shape), zip_tuple(layout.stride));
@@ -165,7 +149,7 @@ function psdTile2ThrFrg(tensorZ, layout_tv, atomNumThr, atomNumVal, ref2trg) {
  *  Positions go through the COMPACT layout of the same shape, so the picture
  *  never depends on the tensor's strides (a non-injective or transposed tensor
  *  would otherwise alias two tiles onto one cell). */
-function psdComputePartition(layout_tv, tiler, tensor, atomNumVal, thrIdx, side) {
+function psdComputePartition(layout_tv, tiler, tensor, atomOrValues, thrIdx, side) {
   const R = tensor.rank();
   // CuTe itself only asserts rank(tensor) >= rank(Tiler_MN) (copy_atom.hpp:223)
   // and puts no ceiling on either. The two limits below are this TAB's, because
@@ -194,59 +178,24 @@ function psdComputePartition(layout_tv, tiler, tensor, atomNumVal, thrIdx, side)
       `first if you really have more.`);
   }
 
-  // Every Op this tab offers is SIMT: ThrID = 1:0 and
-  // ValLayoutSrc == ValLayoutDst == ValLayoutRef == (1, AtomNumVal):(0, 1).
-  const atomNumThr = 1;
-  const atomLayout = new Layout([1, atomNumVal], [0, 1]);
-  // right_inverse(Ref).compose(Src|Dst): re-orders the atom's (thr, val) slots
-  // from the REFERENCE ordering into this side's ordering. Identity for every
-  // Op here, and the only thing that would make S and D differ.
-  const ref2trg = composition(right_inverse(atomLayout), atomLayout);
-
-  // Each Tiler_MN mode must DIVIDE the matching tensor mode. In C++ this is a
-  // constexpr `shape_div` assert, so a non-dividing tiler does not compile; the
-  // DSL's dynamic path has no such check and returns a layout that reads past
-  // the end of the tensor. Verified against CuTeDSL: a (8, 16) tiler on a
-  // (12, 32) tensor produces `((2,2),2,2):((12,1),8,192)` — identical to this
-  // port, and covering 388 positions of a 384-element tensor.
+  // CuTe partitions using the selected atom side, not an assumed SIMT identity.
+  const simt = typeof atomOrValues === 'number';
+  const atomNumVal = simt ? atomOrValues : atomOrValues.values;
+  const atomNumThr = simt ? 1 : atomOrValues.threads;
+  const ref = simt ? new Layout([1, atomNumVal], [0, 1]) : atomOrValues.ref;
+  const target = simt ? ref : side === 'S' ? atomOrValues.src : atomOrValues.dst;
+  if (layout_tv.rank() !== 2 || product(layout_tv.shape[0]) % atomNumThr || product(layout_tv.shape[1]) % atomNumVal)
+    throw new Error('TiledCopy thread/value counts must be divisible by the CopyAtom counts.');
+  const ref2trg = composition(right_inverse(ref), target);
+  // Partitioning is a view operation. Keep CuTeDSL's returned layout even
+  // when executing a copy with it would require additional legality checks.
   const tExt = (is_tuple(tensor.shape) ? tensor.shape : [tensor.shape]).map(m => product(m));
-  for (let i = 0; i < tiler.length; i++) {
-    const t = product(tiler[i].shape);
-    if (tExt[i] % t !== 0) {
-      throw new Error(
-        `Tiler_MN mode ${i} has extent ${t}, which does not divide the tensor's mode ${i} ` +
-        `(${tExt[i]}). CuTe's C++ asserts this in shape_div, but CuTeDSL does not — it ` +
-        `returns a layout that reads past the end of the tensor, so this is refused here ` +
-        `rather than drawn. Divisors of ${tExt[i]}: ${psdDivisors(tExt[i]).join(', ')}.`);
-    }
-  }
-
-  // The atom must be able to MOVE what FrgV says it moves. mtcVectorizationCheck
-  // asks whether T0's first AtomNumVal values are a stride-1 run along one tile
-  // axis; `none` means there is no tensor majorness that makes them contiguous,
-  // so no copy instruction of that width exists for this partition.
-  //
-  // This is an ERROR here, where make_tiled_copy / make_tiled_copy_tv report the
-  // same check inline. The difference is what the picture claims: those tabs draw
-  // the tile's COVERAGE, which is true whatever atom runs over it, while grid 1
-  // here is by definition "one atom invocation" (FrgV). Drawing a 4-wide FrgV
-  // that no instruction can perform would be a fiction, not a caveat.
-  const psdVec = mtcVectorizationCheck(atomNumVal, layout_tv, tiler.map(l => product(l.shape)));
-  if (psdVec.kind === 'none') {
-    const widths = [];
-    for (let n = 1; n <= atomNumVal; n++) {
-      if (atomNumVal % n !== 0) continue;
-      if (mtcVectorizationCheck(n, layout_tv, tiler.map(l => product(l.shape))).kind !== 'none')
-        widths.push(n);
-    }
-    throw new Error(
-      `num_bits_per_copy gives AtomNumVal = ${atomNumVal}, but T0's first ${atomNumVal} ` +
-      `values are not a stride-1 run along either tile axis — they sit at ` +
-      `${psdVec.coords.map(c => `(${c[0]},${c[1]})`).join(' ')}. No copy instruction that ` +
-      `wide exists for this partition, so FrgV would name an atom that cannot run.` +
-      (widths.length
-        ? ` Widths that do vectorize here: ${widths.join(', ')} elements.`
-        : ''));
+  const warnings = [];
+  for (let i = 0; i < tiler.length; i++) if (tExt[i] % tiler[i].size())
+    warnings.push(`Tiler_MN mode ${i} does not divide tensor mode ${i}; this is CuTeDSL's returned partition, which may address beyond the tensor.`);
+  if (simt || atomNumThr === 1) {
+    const vector = mtcVectorizationCheck(atomNumVal, layout_tv, tiler.map(l => l.size()));
+    if (vector.kind === 'none') warnings.push('The SIMT copy values are not a contiguous vector along one tile axis. Partitioning still returns this layout; executing the copy may require a smaller width or different tensor layout.');
   }
 
   let tensorZ;
@@ -312,7 +261,7 @@ function psdComputePartition(layout_tv, tiler, tensor, atomNumVal, thrIdx, side)
     : null;
 
   return {
-    side, thrIdx, thrSize, tidfrg, partition, thrval2mn, baseOffset,
+    side, thrIdx, thrSize, tidfrg, partition, thrval2mn, baseOffset, warnings,
     frgV, frgX, valSize: frgV * frgX, restExtents, sweepExtents, extraExtents, sweepSize,
     tileLayout, sweepLayout, extraLayout,
     extraSize: extraExtents.reduce((a, b) => a * b, 1),
@@ -371,29 +320,17 @@ function generatePartitionSDTabContent(id) {
           <div class="hint-inline" id="${id}-psd-side-hint"></div>
         </div>
 
-${mtcAtomSection(id, 'psd', '1. The Copy_Atom', 32)}
-
         <details class="cuo-section" open>
-          <summary>2. The TiledCopy &mdash; the only source of a ThrCopy</summary>
+          <summary>1. TiledCopy</summary>
           <div class="cuo-section-body">
-            ${layoutInputField({
-              id: `${id}-psd-tv-input`,
-              label: 'layout_tv &mdash; (tid, vid) &rarr; flat (m, n) in the tile',
-              hint: 'mode 0 = threads, mode 1 = values',
-              value: '((8,4),(2,2)):((16,2),(8,1))'
-            })}
-            ${layoutInputField({
-              id: `${id}-psd-tiler-input`,
-              label: 'Tiler_MN &mdash; the tile zipped_divide carves out',
-              hint: 'a Tiler: (8, 16) or per-mode layouts (8:1, 16:2)',
-              value: '(8, 16)'
-            })}
+            <button class="btn btn-render" id="${id}-psd-decode-copy" onclick="psdDecodePasteboard('${id}')">Decode from Pasteboard</button>
             <div id="${id}-psd-tiled-result" class="cuo-result"></div>
+            ${copyMoveField(id,'psd')}
           </div>
         </details>
 
         <details class="cuo-section" open>
-          <summary>3. get_slice(thr_idx)</summary>
+          <summary>2. get_slice(thr_idx)</summary>
           <div class="cuo-section-body">
             <div class="form-group">
               <label>Thread index</label>
@@ -409,7 +346,7 @@ ${mtcAtomSection(id, 'psd', '1. The Copy_Atom', 32)}
         </details>
 
         <details class="cuo-section" open>
-          <summary>4. The tensor being partitioned</summary>
+          <summary>3. The tensor being partitioned</summary>
           <div class="cuo-section-body">
             ${layoutInputField({
               id: `${id}-psd-tensor-input`,
@@ -429,6 +366,8 @@ ${mtcAtomSection(id, 'psd', '1. The Copy_Atom', 32)}
         <div class="presets">
           <h3>Presets</h3>
           <div class="preset-list">
+            <button class="preset-btn" onclick="setPSDURL('${id}','S','?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-1-0-16-warp','0','(128,32,4):(32,1,4096)')">Decode MMA A — ldmatrix.x1 SRC</button>
+            <button class="preset-btn" onclick="setPSDURL('${id}','D','?key=make_tiled_copy_ab-B-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp','3','(64,32):(32,1)')">Decode MMA B — ldmatrix.x4 DST</button>
             <button class="preset-btn" onclick="setPSD('${id}','S','universal',32,'half_t','((8,4),(2,2)):((16,2),(8,1))','(8, 16)','5','(16, 32):(1, 16)')">One tile per axis &mdash; the tile sweeps 2&times;2</button>
             <button class="preset-btn" onclick="setPSD('${id}','S','universal',32,'half_t','((8,4),(2,2)):((16,2),(8,1))','(8, 16)','5','(8, 16):(1, 8)')">Tensor == tile &mdash; one Rest position, no replay</button>
             <button class="preset-btn" onclick="setPSD('${id}','D','universal',32,'half_t','((8,4),(2,2)):((16,2),(8,1))','(8, 16)','5','(16, 32):(32, 1)')">partition_D on the row-major destination</button>
@@ -459,7 +398,7 @@ ${mtcAtomSection(id, 'psd', '1. The Copy_Atom', 32)}
           <b>2</b> is the tile sweeping the (M, N) plane, <b>3</b> is that whole
           plane repeated along the k-loop and the pipeline stage. Inside one tile
           sits the third level, grid <b>1</b>: <b>FrgV</b> is one atom invocation
-          (<code>num_bits_per_copy / sizeof_bits(dtype)</code>) and <b>FrgX</b> is
+          (the selected side's atom value count) and <b>FrgX</b> is
           how many atoms a thread issues to fill the tile
           (<code>TiledNumVal / AtomNumVal</code>).<br><br>
           <b>Splitting the picture this way loses nothing.</b>
@@ -485,12 +424,11 @@ ${mtcAtomSection(id, 'psd', '1. The Copy_Atom', 32)}
           <code>right_inverse(ValLayoutRef).compose(ValLayoutSrc|Dst)</code>
           (<code>copy_atom.hpp:226, 247</code>), which re-orders the atom's
           <code>(thr, val)</code> slots from the reference ordering into this
-          side's. Every Op offered here is SIMT with
-          <code>ValLayoutSrc == ValLayoutDst == ValLayoutRef</code>, so that term
-          is the identity. It becomes real for a shuffling atom such as
-          <code>ldmatrix</code>, where the source layout says which lane holds
-          which <em>address</em> and the destination layout says which lane ends
-          up with which <em>value</em>.<br><br>
+          side's. The decoded CopyAtom supplies the actual SRC, DST and reference
+          layouts. For SIMT copies these coincide. For <code>ldmatrix</code> the
+          source view names address-supplying lanes and the destination view
+          names receiving register values; ignored source lanes retain CuTe's
+          aliased layout instead of being removed.<br><br>
           <b>The tiler's strides matter here</b>, unlike on the
           <b>make_tiled_copy</b> tab. There the tile is drawn on its own and a
           stride has nothing to point into; here there is a tensor, so
@@ -590,40 +528,25 @@ function renderPartitionSD(tabId) {
   showErr(`${tabId}-psd-error`, '');
   showWarn(`${tabId}-psd-warning`, '');
   document.getElementById(`${tabId}-psd-result`).innerHTML = '';
+  document.getElementById(`${tabId}-psd-tiled-result`).innerHTML = '';
   const prev = psdState[tabId] || {};
   const side = prev.side || 'S';
   psdSyncSideField(tabId, side);
   psdSyncSpaceBadges(tabId);
   try {
-    const atom = mtcReadAtom(tabId, 'psd');
-
-    const tvStr     = document.getElementById(`${tabId}-psd-tv-input`).value;
-    const tilerStr  = document.getElementById(`${tabId}-psd-tiler-input`).value;
-    const thrStr    = (document.getElementById(`${tabId}-psd-thr-input`).value || '').trim();
+    const copyURL = prev.copyURL || PSD_DEFAULT_COPY_URL;
+    const parsed = parsePastedKeyParam(copyURL);
+    if (!parsed) throw new Error('Paste a TiledCopy URL or its ?key=... query string.');
+    const decoded = mtcDecodeURL(parsed);
+    document.getElementById(`${tabId}-psd-tiled-result`).innerHTML = mtcDecodedSummary(decoded);
+    const layout_tv = decoded.tv, tiler = decoded.tiler;
+    const thrSize = product(layout_tv.shape[0]), valSize = product(layout_tv.shape[1]);
+    const atom = { dtype: decoded.dtype, opKey: decoded.opKey, numBits: decoded.numBits,
+      atomNumVal: decoded.atomValues, elemBits: decoded.copyAtom.elemBits };
+    syncCopyMoves(tabId,'psd',decoded.opKey);
+    const thrStr = document.getElementById(`${tabId}-psd-thr-input`).value.trim();
     const tensorStr = document.getElementById(`${tabId}-psd-tensor-input`).value;
 
-    // The TENSOR is deliberately absent from the rank warning. Nothing here
-    // flattens it: grid 1 is over Tiler_MN and grid 2 enumerates every Rest
-    // mode, so a rank-3 tensor is drawn in full rather than collapsed. The two
-    // inputs that ARE drawn as a 2-D grid are the tiler (grid 1's axes) and
-    // layout_tv, so those are what the warning covers.
-    const rankPairs = [['layout_tv', tvStr], ['Tiler_MN', tilerStr]];
-    updateRankWarning(`${tabId}-psd-warning`, rankPairs);
-    const offenders = collectHighRank(rankPairs);
-
-    const tvP = parseLayout(tvStr);
-    const tvS = stripTrivialTrailing(tvP.shape, tvP.stride);
-    const layout_tv = new Layout(tvS.shape, tvS.stride);
-    if (layout_tv.rank() !== 2) {
-      throw new Error(
-        `layout_tv must have rank 2 — mode 0 is the thread mode, mode 1 the value mode. ` +
-        `Got rank ${layout_tv.rank()} from ${formatLayoutStr(layout_tv.shape, layout_tv.stride)}.`);
-    }
-    const thrSize = product(layout_tv.shape[0]);
-    const valSize = product(layout_tv.shape[1]);
-    mtcRequireAtomDivides(valSize, atom.atomNumVal, atom.numBits, atom.elemBits, atom.dtype);
-
-    const tiler = psdParseTiler(tilerStr);
     // Blank means "every thread". A real ThrCopy is one thread, but the layout
     // it returns is the same for all of them — only the base offset differs —
     // so drawing the unsliced tile is a truthful default rather than a fiction.
@@ -638,28 +561,16 @@ function renderPartitionSD(tabId) {
     const tS = stripTrivialTrailing(tP.shape, tP.stride);
     const tensor = new Layout(tS.shape, tS.stride);
 
-    const r = psdComputePartition(layout_tv, tiler, tensor, atom.atomNumVal, thrIdx, side);
+    const r = psdComputePartition(layout_tv, tiler, tensor, decoded.copyAtom, thrIdx, side);
 
     const spec = PSD_SIDE[side];
     const resultLayout = formatLayoutStr(r.partition.shape, r.partition.stride);
     document.getElementById(`${tabId}-psd-result`).innerHTML =
       `<div class="cuo-result-line">${spec.fn} = <b>${resultLayout}</b></div>`;
-    document.getElementById(`${tabId}-psd-tiled-result`).innerHTML =
-      `<div class="cuo-result-line">layout_tv = <b>${formatLayoutStr(layout_tv.shape, layout_tv.stride)}</b></div>` +
-      `<div class="cuo-result-line">Tiler_MN  = <b>(${tiler.map(l => formatLayoutStr(l.shape, l.stride)).join(', ')})</b></div>` +
-      `<div class="cuo-result-line">TiledNumThr = ${thrSize}, TiledNumVal = ${valSize}, ` +
-      `FrgV = ${r.frgV}, FrgX = ${r.frgX}</div>`;
-
-    const notes = [
-      offenders.length
-        ? `${offenders.join(', ')} has rank > 2 — grid 1 draws modes 0 and 1 of the tile.`
-        : '',
-      atom.cpasyncWarn,
-    ].filter(Boolean);
-    if (notes.length) showWarn(`${tabId}-psd-warning`, notes.join(' '));
+    if (r.warnings.length) showWarn(`${tabId}-psd-warning`,r.warnings.join(' '));
 
     psdState[tabId] = {
-      ...atom, ...r, side, layout_tv, tiler, tensor, thrSize, valSizeTv: valSize,
+      ...atom, ...r, side, layout_tv, tiler, tensor, thrSize, valSizeTv: valSize, copyURL, copyAtom: decoded.copyAtom,
       tileMode:  (prev.tileMode  instanceof Set) ? prev.tileMode  : new Set(),
       sweepMode: (prev.sweepMode instanceof Set) ? prev.sweepMode : new Set(),
       extraMode: (prev.extraMode instanceof Set) ? prev.extraMode : new Set(),
@@ -824,9 +735,7 @@ function psdSyncSideField(tabId, side) {
   if (hint) {
     hint.innerHTML =
       `<code>${spec.fn}</code> partitions the <b>${spec.tensor}</b> tensor using the atom's ` +
-      `<code>${spec.atomLayout}</code>. Every Op here has ` +
-      `<code>ValLayoutSrc == ValLayoutDst == ValLayoutRef</code>, so the two calls differ ` +
-      `only in which tensor they are given.`;
+      `<code>${spec.atomLayout}</code>. Ldmatrix SRC and DST layouts differ: the reference TV map is converted to the selected side before slicing the thread.`;
   }
   const sideEl = document.getElementById(`${tabId}-psd-tensor-side`);
   if (sideEl) sideEl.textContent = spec.tensor;
@@ -867,24 +776,40 @@ function setPsdMode(tabId, which, mode) {
 
 function setPSD(tabId, side, opKey, bits, dtype, tv, tiler, thr, tensor) {
   psdState[tabId] = Object.assign(psdState[tabId] || {}, { side });
-  document.getElementById(`${tabId}-psd-op-input`).value     = opKey;
-  document.getElementById(`${tabId}-psd-bits-input`).value   = bits;
-  document.getElementById(`${tabId}-psd-dtype-input`).value  = dtype;
-  document.getElementById(`${tabId}-psd-tv-input`).value     = tv;
-  document.getElementById(`${tabId}-psd-tiler-input`).value  = tiler;
+  const key = ['make_tiled_copy',opKey,bits,dtype,tv,tiler].join('-');
+  psdState[tabId].copyURL = '?' + new URLSearchParams({key}).toString();
   document.getElementById(`${tabId}-psd-thr-input`).value    = thr;
   document.getElementById(`${tabId}-psd-tensor-input`).value = tensor;
   renderPartitionSD(tabId);
 }
 
+function setPSDURL(tabId,side,url,thr,tensor) {
+  psdState[tabId] = Object.assign(psdState[tabId] || {}, {side, copyURL:url});
+  document.getElementById(`${tabId}-psd-thr-input`).value = thr;
+  document.getElementById(`${tabId}-psd-tensor-input`).value = tensor;
+  renderPartitionSD(tabId);
+}
+
+function psdImportTiledCopy(tabId,text) {
+  const parsed = parsePastedKeyParam(text);
+  if (!parsed) throw new Error('Paste an exported TiledCopy URL or its query string.');
+  const decoded = mtcDecodeURL(parsed);
+  mtcDecodedSummary(decoded); // Validate both side maps before committing the copy.
+  psdState[tabId] = Object.assign(psdState[tabId] || {}, {copyURL:text});
+  renderPartitionSD(tabId);
+}
+
+async function psdDecodePasteboard(tabId) {
+  const text = await readPasteboardText('Paste the TiledCopy URL or its query string:');
+  if (text === null || text === undefined) return;
+  try { psdImportTiledCopy(tabId,text); }
+  catch(e) { showErr(`${tabId}-psd-error`,e.message); }
+}
+
 function exportPSD(tabId) {
-  exportURL(`${tabId}-psd-export`, 'partition_sd',
-    (psdState[tabId] && psdState[tabId].side) || 'S',
-    document.getElementById(`${tabId}-psd-op-input`).value,
-    document.getElementById(`${tabId}-psd-bits-input`).value,
-    document.getElementById(`${tabId}-psd-dtype-input`).value,
-    document.getElementById(`${tabId}-psd-tv-input`).value,
-    document.getElementById(`${tabId}-psd-tiler-input`).value,
-    document.getElementById(`${tabId}-psd-thr-input`).value,
-    document.getElementById(`${tabId}-psd-tensor-input`).value);
+  const read = key => document.getElementById(`${tabId}-psd-${key}-input`).value;
+  // Escape embedded hyphens so the outer feature key retains four fields.
+  const copy = encodeURIComponent((psdState[tabId] || {}).copyURL || PSD_DEFAULT_COPY_URL).replace(/-/g,'%2D');
+  exportURL(`${tabId}-psd-export`,'partition_sd','url',
+    (psdState[tabId] || {}).side || 'S',copy,read('thr'),read('tensor'));
 }

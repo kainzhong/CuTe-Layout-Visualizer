@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sys
+from urllib.parse import parse_qs
 
 import cutlass
 import cutlass.cute as cute
@@ -362,6 +363,28 @@ def run_make_tiled_copy(c):
     }
 
 
+def decode_tiled_copy_url(url):
+    query = url.split("?", 1)[-1].split("#", 1)[0]
+    parts = parse_qs(query)["key"][0].split("-")
+    feature, a = parts[0], parts[1:]
+    if feature == "make_tiled_copy_ab":
+        cfg = {"ab_dtype": a[2], "acc_dtype": a[3], "k": int(a[4])}
+        tmma = cute.make_tiled_mma(cute.make_mma_atom(MMA_OPS[a[1]](cfg)),
+                                  parse_layout(a[5]), parse_tiled_mma_perm(None if a[6] == "na" else a[6]))
+        dtype = DTYPES["tfloat32_t" if a[2] == "na" else a[2]]
+        if a[7] == "s2r":
+            atom = cute.make_copy_atom(common.CopyUniversalOp(), dtype, num_bits_per_copy=int(a[10]))
+        else:
+            key = {"ldmatrix": "ldsm8x8x16b", "ldmatrix16x8x8b": "ldsm16x8x8b", "ldmatrix16x16x8b": "ldsm16x16x8b"}[a[7]]
+            atom = cute.make_copy_atom(LDSM_OPS[key](transpose=a[9] == "1", num_matrices=int(a[8])), dtype)
+        return getattr(cute, "make_tiled_copy_" + a[0])(atom, tmma), dtype
+    dtype = DTYPES[a[2]]
+    atom = cute.make_copy_atom(COPY_OPS[a[0]](), dtype, num_bits_per_copy=int(a[1]))
+    if feature == "make_tiled_copy_tv":
+        return cute.make_tiled_copy_tv(atom, parse_layout(a[3]), parse_layout(a[4])), dtype
+    return cute.make_tiled_copy(atom, parse_layout(a[3]), parse_tiler_mn(a[4])), dtype
+
+
 def run_partition_sd(c):
     """One TiledCopy, one tensor, EVERY thread.
 
@@ -370,17 +393,22 @@ def run_partition_sd(c):
     pins it anyway: tidfrg's thread mode IS that list of offsets, and its other
     two modes are the partition layout, which is the same for every thread.
     """
-    atom = cute.make_copy_atom(COPY_OPS[c.get("op", "universal")](), DTYPES[c["dtype"]],
-                               num_bits_per_copy=c["bits"])
-    tv = parse_layout(c["tv"])
-    tc = cute.make_tiled_copy(atom, tv, parse_tiler_mn(c["tiler"]))
+    if "copy_url" in c:
+        tc, dtype = decode_tiled_copy_url(c["copy_url"])
+        tv = tc.layout_tv_tiled
+    else:
+        dtype = DTYPES[c["dtype"]]
+        atom = cute.make_copy_atom(COPY_OPS[c.get("op", "universal")](), dtype,
+                                   num_bits_per_copy=c["bits"])
+        tv = parse_layout(c["tv"])
+        tc = cute.make_tiled_copy(atom, tv, parse_tiler_mn(c["tiler"]))
     tl = parse_layout(c["tensor"])
     side = c.get("side", "S")
 
     # The layout comes from a POINTER tensor (integer strides); the offset from
     # the identity tensor over the same shape, since an ordinary tensor's
     # iterator is a runtime pointer and unreadable at trace time.
-    ptr_t = cute.make_tensor(cute.make_ptr(DTYPES[c["dtype"]], 0, cute.AddressSpace.gmem), tl)
+    ptr_t = cute.make_tensor(cute.make_ptr(dtype, 0, cute.AddressSpace.gmem), tl)
     idn_t = cute.make_identity_tensor(tl.shape)
 
     layout, offsets = None, []
@@ -612,6 +640,21 @@ def run_partition_abc(c):
     }
 
 
+def run_retile(c):
+    dtype = DTYPES[c["dtype"]]
+    if c["op"] == "universal":
+        atom = cute.make_copy_atom(common.CopyUniversalOp(), dtype, num_bits_per_copy=c["bits"])
+    else:
+        key = {"ldmatrix": "ldsm8x8x16b", "ldmatrix16x8x8b": "ldsm16x8x8b", "ldmatrix16x16x8b": "ldsm16x16x8b"}[c["op"]]
+        atom = cute.make_copy_atom(LDSM_OPS[key](transpose=c["transpose"], num_matrices=c["nm"]), dtype)
+    tc = cute.make_tiled_copy(atom, parse_layout(c["tv"]), tuple(c["tile"]))
+    tensor = cute.make_tensor(cute.make_ptr(dtype, 0, cute.AddressSpace.rmem), parse_layout(c["input"]))
+    result = tc.get_slice(0).retile(tensor)
+    out = record(result.layout)
+    out["atom_values"] = int(cute.size(atom.layout_dst_tv, mode=[1]))
+    return out
+
+
 def run_make_fragment_abc(c):
     """The tab's direct input: a layout that has already been partitioned."""
     op_cfg = {"ab_dtype": c.get("ab") or "half_t",
@@ -621,8 +664,16 @@ def run_make_fragment_abc(c):
     dtype = c["acc"] if c["which"] == "C" else c["ab"]
     tensor = cute.make_tensor(cute.make_ptr(DTYPES[dtype], 0,
                                             cute.AddressSpace.gmem), part)
+    selected = None
+    if "slice" in c:
+        layout, offset = cute.slice_and_offset(to_crd(c["slice"]), part)
+        tensor = tensor[to_crd(c["slice"])]
+        selected = {"partition": record(layout), "source_offset": int(offset)}
     frag = getattr(atom, "make_fragment_" + c["which"])(tensor).layout
-    return record(frag)
+    result = record(frag)
+    if selected is not None:
+        result.update(selected)
+    return result
 
 
 def _smem_layout(spec, sw):
@@ -708,6 +759,7 @@ SECTIONS = [
     ("partition_sd", run_partition_sd),
     ("partition_abc", run_partition_abc),
     ("make_fragment_abc", run_make_fragment_abc),
+    ("retile", run_retile),
     ("local_tile", run_local_tile),
     ("swizzle", run_swizzle),
 ]

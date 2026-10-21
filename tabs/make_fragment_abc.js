@@ -93,6 +93,17 @@ function mfragRestOverlay(grid, { cs, margin }) {
   return out;
 }
 
+/** Shared register-fragment drawing: both make_fragment and retile label
+ * logical scalar slots with exactly the same T/V, R#, and Rest colors. */
+function mfragBuildValueSVG(result, thread) {
+  const grid = mfragValueGrid(result);
+  return buildColoredLayoutSVG([grid.rows, grid.cols], [1, grid.rows], '', (m, n) => {
+    const cell = grid.cells[m + n * grid.rows];
+    return { bg: colorHighlight(cell.rest), text: [
+      `(${cell.rest0},${cell.rest1})`, `T${thread}V${cell.value}`, `R${cell.register}`] };
+  }, { overlay: ctx => mfragRestOverlay(grid, ctx) });
+}
+
 function generateMakeFragmentABCTabContent(id) {
   return `
     <div id="${id}-tab-make_fragment_abc" class="panel">
@@ -188,15 +199,10 @@ function renderMakeFragmentABC(tabId) {
       `<div class="cuo-result-line">${s.registers.length} × 32-bit registers; ${s.pack} ${s.dtype} value${s.pack === 1 ? '' : 's'} per register</div>`;
     document.getElementById(`${tabId}-mfrag-title`).textContent =
       `${which} — ${product(s.fragment.shape)} values in ${s.registers.length} registers`;
-    const grid = mfragValueGrid(s);
     const axes = PABC_OPERAND[which].axes;
     document.getElementById(`${tabId}-mfrag-desc`).innerHTML =
       `<code>${str}</code> &mdash; each colored block is one (${axes[0]}, ${axes[1]}) Rest position, matching partition_${which}'s second grid. Smaller cells show its atom values${s.fragment.rank() > 3 ? '; later Rest modes repeat the grid' : ''}.`;
-    host.innerHTML = buildColoredLayoutSVG([grid.rows, grid.cols], [1, grid.rows], '', (m, n) => {
-      const cell = grid.cells[m + n * grid.rows];
-      return { bg: colorHighlight(cell.rest), text: [
-        `(${cell.rest0},${cell.rest1})`, `T${thread}V${cell.value}`, `R${cell.register}`] };
-    }, { overlay: ctx => mfragRestOverlay(grid, ctx) });
+    host.innerHTML = mfragBuildValueSVG(s, thread);
     applyZoomState(`${tabId}-mfrag-svg`);
     updateOuterTabLabel(tabId, `make_fragment_${which}:${str}`);
   } catch (e) {

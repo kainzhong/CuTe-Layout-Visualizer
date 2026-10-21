@@ -179,20 +179,11 @@ function runUnitTests(V, T) {
     } catch (e) { msg = e.message; }
     check('thread-out-of-range', 'reports 32 threads', /has 32 threads/.test(msg), true);
   });
-  guard('indivisible-tiler', () => {
-    // A C++ static_assert (shape_div) that the DSL's dynamic path skips.
-    // CuTeDSL happily returns ((2,2),2,2):((12,1),8,192) here — the SAME layout
-    // this port derives — which covers 388 positions of a 384-element tensor,
-    // i.e. it reads off the end. So the refusal is the tab's own.
-    let msg = '';
-    try {
-      V.psdComputePartition(parseExact(V, '((8,4),(2,2)):((16,2),(8,1))'),
-                            V.psdParseTiler('(8, 16)'),
-                            parseExact(V, '(12,32):(1,12)'), 2, 0, 'S');
-    } catch (e) { msg = e.message; }
-    check('indivisible-tiler', 'names the mode and the divisors',
-          /does not divide the tensor's mode 0 \(12\)/.test(msg) && /1, 2, 3, 4, 6, 12/.test(msg),
-          true);
+  guard('indivisible-tiler-warning', () => {
+    const r = V.psdComputePartition(parseExact(V, '((8,4),(2,2)):((16,2),(8,1))'),
+      V.psdParseTiler('(8,16)'), parseExact(V,'(12,32):(1,12)'),2,0,'S');
+    check('indivisible-tiler-warning','warns without changing the returned partition',
+      r.warnings.some(w=>/does not divide/.test(w)),true);
   });
 
   setSection('unit/make_tiled_copy_ab');
@@ -888,34 +879,14 @@ function runUnitTests(V, T) {
           hints.some(h => /&(lt|gt|amp|mdash|nbsp);/.test(h)), false);
   });
 
-  // ── partition_S/D refuses a width no atom can move ────────────────────────
-  //  CuTe does not check this: `_make_tiled_copy` only relates layout_tv to the
-  //  ATOM, never asks whether a copy that wide can reach those elements, and
-  //  CuTeDSL will build the partition regardless. So the DSL cannot be the
-  //  oracle and the expectation lives here.
   setSection('unit/psd-vectorization');
-  guard('rejects-unvectorizable-width', () => {
-    const tv = parseExact(V, '((8,4),(2,2)):((16,2),(8,1))');   // each thread owns a 2x2 patch
-    const tiler = V.psdParseTiler('(8, 16)');
-    const tensor = parseExact(V, '(16, 32):(1, 16)');
-    const run = (atomNumVal) => {
-      try { V.psdComputePartition(tv, tiler, tensor, atomNumVal, 5, 'S'); return null; }
-      catch (e) { return e.message; }
-    };
-    // 1 and 2 elements are a run along N; 4 would need a 2x2 patch to be contiguous.
-    check('rejects-unvectorizable-width', '1 element (16b) accepted', run(1), null);
-    check('rejects-unvectorizable-width', '2 elements (32b) accepted', run(2), null);
-    check('rejects-unvectorizable-width', '4 elements (64b) refused',
-          /not a stride-1 run along either tile axis/.test(run(4) || ''), true);
-    // The message must name the way out, the same courtesy mtcRequireAtomDivides gives.
-    check('rejects-unvectorizable-width', 'names the widths that work',
-          /Widths that do vectorize here: 1, 2 elements/.test(run(4) || ''), true);
-    // A layout whose thread values ARE a contiguous run takes the wide atom fine,
-    // so the refusal is about this partition and not about the width itself.
-    const flat = parseExact(V, '((8,4),4):((4,32),1)');
-    check('rejects-unvectorizable-width', '4 elements fine on a stride-1 val layout',
-          (() => { try { V.psdComputePartition(flat, V.psdParseTiler('(8, 16)'), tensor, 4, 5, 'S');
-                         return null; } catch (e) { return e.message; } })(), null);
+  guard('unvectorizable-width-warning',()=>{
+    const tv=parseExact(V,'((8,4),(2,2)):((16,2),(8,1))');
+    const tiler=V.psdParseTiler('(8,16)'), tensor=parseExact(V,'(16,32):(1,16)');
+    check('unvectorizable-width-warning','narrow copy needs no warning',
+      V.psdComputePartition(tv,tiler,tensor,2,5,'S').warnings.length,0);
+    check('unvectorizable-width-warning','wide copy still partitions with a warning',
+      V.psdComputePartition(tv,tiler,tensor,4,5,'S').warnings.some(w=>/contiguous vector/.test(w)),true);
   });
 
   // ── The MMA "Alternative View" rotates B and NOTHING else ─────────────────
@@ -994,6 +965,43 @@ function runUnitTests(V, T) {
       for (let n = 0; n < t[0].length; n++) if (!real.has(n + Nb * k)) offGrid++;
     check('transpose-grid-is-exact', 'every drawn cell is a real offset', offGrid, 0);
     check('transpose-grid-is-exact', 'it rendered', /<svg/.test(svg), true);
+  });
+
+  setSection('unit/retile');
+  for (const [name,tv,tile,values,input,pattern] of [
+    ['bad-TV-rank',new V.Layout(32),[4,8],1,new V.Layout([2,2,2]),/two modes/],
+    ['bad-tiler',new V.Layout([4,4]),[16],2,new V.Layout([2,2,2]),/two-dimensional/],
+    ['bad-atom-count',new V.Layout([4,4]),[4,4],3,new V.Layout([2,2,2]),/dividing/],
+    ['bad-input-rank',new V.Layout([4,4]),[4,4],2,new V.Layout([2,2]),/rank at least 3/],
+  ]) guard(name,()=>{
+    let error='';try{V.rtComputeRetile(tv,tile,values,input);}catch(e){error=e.message;}
+    check(name,'diagnostic',pattern.test(error),true);
+  });
+
+  setSection('unit/fragment-selection');
+  guard('selection-parser', () => {
+    const partition = new V.Layout([[2,2,2],4,2,4], [[1,256,8],1024,16,4096]);
+    const a = V.pabcSelectFragment(partition, '(_, _, _, 2)');
+    const b = V.pabcSelectFragment(partition, '(None, None, None, 2,)');
+    check('selection-parser', 'None and _ aliases', JSON.stringify(a), JSON.stringify(b));
+    check('selection-parser', 'blank picks first stage', V.pabcSelectFragment(partition, '').coord.join(','), ',,,0');
+    check('selection-parser', 'whole _ keeps all modes', V.pabcSelectFragment(partition, '_').layout.rank(), 4);
+  });
+  for (const [raw, pattern] of [
+    ['(_,_,_)', /4 mode coordinates/],
+    ['(_,_,_,4)', /out of range/],
+    ['(_,_,_,-1)', /out of range/],
+    ['(_,_,_,1.5)', /out of range/],
+    ['(_,_,_,9007199254740992)', /out of range/],
+    ['(0,_,_,0)', /complete MMA value mode/],
+    ['(_,0,_,0)', /rank at least 3/],
+    ['(_,_,_,(0,1))', /nested mode shape/],
+    ['(_,_,_,2garbage)', /Invalid fragment selection/],
+  ]) guard('reject-selection/' + raw, () => {
+    const partition = new V.Layout([[2,2,2],4,2,4], [[1,256,8],1024,16,4096]);
+    let error = '';
+    try { V.pabcSelectFragment(partition, raw); } catch (e) { error = e.message; }
+    check('reject-selection/' + raw, 'diagnostic', pattern.test(error), true);
   });
 
   // ── The load-order hazard docs/architecture.md warns about ────────────────

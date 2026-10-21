@@ -762,3 +762,50 @@ function exportMTC(tabId) {
     document.getElementById(`${tabId}-mtc-tv-input`).value,
     document.getElementById(`${tabId}-mtc-tiler-input`).value);
 }
+
+/** Decode an offered TiledCopy URL into its constructor, atom traits and tiler.
+ * Shared by partition_S/D and retile; no DOM or navigation. */
+function mtcDecodeURL(parsed) {
+  const parse = raw => { const p = parseLayout(raw); return new Layout(p.shape,p.stride); };
+  const a = parsed.inputs;
+  if (parsed.feature === 'make_tiled_copy_ab') {
+    const mma = mtmComputeTiledMma(mmaWarpAtom(a[1], Number(a[4])), mtmParseAtomLayout(a[5]), mtmParsePerm(a[6] === 'na' ? '' : a[6]));
+    const dtype = a[2] === 'na' ? 'tfloat32_t' : a[2];
+    const atom = mcabCopyAtom(a[7], dtype, Number(a[8]), a[9] === '1', Number(a[10]));
+    const copy = mcabComputeTiledCopy(mma, a[0], atom);
+    return { tv: copy.tv, tile: copy.tile, tiler: copy.tile.map(n => new Layout(n)),
+      atomValues: atom.values, copyAtom: atom, dtype, opKey: a[7], numBits: Number(a[10]),
+      constructorName: `make_tiled_copy_${a[0]}(copy_atom, tiled_mma)` };
+  }
+  if (!['make_tiled_copy', 'make_tiled_copy_tv'].includes(parsed.feature))
+    throw new Error('Paste a make_tiled_copy, make_tiled_copy_tv, or make_tiled_copy_A/B URL.');
+  const dtype = a[2], bits = DTYPE_BITS[dtype];
+  if (!MTC_OPS[a[0]] || !bits || !Number.isInteger(Number(a[1]) / bits)) throw new Error('Invalid CopyAtom in URL.');
+  const copyAtom = mcabCopyAtom('s2r', dtype, 1, false, Number(a[1]));
+  copyAtom.label = `${MTC_OPS[a[0]].label} (${a[1]} bits)`;
+  const meta = { copyAtom, atomValues: copyAtom.values, dtype, opKey: a[0], numBits: Number(a[1]) };
+  if (parsed.feature === 'make_tiled_copy_tv') {
+    const r = make_layout_tv(parse(a[3]), parse(a[4]));
+    return { tv: r.layout_tv, tile: r.tiler_mn, tiler: r.tiler_mn.map(n => new Layout(n)),
+      constructorName: 'make_tiled_copy_tv(copy_atom, thr_layout, val_layout)', ...meta };
+  }
+  const tiler = psdParseTiler(a[4]);
+  return { tv: parse(a[3]), tile: tiler.map(l => l.size()), tiler,
+    constructorName: 'make_tiled_copy(copy_atom, layout_tv, tiler_mn)', ...meta };
+}
+
+/** Standard read-only TiledCopy constructor result, including both side maps. */
+function mtcDecodedSummary(copy) {
+  const fmt = L => formatLayoutStr(L.shape,L.stride);
+  const src = copy.src || mcabSideLayout(copy.tv,copy.tile,copy.copyAtom,'src');
+  const dst = copy.dst || mcabSideLayout(copy.tv,copy.tile,copy.copyAtom,'dst');
+  const threads = product(copy.tv.shape[0]);
+  const values = product(dst.shape[1]);
+  const instructions = product(copy.tv.shape[1]) / copy.copyAtom.values;
+  return `<div class="cuo-result-line"><b>${copy.constructorName}</b></div>` +
+    `<div class="cuo-result-line">Tiler MN = (${copy.tiler.map(fmt).join(',')})</div>` +
+    `<div class="cuo-result-line">TV Layout tiled = ${fmt(copy.tv)}</div>` +
+    `<div class="cuo-result-line">TV Layout Src = ${fmt(src)}</div>` +
+    `<div class="cuo-result-line">TV Layout Dst = ${fmt(dst)}</div>` +
+    `<div class="cuo-result-line">${Math.ceil(threads/32)} warps, ${threads} threads; ${values} destination values/thread; ${instructions} copy instruction${instructions===1?'':'s'} per ${copy.copyAtom.threads===32?'warp':'thread'}.</div>`;
+}

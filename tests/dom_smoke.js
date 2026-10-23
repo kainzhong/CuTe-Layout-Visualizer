@@ -1238,7 +1238,16 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
                         '(1,M,K) × (1,N,K) → (1,M,N)', '(V,M,1) × (V,N,1) → (V,M,N)',
                         '(V,M,K) × (V,N,K) → (V,M,N)'])
       if (!html.includes(form)) throw new Error(`Missing dispatch form ${form}`);
-    if (!html.includes('This warp MMA view accepts [4] and [5]')) throw new Error('Backend support is not explained');
+    if (!html.includes('Use [4] for one K slice, or [5]')) throw new Error('Backend support is not explained');
+    const rejected = /<tr id="tab1-gemm-rule-1">([\s\S]*?)<\/tr>/.exec(html);
+    if (!rejected || (rejected[1].match(/<s>/g) || []).length !== 3) throw new Error('Rejected rule [1] is not struck through');
+  });
+  step('gemm Highlight K follows explicit-K dispatches, including singleton K', () => {
+    for (const dispatch of [null, 1, 2, 3, 4, 5, 4, null]) {
+      ctx.gemmHighlightDispatch(TAB, dispatch);
+      if (els.get(`${TAB}-gemm-k-control`).hidden !== !(dispatch === 3 || dispatch === 5))
+        throw new Error(`Wrong K visibility for dispatch ${dispatch}`);
+    }
   });
   step('gemm: oracle dispatches, complete coverage, and K selection', () => {
     const cases = JSON.parse(fs.readFileSync(path.join(__dirname, 'cases.json'), 'utf8')).gemm;
@@ -1251,6 +1260,9 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
       ctx.gemmImportMma(TAB, query);
       if (JSON.stringify(ctx.mtmReadConstructorControls(TAB, 'gemm-mma')) !== JSON.stringify(c.mma))
         throw new Error(`gemm ${c.id} decoded controls differ from imported constructor`);
+      const hasK = ref.dispatch === 3 || ref.dispatch === 5;
+      if (els.get(`${TAB}-gemm-k-control`).hidden !== !hasK) throw new Error(`gemm ${c.id} K control visibility does not follow dispatch`);
+      if (els.get(`${TAB}-gemm-desc`).textContent.includes('Highlighted K') !== hasK) throw new Error(`gemm ${c.id} describes an unused K highlight`);
       const text = els.get(`${TAB}-gemm-result`).textContent;
       const product = ([m,n,k]) => `(${m}, ${k}) @ (${k}, ${n}) = (${m}, ${n})`;
       for (const line of [`Dispatch rule applied: [${ref.dispatch}]`,

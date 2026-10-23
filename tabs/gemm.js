@@ -101,16 +101,20 @@ function gemmDispatchRulesMarkup(id) {
     <h3>Dispatch rules</h3>
     <div class="gemm-dispatch-scroll"><table class="gemm-dispatch-table">
       <thead><tr><th>Rule</th><th>A × B → C/D</th><th>Normalized form</th></tr></thead>
-      <tbody>${rules.map((rule, i) => `<tr id="${id}-gemm-rule-${i+1}">
-        <th scope="row">Dispatch [${i+1}] <span class="gemm-dispatch-applied">Applied</span></th>
-        <td><code>${rule[0]}</code></td><td><code>${rule[1]}</code></td>
-      </tr>`).join('')}</tbody>
+      <tbody>${rules.map((rule, i) => {
+        const mark = text => i === 0 ? `<s>${text}</s>` : text;
+        return `<tr id="${id}-gemm-rule-${i+1}">
+        <th scope="row">${mark(`Dispatch [${i+1}]`)} <span class="gemm-dispatch-applied">Applied</span></th>
+        <td><code>${mark(rule[0])}</code></td><td><code>${mark(rule[1])}</code></td>
+      </tr>`;
+      }).join('')}</tbody>
     </table></div>
-    <div class="hint">This warp MMA view accepts [4] and [5]. [1] is documented but rejected by the current CuTeDSL warp backend; [2] and [3] assume scalar V=1. V is one instruction's per-thread value mode; A, B and C/D may have different V sizes.</div>
+    <div class="hint">Use [4] for one K slice, or [5] to reduce over an explicit K mode inside gemm. V is the per-thread value mode for one MMA instruction; its size can differ for A, B and C/D. Rule [1] is rejected by the current CuTeDSL warp backend. Rules [2] and [3] assume V=1 and do not match the warp MMA atoms offered here.</div>
   </div>`;
 }
 
 function gemmHighlightDispatch(tabId, dispatch) {
+  document.getElementById(`${tabId}-gemm-k-control`).hidden = dispatch !== 3 && dispatch !== 5;
   for (let i = 1; i <= 5; i++) {
     const row = document.getElementById(`${tabId}-gemm-rule-${i}`);
     row.classList.toggle('active', i === dispatch);
@@ -153,13 +157,13 @@ function generateGemmTabContent(id) {
       </div></div>
       <div class="hint">Each A/B cell is an operand block for one TiledMMA unit; each C/D cell accumulates the products along K.
       Axes are fragment repetition indices, not matrix coordinates. permutation_mnk controls placement within the matrix.
-      Highlight K to see which A column and B column (or row) contribute to every C/D cell. This shows coverage, not instruction scheduling.
+      This shows coverage, not instruction scheduling.
       Final dimensions count scalar elements; permutation_mnk controls their placement. D follows C. All fragments are RMEM.</div>
     </div>
     <div class="comp-results" id="${id}-gemm-results">
       ${gemmDispatchRulesMarkup(id)}
       <div class="comp-viz-span">
-        <label>Highlight K <select id="${id}-gemm-k-input" onchange="renderGemm('${id}')"><option value="0">0</option></select></label>
+        <label class="gemm-k-control" id="${id}-gemm-k-control" hidden>Highlight K <select id="${id}-gemm-k-input" onchange="renderGemm('${id}')"><option value="0">0</option></select></label>
         <div class="cuo-viz-desc" id="${id}-gemm-desc"></div>
       </div>
       <div class="mma-group">
@@ -210,7 +214,10 @@ function renderGemm(tabId) {
     const altView = !!state.altView;
     document.getElementById(`${p}-results`).classList.toggle('mma-alt', altView);
     document.getElementById(`${p}-alt-btn`).classList.toggle('active', altView);
-    document.getElementById(`${p}-desc`).textContent = `M = ${r.M}, N = ${r.N}, K = ${r.K}. Highlighted K = ${k}: A[:,${k}] × ${altView ? `B[${k},:]` : `B[:,${k}]`} updates every C/D cell. Each C/D cell accumulates ${r.K} products.`;
+    document.getElementById(`${p}-desc`).textContent = `M = ${r.M}, N = ${r.N}, K = ${r.K}. ` +
+      (r.dispatch === 3 || r.dispatch === 5
+        ? `Highlighted K = ${k}: A[:,${k}] × ${altView ? `B[${k},:]` : `B[:,${k}]`} updates every C/D cell. Each C/D cell accumulates ${r.K} products.`
+        : 'Each C/D cell receives one A × B product; this dispatch has no explicit K mode.');
     for (const which of ['a','b','c']) {
       const grid = gemmCoverageGrid(r, which, altView, k);
       document.getElementById(`${p}-${which}-title`).textContent = `${which === 'c' ? 'C/D' : which.toUpperCase()} — ${grid.axes.join(' × ')} (${grid.shape.join(' × ')}); rows ${grid.axes[0]}, columns ${grid.axes[1]}`;

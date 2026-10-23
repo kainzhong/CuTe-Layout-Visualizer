@@ -68,6 +68,15 @@ async function main() {
     }
   });
 
+  await test('gemm has no returned variable layout',()=>{
+    const c=cases.gemm[0];
+    const url=key('gemm',...c.mma,c.a,c.b,c.c,'same',0);
+    const rows=V.variablesClipboardChoices(url), row=rows[0];
+    check('gemm type is None',rows.length===1&&row.type==='None');
+    check('gemm preserves its invocation URL instead of extracting C',V.parsePastedKeyParam(row.value).feature==='gemm');
+    check('gemm preview explains in-place output',V.variablesPreviewText(row).startsWith('Return type: None (gemm writes into D).'));
+    check('gemm can still reopen the invocation',V.variablesVisualization(row).feature==='gemm');
+  });
   await test('previews and TV import preserve exact mappings',()=>{
     const urls=[key('make_mma_atom','f16bf16','half_t','float',16),key('make_copy_atom','ldmatrix',128,'half_t',4,0),key('make_copy_atom','universal',32,'half_t',1,0),key('make_tiled_mma','f16bf16','half_t','float',16,'(2,2,1)','na'),key('make_tiled_copy','universal',32,'half_t','(4,2):(1,4)','(4,2)'),key('tv','2','(4,8):(8,1)','(2,2):(1,2)'),key('swizzle','(8,8):(1,8)','3,3,3')];
     for(const url of urls) {
@@ -149,6 +158,17 @@ async function main() {
     anchor.children[1].children[1].fire('click');
     anchor=node('variables-rows').children[0].children[2].children[4];
     check('Close preview removes popup',anchor.children.length===1);
+  });
+  await test('None type persists and copies the invocation URL',async()=>{
+    const c=cases.gemm[0], before=V.variablesState.records.slice();
+    await load('gemm_call',key('gemm',...c.mma,c.a,c.b,c.c,'same',0));
+    const row=V.variablesState.records.at(-1);
+    check('gemm row shows None',node('variables-rows').children.at(-1).children[1].textContent==='None');
+    await V.variablesCopy(row.id);
+    check('None copies the invocation URL',copied===row.value);
+    V.variablesRestore();
+    check('None type survives reload',V.variablesState.records.at(-1).type==='None');
+    V.variablesState.records=before;V.variablesPersist();V.variablesRender();
   });
   await test('multiple outputs, malformed input and cancellation',async()=>{
     await load('parts',key('zipped_divide','(8,8):(1,8)','(2,2)'));

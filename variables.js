@@ -100,7 +100,10 @@ function variablesClipboardChoices(raw) {
     const tensor=layout(method === 'url' ? a[3] : a[7]), tid=method === 'url' ? a[2] : a[6];
     return [variablesLayoutChoice(psdComputePartition(copy.tv,copy.tiler,tensor,copy.copyAtom,tid === '' ? null : Number(tid),side).partition)];
   }
-  if (feature === 'gemm') return [variablesLayoutChoice(gemmCompute(a.slice(0,6),a[6],a[7],a[8],a[8]).C)];
+  if (feature === 'gemm') {
+    gemmCompute(a.slice(0,6),a[6],a[7],a[8],a[8]);
+    return object('None');
+  }
   if (feature === 'tma_partition') {
     const sm = tmaParseSmemField(a[3]);
     const r = tpComputePartition(parseLayout(sm.layoutStr),parseLayout(a[4],{basis:true}),Number(a[0]));
@@ -236,6 +239,8 @@ function variablesPreviewText(row) {
   if (row.type === 'Layout') return row.value;
   const parsed=parsePastedKeyParam(row.value), a=parsed.inputs;
   const fmt=L=>formatLayoutStr(L.shape,L.stride);
+  if (row.type === 'None' && parsed.feature === 'gemm')
+    return 'Return type: None (gemm writes into D).\n\n' + gemmFormatResult(gemmCompute(a.slice(0,6),a[6],a[7],a[8],a[8]));
   if (row.type === 'TiledMMA') return gemmMmaSummary(mtmDecodeConstructor(a));
   if (row.type === 'TiledCopy') return mtcDecodedSummary(mtcDecodeURL(parsed))
     .replace(/<\/div>/g,'\n').replace(/<[^>]*>/g,'').replace(/&gt;/g,'>').replace(/&lt;/g,'<').replace(/&amp;/g,'&').trim();

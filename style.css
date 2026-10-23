@@ -896,3 +896,5 @@ textarea:focus { outline: none; border-color: #3b82f6; }
   background: #111827; box-shadow: 0 8px 24px #0008;
 }
 .variables-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.75rem; max-height: 45vh; overflow: auto; margin: 0 0 10px; }
+
+.gemm-k-control[hidden] { display: none; }

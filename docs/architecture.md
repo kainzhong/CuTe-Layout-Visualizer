@@ -283,7 +283,7 @@ Atom-construction time. `ldmatrix` likewise has exactly one, SMEM→RMEM: the so
 
 Loaded after the feature scripts, this global controller owns the **Show Variable Table** drawer and versioned localStorage snapshots. Records contain only id, name, inferred type, and clipboard payload. Names and previews use textContent. Stored records are revalidated through the same constructor helpers on restore; storage failures keep the current session usable.
 
-Layout/tensor results normalize to **Layout** with raw layout text, never an encoding URL. Compound objects preserve encoding URLs: MMAAtom, CopyAtom (including TMA), TiledMMA, TiledCopy, **TV Layout**, and **Swizzle**. TV Layout retains its tile and source thread/value constructor when present. Ambiguous multi-output URLs require choosing a result before registration. Layout extraction invokes the existing pure computations and is checked against the committed CuTeDSL oracle.
+Layout/tensor results normalize to **Layout** with raw layout text, never an encoding URL. Compound objects preserve encoding URLs: MMAAtom, CopyAtom (including TMA), TiledMMA, TiledCopy, **TV Layout**, and **Swizzle**. GEMM has return type **None**: its URL can be saved and reopened as an invocation, but its C/D layout is not a returned variable. Its preview explains that gemm writes into D. TV Layout retains its tile and source thread/value constructor when present. Ambiguous multi-output URLs require choosing a result before registration. Layout extraction invokes the existing pure computations and is checked against the committed CuTeDSL oracle.
 
 Visualize creates a normal app tab and uses `applyKeyParam(tabId, parsed)` without modifying location.search. `setOuterTabName` assigns a persistent custom label, also used by double-click tab renaming. Automatic render labels leave custom names intact. Preview appears under its row button and formats the same constructor/layout results without rendering a second visualization.
 
@@ -1888,8 +1888,7 @@ operand blocks and the selected K contribution in both organizations. Shared
 The gemm view includes a static five-row dispatch reference with normalized forms.
 `gemmHighlightDispatch` marks only the successfully validated `gemmCompute` dispatch,
 using an Applied badge and `aria-current`; invalid inputs clear all applied markers.
-The reference distinguishes documented rules from this warp backend's accepted
-[4]/[5] cases. Transposing B changes only its display and preserves the active rule.
+The reference strikes through rule [1], which the warp backend rejects, and explains [4] as one K slice and [5] as an explicit K reduction. Rules [2]/[3] require scalar V=1, unlike the offered warp atoms. Highlight K is visible only for dispatch [3]/[5], including singleton explicit K; invalid inputs and [4] hide it and omit K-highlight wording. Transposing B changes only its display and preserves the active rule.
 DOM checks drive all oracle cases, both dispatches, errors, and the alternative view.
 
 

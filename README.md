@@ -20,7 +20,7 @@ This tool runs in your browser and lets you:
 - **Share a URL** to a specific visualization and have a colleague open it in one click.
 - **Decode or edit inputs.** Every pasteboard decode input has a folded **Manual construction** section. Decoding fills its editable fields; Render and Export URL use your current adjustments. **MMAAtom** and **CopyAtom** sections accept `make_mma_atom` and `make_copy_atom` URLs, including atom inputs nested inside TiledMMA/TiledCopy construction.
 - **Open multiple tabs** so you can compare layouts or operations side by side. Double-click a tab label to rename it; your name survives rendering.
-- **Show Variable Table** opens a persistent right-side library of named objects loaded from the pasteboard. Layout/tensor results copy as plain `shape:stride` text; MMAAtom, CopyAtom, TiledMMA, TiledCopy, TV Layout, and Swizzle copy their encoding URLs. **Preview** shows result text below its button; **Visualize** opens a new tab named after the variable. URLs with several outputs let you choose which result to save.
+- **Show Variable Table** opens a persistent right-side library of named objects loaded from the pasteboard. Layout/tensor results copy as plain `shape:stride` text; MMAAtom, CopyAtom, TiledMMA, TiledCopy, TV Layout, and Swizzle copy their encoding URLs. **Preview** shows result text below its button; **Visualize** opens a new tab named after the variable. URLs with several outputs let you choose which result to save. GEMM has type **None**, because it writes into D rather than returning an object.
 - **Reuse TV Layouts** in `make_tiled_copy_tv` with Decode from Pasteboard. URLs exported from thread/value inputs preserve those inputs exactly. Direct TV maps are accepted when a supported thread/value factorization matches every point; other maps belong in primitive `make_tiled_copy`.
 
 | Live editing, link sharing, multi-tab support | Illustrative display, more than just `print_latex` |
@@ -52,9 +52,10 @@ as the other MMA tabs. Below the decode button, expand **Manual construction**
 to adjust the Op, dtypes, atom layout, and permutation; decoding fills these fields.
 The three coverage grids show **MK / NK / MN**, with every cell labeled **TiledMMA**.
 **Alternative View** draws **MK / KN / MN**, with B above C/D. All K blocks are visible;
-the K picker highlights the A/B blocks contributing to C/D in one accumulation step.
-The five documented dispatch rules are listed, with the applied rule highlighted
-and current warp backend support explained. The text result distinguishes the
+the K picker appears only for rules [3]/[5], which have an explicit K mode, and
+highlights the A/B blocks contributing to C/D in one accumulation step.
+The five documented dispatch rules are listed, with rejected rule [1] struck through,
+the applied rule highlighted, and current warp backend support explained. The text result distinguishes the
 TiledMMA dimensions in scalar elements, the GEMM dimensions in TiledMMA units, and
 the final matmul dimensions in scalar elements. The grids show fragment repetitions,
 including nested modes, and do not promise a compiler issue order.

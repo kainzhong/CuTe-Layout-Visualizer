@@ -24,6 +24,7 @@ const { loadVisualizer, parseExact, parseTiler, fmt, evalAll } = require('./harn
 const { runUnitTests } = require('./unit');
 const { runDomSmoke } = require('./dom_smoke');
 
+(async () => {
 const V = loadVisualizer();
 const CASES = JSON.parse(fs.readFileSync(path.join(__dirname, 'cases.json'), 'utf8'));
 const REF = JSON.parse(fs.readFileSync(path.join(__dirname, 'reference.json'), 'utf8'));
@@ -810,11 +811,21 @@ if (!FILTERS.length || FILTERS.some(f => 'unit'.includes(f))) {
 //  dom_smoke  (the tabs' render paths, not their math)
 // ═══════════════════════════════════════════════════════
 
+if (section('decoding')) {
+  require('./decoding').runDecodingTests(V,{check,guard});
+}
+
 if (section('dom_smoke')) {
   const r = runDomSmoke({ verbose: VERBOSE, log: (m) => console.log(m) });
   results.pass += r.pass;
   results.fail += r.fail;
   for (const f of r.failures) results.failures.push(`dom_smoke/${f}`);
+}
+
+if (section('variables')) {
+  const r = await require('./variables').runVariablesTests();
+  results.pass += r.pass; results.fail += r.fail;
+  for (const failure of r.failures) { results.failures.push(`variables/${failure}`); console.log(`  FAIL ${failure}`); }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -829,3 +840,5 @@ if (results.fail) {
   for (const f of results.failures) console.log('  - ' + f.split('\n')[0]);
 }
 process.exit(results.fail === 0 ? 0 : 1);
+
+})().catch(e => { console.error(e); process.exit(1); });

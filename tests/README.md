@@ -95,3 +95,7 @@ If a new tab's operation has no `cutlass.cute` entry point, first check whether 
 object the way function declarations do. It also fails loudly on a duplicate top-level
 lexical name across files — in the browser that would silently shadow, which is the
 load-order hazard [`docs/architecture.md`](../docs/architecture.md) warns about.
+
+`tests/variables.js` exercises the named-variable drawer, clipboard and storage fallbacks, rename/delete/preview/visualize actions, TV Layout import, and layout-valued URL extraction against the existing CuTeDSL oracle. It runs in `npm test` and with `node tests/run.js variables`.
+
+`node tests/run.js decoding` runs pure JavaScript cross-API round trips. It uses the production URL encoder and consumer decoders, checks layout maps against the committed CuTeDSL oracle, and rejects any access to the DOM, clipboard, or localStorage. Coverage includes MMAAtom → TiledMMA → partition_A/B/C → make_fragment, CopyAtom + TiledMMA → TiledCopy, nested TiledCopy URLs → partition_S/D, TV Layout → make_tiled_copy_tv, and fragment/Layout → retile. It also covers full URLs, query strings, optional fields, transpose/matrix counts, and invalid or incompatible inputs. Rendering tests remain separate in dom_smoke.

@@ -857,3 +857,42 @@ textarea:focus { outline: none; border-color: #3b82f6; }
 .gemm-dispatch-table tr.active th { box-shadow: inset 3px 0 #f59e0b; }
 .gemm-dispatch-applied { display: none; margin-left: 6px; color: #fbbf24; font-size: 0.7rem; }
 .gemm-dispatch-table tr.active .gemm-dispatch-applied { display: inline; }
+
+/* Global named-object library; it stays open while users work in other tabs. */
+.variables-trigger { flex-shrink: 0; white-space: nowrap; }
+.variables-trigger span { margin-left: 5px; color: #93c5fd; }
+.variables-panel {
+  position: fixed; z-index: 1000; top: 0; right: 0; bottom: 0;
+  width: min(560px, 100vw); display: flex; flex-direction: column; gap: 14px;
+  padding: 20px; background: #111827; border-left: 1px solid #475569;
+  box-shadow: -12px 0 32px #0006;
+}
+.variables-panel[hidden], #variables-output-group[hidden], #variables-empty[hidden] { display: none; }
+.variables-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.variables-panel h2 { font-size: 1.1rem; color: #93c5fd; }
+.variables-help { color: #9ca3af; font-size: 0.82rem; line-height: 1.5; }
+.variables-panel label { display: block; margin-bottom: 6px; font-size: 0.82rem; }
+.variables-panel input, .variables-panel select { width: 100%; }
+.variables-status { min-height: 1.3em; color: #93c5fd; font-size: 0.82rem; }
+.variables-status.is-error { color: #f87171; }
+.variables-list { overflow: auto; flex: 1; min-height: 0; }
+.variables-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 0.8rem; }
+.variables-table th, .variables-table td { text-align: left; padding: 10px 6px; border-bottom: 1px solid #374151; vertical-align: top; overflow-wrap: anywhere; }
+.variables-table th:first-child { width: 28%; }
+.variables-table th:nth-child(2) { width: 23%; }
+.variables-table td:first-child { font-family: monospace; }
+.variables-table td .btn { margin: 0 4px 5px 0; padding: 5px 7px; font-size: 0.74rem; }
+#variables-empty { padding: 14px 6px; }
+@media (max-width: 650px) {
+  header { flex-wrap: wrap; }
+  header p { flex-basis: 100%; order: 3; }
+}
+
+.variables-preview-anchor { display: block; position: relative; }
+.variables-preview {
+  position: absolute; top: 100%; right: 0; z-index: 2;
+  width: min(460px, calc(100vw - 48px)); padding: 12px;
+  border: 1px solid #4b5563; border-radius: 6px;
+  background: #111827; box-shadow: 0 8px 24px #0008;
+}
+.variables-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.75rem; max-height: 45vh; overflow: auto; margin: 0 0 10px; }

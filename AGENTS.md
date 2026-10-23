@@ -16,7 +16,7 @@ There is no build step, framework, package dependency, or module system. Open `i
 Load order is significant:
 
 ```text
-cute.js -> layout.js -> ui.js -> tabs/*.js -> inline initialization in index.html
+cute.js -> layout.js -> ui.js -> tabs/*.js -> variables.js -> inline initialization in index.html
 ```
 
 - `cute.js`: pure layout parsing/evaluation, scaled-basis coordinates, and colors; no DOM.
@@ -87,6 +87,8 @@ Run the narrowest relevant test while iterating and `npm test` before handoff. A
 - Thread highlighting uses `readHighlightTid` where the UI means "focus this thread." `make_tiled_mma` is intentionally different: its focus unit follows the TVs/warps mode and masks other units.
 - MMA atom layouts are a lookup table derived from CuTeDSL/CUTLASS hardware traits, not an algebraic derivation. Extend the table from the oracle and add exhaustive cases.
 - The MMA alternative view reorders existing panes and transposes B only for display; it must not change the underlying layout.
+
+- Named-variable clipboard contract: Layout/tensor results have type **Layout** and copy raw layout text. Compound types, including **TV Layout** and **Swizzle**, copy encoding URLs. Reuse constructor computations for preview and decoded visualization; preserve custom tab names across rendering.
 
 ## Adding or changing a tab
 

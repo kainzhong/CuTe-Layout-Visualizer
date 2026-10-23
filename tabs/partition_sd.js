@@ -818,7 +818,7 @@ async function psdDecodePasteboard(tabId) {
 function exportPSD(tabId) {
   const read = key => document.getElementById(`${tabId}-psd-${key}-input`).value;
   // Escape embedded hyphens so the outer feature key retains four fields.
-  const copy = encodeURIComponent(mtcManualConstructorURL(tabId, 'psd-manual')).replace(/-/g,'%2D');
+  const copy = encodeNestedKeyParam(mtcManualConstructorURL(tabId, 'psd-manual'));
   exportURL(`${tabId}-psd-export`,'partition_sd','url',
     (psdState[tabId] || {}).side || 'S',copy,read('thr'),read('tensor'));
 }

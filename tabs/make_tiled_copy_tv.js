@@ -30,8 +30,11 @@ ${mtcAtomSection(id, 'mtv', '1. CopyAtom')}
         <details class="cuo-section" open>
           <summary>2. Derive layout_tv and Tiler_MN from thr/val</summary>
           <div class="cuo-section-body">
+            <button class="btn btn-render btn-decode" id="${id}-mtv-decode-tv" onclick="mtvDecodeTVPasteboard('${id}')">Decode from Pasteboard</button>
+            <details class="cuo-section" id="${id}-mtv-tv-manual-construction"><summary>Manual construction</summary><div class="cuo-section-body">
             ${layoutInputField({ id: `${id}-mtv-thr-input`, label: 'thr_layout &mdash; (M, N) &rarr; thread id', value: '(16, 8):(8, 1)' })}
             ${layoutInputField({ id: `${id}-mtv-val-input`, label: 'val_layout &mdash; (M, N) &rarr; value id, per thread', value: '(1, 8):(1, 1)' })}
+            </div></details>
             <div id="${id}-mtv-tile-result" class="cuo-result"></div>
           </div>
         </details>
@@ -183,4 +186,62 @@ function exportMTV(tabId) {
     document.getElementById(`${tabId}-mtv-dtype-input`).value,
     document.getElementById(`${tabId}-mtv-thr-input`).value,
     document.getElementById(`${tabId}-mtv-val-input`).value);
+}
+
+// Decode the access-pattern tab without confusing its TV map with an ordinary
+// tensor layout. Preserve source thr/val layouts whenever the URL carries them.
+function mtvDecodeTVLayout(text) {
+  const p=parsePastedKeyParam(text);
+  if (!p || p.feature !== 'tv') throw new Error('Paste a TV Layout URL.');
+  if (p.method === '2') {
+    const tp=parseLayout(p.inputs[0]), vp=parseLayout(p.inputs[1]);
+    const thr=new Layout(tp.shape,tp.stride), val=new Layout(vp.shape,vp.stride);
+    const r=make_layout_tv(thr,val);
+    return {tv:r.layout_tv,tile:r.tiler_mn,thr:p.inputs[0],val:p.inputs[1]};
+  }
+  const raw=parseLayout(p.inputs[0]), tv=new Layout(raw.shape,raw.stride), tile=parseValue(p.inputs[1]);
+  if (!Array.isArray(tile) || tile.length!==2 || tile.some(x=>!Number.isSafeInteger(x)||x<=0) || tv.shape.length!==2)
+    throw new Error('TV Layout needs thread/value modes and a positive (M,N) tile.');
+  return {tv,tile};
+}
+
+function mtvDecodeThrVal(text) {
+  const r=mtvDecodeTVLayout(text);
+  if (r.thr) return r;
+  const T=product(r.tv.shape[0]), V=product(r.tv.shape[1]), [M,N]=r.tile;
+  // A primitive TV map need not be a raked product. Only accept a factorization
+  // after checking every thread/value point, never infer it from shape alone.
+  if (T*V===M*N && T*V<=1000000) {
+    for(let tm=1;tm<=Math.min(T,M);tm++) {
+      if(T%tm || M%tm) continue;
+      const tn=T/tm;
+      if(N%tn) continue;
+      const vm=M/tm, vn=N/tn;
+      for(const ts of [[1,tm],[tn,1]]) for(const vs of [[1,vm],[vn,1]]) {
+        const thr=new Layout([tm,tn],ts), val=new Layout([vm,vn],vs);
+        const candidate=make_layout_tv(thr,val).layout_tv;
+        let match=true;
+        for(let t=0;t<T&&match;t++) for(let v=0;v<V;v++) {
+          if(candidate.call([t,v])!==r.tv.call([t,v])) {match=false;break;}
+        }
+        if(match) return {...r,thr:formatLayoutStr(thr.shape,thr.stride),val:formatLayoutStr(val.shape,val.stride)};
+      }
+    }
+  }
+  throw new Error('This TV map cannot be factored into supported compact thr/val layouts. Use make_tiled_copy with its TV layout and tile, or export TV Layout from thr_layout/val_layout.');
+}
+
+function mtvImportTVLayout(tabId,text) {
+  const r=mtvDecodeThrVal(text); // Validate everything before changing controls.
+  document.getElementById(`${tabId}-mtv-thr-input`).value=r.thr;
+  document.getElementById(`${tabId}-mtv-val-input`).value=r.val;
+  renderMakeTiledCopyTv(tabId);
+}
+
+async function mtvDecodeTVPasteboard(tabId) {
+  try {
+    const text=await readPasteboardText('Paste a TV Layout URL:');
+    if(text===null || text===undefined) return;
+    mtvImportTVLayout(tabId,text);
+  } catch(e) {showErr(`${tabId}-mtv-error`,e.message);}
 }

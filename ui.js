@@ -875,7 +875,7 @@ function addOuterTab() {
   btn.id = `${id}-btn`;
   btn.setAttribute('data-tab-id', id);
   btn.onclick = () => switchOuterTab(id);
-  btn.innerHTML = `<span class="outer-tab-label" id="${id}-label">New Tab</span><span class="close-tab-btn" onclick="event.stopPropagation(); closeOuterTab('${id}')">&times;</span>`;
+  btn.innerHTML = `<span class="outer-tab-label" id="${id}-label" title="Double-click to rename" ondblclick="event.stopPropagation(); renameOuterTab('${id}')">New Tab</span><span class="close-tab-btn" onclick="event.stopPropagation(); closeOuterTab('${id}')">&times;</span>`;
   document.getElementById('outer-tab-buttons').appendChild(btn);
 
   const panel = document.createElement('div');
@@ -1251,7 +1251,23 @@ function updateRankWarning(warnId, inputs) {
 
 function updateOuterTabLabel(tabId, text) {
   const label = document.getElementById(`${tabId}-label`);
-  if (label) label.textContent = text;
+  if (label && !label.dataset.customName) label.textContent = text;
+}
+
+// A chosen name survives the automatic labels emitted by render functions.
+function setOuterTabName(tabId, name) {
+  const label=document.getElementById(`${tabId}-label`);
+  const value=String(name || '').trim();
+  if (!label || !value) return;
+  label.dataset.customName=value;
+  label.textContent=value;
+}
+
+function renameOuterTab(tabId) {
+  const label=document.getElementById(`${tabId}-label`);
+  if (!label) return;
+  const name=prompt('Tab name:',label.textContent);
+  if (name!==null) setOuterTabName(tabId,name);
 }
 
 /** Sync button highlights with a modes Set. */
@@ -1823,11 +1839,19 @@ async function readPasteboardText(message) {
   catch (e) { return prompt(message); }
 }
 
+/** Embedded constructor URLs must escape hyphens used by the outer key. */
+function encodeNestedKeyParam(url) {
+  return encodeURIComponent(url).replace(/-/g,'%2D');
+}
+
+/** Pure serialization shared by URL export and cross-API decoding tests. */
+function encodeKeyParam(feature, ...inputs) {
+  return '?' + new URLSearchParams({key:[feature,...inputs].join('-')}).toString();
+}
+
 /** Build a shareable URL for the given feature and inputs, then copy to clipboard. */
 async function exportURL(btnId, feature, ...inputs) {
-  const key = [feature, ...inputs].join('-');
-  const url = location.origin + location.pathname +
-              '?' + new URLSearchParams({ key }).toString();
+  const url = location.origin + location.pathname + encodeKeyParam(feature,...inputs);
   const btn = document.getElementById(btnId);
   const showFeedback = (text) => {
     if (!btn) return;
@@ -1843,8 +1867,7 @@ async function exportURL(btnId, feature, ...inputs) {
   }
 }
 
-function applyKeyParam(tabId) {
-  const parsed = parseKeyParam();
+function applyKeyParam(tabId, parsed = parseKeyParam()) {
   if (!parsed) return;
   const { feature, method, inputs } = parsed;
   switch (feature) {

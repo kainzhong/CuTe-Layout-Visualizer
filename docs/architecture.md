@@ -279,6 +279,16 @@ Atom-construction time. `ldmatrix` likewise has exactly one, SMEM→RMEM: the so
 - **Layout-string utilities**: `stripTrivialTrailing`, `formatLayoutStr`
 - **URL import/export infrastructure**: `FEATURE_SPEC`, `parseKeyParam`, `applyKeyParam` (dispatches on feature name to call the right `renderX`), `exportURL`
 
+### variables.js — named reusable objects
+
+Loaded after the feature scripts, this global controller owns the **Show Variable Table** drawer and versioned localStorage snapshots. Records contain only id, name, inferred type, and clipboard payload. Names and previews use textContent. Stored records are revalidated through the same constructor helpers on restore; storage failures keep the current session usable.
+
+Layout/tensor results normalize to **Layout** with raw layout text, never an encoding URL. Compound objects preserve encoding URLs: MMAAtom, CopyAtom (including TMA), TiledMMA, TiledCopy, **TV Layout**, and **Swizzle**. TV Layout retains its tile and source thread/value constructor when present. Ambiguous multi-output URLs require choosing a result before registration. Layout extraction invokes the existing pure computations and is checked against the committed CuTeDSL oracle.
+
+Visualize creates a normal app tab and uses `applyKeyParam(tabId, parsed)` without modifying location.search. `setOuterTabName` assigns a persistent custom label, also used by double-click tab renaming. Automatic render labels leave custom names intact. Preview appears under its row button and formats the same constructor/layout results without rendering a second visualization.
+
+The make_tiled_copy_tv TV Layout decoder fills its folded manual controls. Method 2 URLs preserve their original thread/value layouts. For primitive TV maps, candidate compact 2D factorizations are accepted only after checking every thread/value point; unsupported factorizations fail before changing controls. The primitive make_tiled_copy tab remains the general constructor for arbitrary TV maps.
+
 ### tabs/*.js — one file per tab
 Each tab file holds everything specific to that feature:
 - `index.js`: BASICS tensor-view indexing; exact sliced layout, base offset, and offset grid.
@@ -313,6 +323,8 @@ Each SVG grid supports 3 cell-label modes via the value/index/coord button group
 - **coord**: `(m, n)` — the 2D grid coordinates
 
 ## Shareable URLs (export / import)
+
+`encodeKeyParam` is the pure query encoder used by Export URL. Embedded constructor URLs use `encodeNestedKeyParam`, which also escapes hyphens so they cannot become outer field separators. `tests/decoding.js` exercises these production encoders and the consuming pure decoders/computations together, including pointwise agreement with existing oracle results. Its browser API guards ensure this suite cannot silently become a render or clipboard test.
 
 The URL accepts `?key=<feature>[-<method>]-<input1>[-<input2>]` to deep-link into a visualization. Examples:
 ```

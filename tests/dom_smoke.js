@@ -1387,6 +1387,40 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
         throw new Error('Invalid GEMM retained an applied dispatch');
   }, [], {expectError: /A and B must have the same rank/});
 
+  step('Double-click tab rename survives rendering; cancellation preserves the label', () => {
+    const label=els.get(`${TAB}-label`), oldPrompt=ctx.prompt;
+    ctx.prompt=()=> 'my MMA';
+    ctx.renameOuterTab(TAB);
+    ctx.updateOuterTabLabel(TAB,'automatic result label');
+    if(label.textContent!=='my MMA') throw new Error('Render overwrote custom tab name');
+    ctx.prompt=()=>null;ctx.renameOuterTab(TAB);
+    if(label.textContent!=='my MMA') throw new Error('Cancel changed the tab name');
+    ctx.prompt=()=> '  ';ctx.renameOuterTab(TAB);
+    if(label.textContent!=='my MMA') throw new Error('Blank name changed the tab name');
+    delete label.dataset.customName;ctx.prompt=oldPrompt;
+    const ui=fs.readFileSync(path.join(ROOT,'ui.js'),'utf8');
+    if(!ui.includes('ondblclick="event.stopPropagation(); renameOuterTab(')) throw new Error('Missing double-click handler');
+  });
+  step('TV Layout pasteboard input populates folded manual construction and renders', () => {
+    const tag=html.match(new RegExp(`<details class="cuo-section" id="${TAB}-mtv-tv-manual-construction"([^>]*)>`));
+    if(!tag || /\bopen\b/.test(tag[1])) throw new Error('TV manual controls must start folded');
+    ctx.mtvImportTVLayout(TAB,'?key=tv-2-(4,8):(8,1)-(2,2):(1,2)');
+    if(els.get(`${TAB}-mtv-thr-input`).value!=='(4,8):(8,1)' || els.get(`${TAB}-mtv-val-input`).value!=='(2,2):(1,2)') throw new Error('Decoded TV fields were not populated');
+    if(els.get(`${TAB}-mtv-error`).textContent) throw new Error(els.get(`${TAB}-mtv-error`).textContent);
+    const before=els.get(`${TAB}-mtv-thr-input`).value;
+    let failed=false;try{ctx.mtvImportTVLayout(TAB,'?key=tv-1-(4,2):(0,1)-(4,2)');}catch(_){failed=true;}
+    if(!failed || els.get(`${TAB}-mtv-thr-input`).value!==before) throw new Error('Failed import mutated controls');
+  });
+  step('Saved variables can apply a parsed visualization without changing the page URL', () => {
+    const realSwitch=ctx.switchInnerTab;ctx.switchInnerTab=()=>{};
+    try {
+    ctx.applyKeyParam(TAB,{feature:'layout',inputs:['(4,8):(1,4)']});
+    if(els.get(`${TAB}-layout-input`).value!=='(4,8):(1,4)') throw new Error('Parsed variable was not applied');
+    if(els.get(`${TAB}-layout-error`).textContent) throw new Error(els.get(`${TAB}-layout-error`).textContent);
+    ctx.applyKeyParam(TAB,{feature:'tv',method:'2',inputs:['(4,8):(8,1)','(2,2):(1,2)']});
+    if(els.get(`${TAB}-tv-error`).textContent) throw new Error(els.get(`${TAB}-tv-error`).textContent);
+    } finally {ctx.switchInnerTab=realSwitch;}
+  });
   step('Index: oracle results, complete grid, and URL round trip', () => {
     const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'reference.json'), 'utf8')).index;
     for (const c of JSON.parse(fs.readFileSync(path.join(__dirname, 'cases.json'), 'utf8')).index) {

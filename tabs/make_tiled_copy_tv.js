@@ -25,7 +25,7 @@ function generateMakeTiledCopyTvTabContent(id) {
     <div id="${id}-tab-make_tiled_copy_tv" class="panel">
       <div class="controls">
         <h2>make_tiled_copy_tv</h2>
-${mtcAtomSection(id, 'mtv', '1. The Copy_Atom you are tiling')}
+${mtcAtomSection(id, 'mtv', '1. CopyAtom')}
 
         <details class="cuo-section" open>
           <summary>2. Derive layout_tv and Tiler_MN from thr/val</summary>

@@ -308,11 +308,11 @@ ${copyMoveField(id, 'mca')}
           </div>
         </details>
 
-        <details class="cuo-section" open>
-          <summary>1. The Copy Op</summary>
-          <div class="cuo-section-body">
+        <details class="cuo-section" open><summary>1. CopyAtom</summary><div class="cuo-section-body">
+          <button class="btn btn-render btn-decode" id="${id}-mca-decode-atom" onclick="mcaDecodeAtomPasteboard('${id}','mca','renderMakeCopyAtom')">Decode from Pasteboard</button>
+          <details class="cuo-section" id="${id}-mca-atom-manual-construction"><summary>Manual construction</summary><div class="cuo-section-body">
             <div class="form-group">
-              <label>CopyAtom type</label>
+              <label>Op</label>
               <select id="${id}-mca-op-input" onchange="setMcaOp('${id}')">
                 ${simtCopyOpOptions('universal')}
                 <option value="ldmatrix">warp.LdMatrix8x8x16bOp</option>
@@ -334,13 +334,6 @@ ${copyMoveField(id, 'mca')}
                 </select>
               </div>
             </div>
-            <div id="${id}-mca-op-params" class="cuo-result"></div>
-          </div>
-        </details>
-
-        <details class="cuo-section" open>
-          <summary>2. make_copy_atom(op, dtype, ...)</summary>
-          <div class="cuo-section-body">
             <div class="form-group">
               <label>tensor_dtype</label>
               <select id="${id}-mca-dtype-input" onchange="renderMakeCopyAtom('${id}')">${dtypeOptions('half_t')}</select>
@@ -349,9 +342,10 @@ ${copyMoveField(id, 'mca')}
               <label>num_bits_per_copy</label>
               <input type="text" id="${id}-mca-bits-input" value="128">
             </div>
-            <div id="${id}-mca-atom-result" class="cuo-result"></div>
-          </div>
-        </details>
+          </div></details>
+          <div id="${id}-mca-op-params" class="cuo-result"></div>
+          <div id="${id}-mca-atom-result" class="cuo-result"></div>
+        </div></details>
 
         ${statusDivs(`${id}-mca`)}
         <button class="btn btn-render" onclick="renderMakeCopyAtom('${id}')">Render</button>
@@ -837,4 +831,37 @@ function exportMCA(tabId) {
     base.push(document.getElementById(`${tabId}-mca-trans-input`).value);
   }
   exportURL(`${tabId}-mca-export`, 'make_copy_atom', ...base);
+}
+
+
+// Decode one offered CopyAtom without changing a destination tab's controls.
+function mcaDecodeAtomURL(text) {
+  const parsed = parsePastedKeyParam(text);
+  if (!parsed || parsed.feature !== 'make_copy_atom') throw new Error('Paste a make_copy_atom URL or its query string.');
+  const a = parsed.inputs, opKey = a[0], numBits = Number(a[1]), dtype = a[2];
+  const op = MCA_OPS[opKey], elemBits = DTYPE_BITS[dtype];
+  if (!op || !elemBits || !Number.isSafeInteger(numBits) || numBits <= 0) throw new Error('Invalid CopyAtom Op, dtype, or bit count.');
+  const nm = Number(a[3] || 1), trans = a[4] === '1';
+  if (op.kind === 'ldmatrix') {
+    if (a[4] !== undefined && !['0','1'].includes(a[4])) throw new Error('CopyAtom transpose must be 0 or 1.');
+    mcaLdmatrixAtom(op.ldsm, elemBits, nm, trans);
+  } else if (numBits % elemBits) throw new Error('CopyAtom bit count must be a multiple of the dtype width.');
+  return {opKey, numBits, dtype, nm, trans};
+}
+
+function mcaImportAtom(tabId,p,render,text) {
+  const a = mcaDecodeAtomURL(text);
+  if (p === 'mca') { setMCA(tabId,a.opKey,String(a.numBits),a.dtype,a.nm,a.trans ? 1 : 0); return; }
+  if (!MTC_OPS[a.opKey]) throw new Error('This CopyAtom section supports SIMT CopyAtoms only.');
+  for (const [key,value] of Object.entries({op:a.opKey,bits:a.numBits,dtype:a.dtype}))
+    document.getElementById(`${tabId}-${p}-${key}-input`).value = String(value);
+  syncCopyMoves(tabId,p,a.opKey);
+  globalThis[render](tabId);
+}
+
+async function mcaDecodeAtomPasteboard(tabId,p,render,errorPrefix=p) {
+  const text = await readPasteboardText('Paste the make_copy_atom URL or its query string:');
+  if (text === null || text === undefined) return;
+  try { mcaImportAtom(tabId,p,render,text); }
+  catch (e) { showErr(`${tabId}-${errorPrefix}-error`,e.message); }
 }

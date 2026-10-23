@@ -190,28 +190,9 @@ function generateMakeMmaAtomTabContent(id) {
         </div>
 
         <details class="cuo-section" open>
-          <summary>1. The MMA Op</summary>
+          <summary>1. MMAAtom</summary>
           <div class="cuo-section-body">
-            <div class="form-group">
-              <label>MmaAtom type<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; warp-level (cute.nvgpu.warp) only</span></label>
-              <select id="${id}-mma-op-input" onchange="setMmaOp('${id}')">
-                <option value="f16bf16" selected>warp.MmaF16BF16Op</option>
-                <option value="tf32">warp.MmaTF32Op</option>
-                <option value="fp8">warp.MmaFP8Op</option>
-              </select>
-            </div>
-            <div class="form-group" id="${id}-mma-ab-group">
-              <label>ab_dtype</label>
-              <select id="${id}-mma-ab-input" onchange="renderMakeMmaAtom('${id}')"></select>
-            </div>
-            <div class="form-group" id="${id}-mma-acc-group">
-              <label>acc_dtype</label>
-              <select id="${id}-mma-acc-input" onchange="renderMakeMmaAtom('${id}')"></select>
-            </div>
-            <div class="form-group">
-              <label>shape_mnk<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; M and N are fixed at 16x8; only K varies</span></label>
-              <select id="${id}-mma-k-input" onchange="renderMakeMmaAtom('${id}')"></select>
-            </div>
+            ${mmaAtomEditorMarkup({id,p:'mma',render:'renderMakeMmaAtom',setOp:'setMmaOp'})}
             <div id="${id}-mma-op-params" class="cuo-result"></div>
           </div>
         </details>
@@ -529,4 +510,48 @@ function exportMMA(tabId) {
     document.getElementById(`${tabId}-mma-ab-input`).value || 'na',
     document.getElementById(`${tabId}-mma-acc-input`).value || 'na',
     document.getElementById(`${tabId}-mma-k-input`).value);
+}
+
+
+function mmaDecodeAtomInputs(inputs) {
+  const [opKey, ab, acc, k] = inputs;
+  const atom = mmaWarpAtom(opKey, Number(k)), op = MMA_WARP_OPS[opKey];
+  if (op.ab && (!op.ab.includes(ab) || !op.acc.includes(acc))) throw new Error('Unsupported MMAAtom dtype.');
+  if (op.ab && ab === 'bfloat16_t' && acc !== 'float') throw new Error('bfloat16_t requires a float accumulator.');
+  return {atom, op};
+}
+
+function mmaAtomEditorMarkup({id,p,render,setOp,k=null,errorPrefix=p}) {
+  return `<button class="btn btn-render btn-decode" id="${id}-${p}-decode-atom" onclick="mmaDecodeAtomPasteboard('${id}','${p}','${render}','${errorPrefix}')">Decode from Pasteboard</button>
+    <details class="cuo-section" id="${id}-${p}-atom-manual-construction"><summary>Manual construction</summary><div class="cuo-section-body">
+      <div class="form-group"><label>Op</label>
+        <select id="${id}-${p}-op-input" onchange="${setOp || render}('${id}')">
+          ${Object.entries(MMA_WARP_OPS).map(([key,op]) => `<option value="${key}">${op.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group" id="${id}-${p}-ab-group"><label>ab_dtype</label><select id="${id}-${p}-ab-input" onchange="${render}('${id}')"></select></div>
+      <div class="form-group" id="${id}-${p}-acc-group"><label>acc_dtype</label><select id="${id}-${p}-acc-input" onchange="${render}('${id}')"></select></div>
+      <div class="form-group"><label>shape_mnk</label><select id="${id}-${p}-k-input" onchange="${render}('${id}')">${k === null ? '' : `<option value="${k}">(16, 8, ${k})</option>`}</select></div>
+    </div></details>`;
+}
+
+function mmaImportAtom(tabId, p, render, text) {
+  const parsed = parsePastedKeyParam(text);
+  if (!parsed || parsed.feature !== 'make_mma_atom') throw new Error('Paste a make_mma_atom URL or its query string.');
+  mmaDecodeAtomInputs(parsed.inputs); // Validate before changing any control.
+  const [op,ab,acc,k] = parsed.inputs;
+  const write = (key,value) => { document.getElementById(`${tabId}-${p}-${key}-input`).value = String(value); };
+  write('op',op);
+  mmaSyncControls(tabId,op,p);
+  if (ab !== 'na') write('ab',ab);
+  if (acc !== 'na') write('acc',acc);
+  write('k',k);
+  globalThis[render](tabId);
+}
+
+async function mmaDecodeAtomPasteboard(tabId,p,render,errorPrefix=p) {
+  const text = await readPasteboardText('Paste the make_mma_atom URL or its query string:');
+  if (text === null || text === undefined) return;
+  try { mmaImportAtom(tabId,p,render,text); }
+  catch (e) { showErr(`${tabId}-${errorPrefix}-error`,e.message); }
 }

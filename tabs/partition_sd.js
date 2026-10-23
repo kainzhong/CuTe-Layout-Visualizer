@@ -323,7 +323,8 @@ function generatePartitionSDTabContent(id) {
         <details class="cuo-section" open>
           <summary>1. TiledCopy</summary>
           <div class="cuo-section-body">
-            <button class="btn btn-render" id="${id}-psd-decode-copy" onclick="psdDecodePasteboard('${id}')">Decode from Pasteboard</button>
+            <button class="btn btn-render btn-decode" id="${id}-psd-decode-copy" onclick="psdDecodePasteboard('${id}')">Decode from Pasteboard</button>
+            ${mtcManualConstructorMarkup(id, 'psd-manual', 'renderPartitionSD', 'psd')}
             <div id="${id}-psd-tiled-result" class="cuo-result"></div>
             ${copyMoveField(id,'psd')}
           </div>
@@ -534,7 +535,12 @@ function renderPartitionSD(tabId) {
   psdSyncSideField(tabId, side);
   psdSyncSpaceBadges(tabId);
   try {
-    const copyURL = prev.copyURL || PSD_DEFAULT_COPY_URL;
+    const editor = document.getElementById(`${tabId}-psd-manual-manual-construction`);
+    if (!editor.dataset.sourceURL) {
+      const initial = prev.copyURL || PSD_DEFAULT_COPY_URL;
+      mtcWriteManualConstructor(tabId, 'psd-manual', parsePastedKeyParam(initial), initial);
+    }
+    const copyURL = mtcManualConstructorURL(tabId, 'psd-manual');
     const parsed = parsePastedKeyParam(copyURL);
     if (!parsed) throw new Error('Paste a TiledCopy URL or its ?key=... query string.');
     const decoded = mtcDecodeURL(parsed);
@@ -778,12 +784,14 @@ function setPSD(tabId, side, opKey, bits, dtype, tv, tiler, thr, tensor) {
   psdState[tabId] = Object.assign(psdState[tabId] || {}, { side });
   const key = ['make_tiled_copy',opKey,bits,dtype,tv,tiler].join('-');
   psdState[tabId].copyURL = '?' + new URLSearchParams({key}).toString();
+  mtcWriteManualConstructor(tabId, 'psd-manual', parsePastedKeyParam(psdState[tabId].copyURL), psdState[tabId].copyURL);
   document.getElementById(`${tabId}-psd-thr-input`).value    = thr;
   document.getElementById(`${tabId}-psd-tensor-input`).value = tensor;
   renderPartitionSD(tabId);
 }
 
 function setPSDURL(tabId,side,url,thr,tensor) {
+  mtcWriteManualConstructor(tabId, 'psd-manual', parsePastedKeyParam(url), url);
   psdState[tabId] = Object.assign(psdState[tabId] || {}, {side, copyURL:url});
   document.getElementById(`${tabId}-psd-thr-input`).value = thr;
   document.getElementById(`${tabId}-psd-tensor-input`).value = tensor;
@@ -795,6 +803,7 @@ function psdImportTiledCopy(tabId,text) {
   if (!parsed) throw new Error('Paste an exported TiledCopy URL or its query string.');
   const decoded = mtcDecodeURL(parsed);
   mtcDecodedSummary(decoded); // Validate both side maps before committing the copy.
+  mtcWriteManualConstructor(tabId, 'psd-manual', parsed, text);
   psdState[tabId] = Object.assign(psdState[tabId] || {}, {copyURL:text});
   renderPartitionSD(tabId);
 }
@@ -809,7 +818,7 @@ async function psdDecodePasteboard(tabId) {
 function exportPSD(tabId) {
   const read = key => document.getElementById(`${tabId}-psd-${key}-input`).value;
   // Escape embedded hyphens so the outer feature key retains four fields.
-  const copy = encodeURIComponent((psdState[tabId] || {}).copyURL || PSD_DEFAULT_COPY_URL).replace(/-/g,'%2D');
+  const copy = encodeURIComponent(mtcManualConstructorURL(tabId, 'psd-manual')).replace(/-/g,'%2D');
   exportURL(`${tabId}-psd-export`,'partition_sd','url',
     (psdState[tabId] || {}).side || 'S',copy,read('thr'),read('tensor'));
 }

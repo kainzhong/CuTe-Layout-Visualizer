@@ -942,3 +942,25 @@ function isBijective(layout) {
   }
   return current === layout.size();
 }
+
+
+// Parse integer layout syntax without the visualization parser's rank padding.
+function parseExactLayoutInput(raw) {
+  const text = String(raw).trim();
+  if (!/^[\d\s(),:+-]+$/.test(text)) throw new Error('Use an integer-strided layout with whole-number shapes and strides.');
+  // Validate with the standard parser, then preserve rank (the grid parser pads rank 1).
+  parseLayout(text);
+  const colon = topLevelColon(text);
+  const shape = parseValue(colon < 0 ? text : text.slice(0, colon));
+  const input = new Layout(shape, colon < 0 ? prefix_product(shape) : parseValue(text.slice(colon + 1)));
+  function validateLayout(s, d) {
+    if (Array.isArray(s)) {
+      if (!Array.isArray(d) || s.length !== d.length) throw new Error('Shape and stride must have the same mode structure.');
+      s.forEach((v, i) => validateLayout(v, d[i]));
+    } else if (!Number.isSafeInteger(s) || s <= 0 || !Number.isSafeInteger(d)) {
+      throw new Error('Use positive whole-number shapes and whole-number strides with matching modes.');
+    }
+  }
+  validateLayout(input.shape, input.stride);
+  return input;
+}

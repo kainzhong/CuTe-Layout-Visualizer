@@ -265,14 +265,14 @@ function pabcComputePartition(atom, atomLayout, perm, which, tensor, thrIdx) {
 //  The tab
 // ═══════════════════════════════════════════════════════
 
-/** The four input sections this tab takes, and the operand toggle above them.
+/** The three input sections this tab takes, and the operand toggle above them.
  *  Still parameterized by `p` / `fn` rather than inlined: it was shared with a
  *  second tab, and the next MMA tab to take a TiledMMA plus a tensor will want
  *  the same 80 lines of markup rather than a near-copy of them.
  *
  *  `p` is the id prefix ('pabc'); `fn` names the call in the toggle's buttons
  *  ('partition'). */
-function pabcInputSections({ id, p, fn, render, setOp, setOperand }) {
+function pabcInputSections({ id, p, fn, render, setOp, setOperand, decodeMma }) {
   return `
         <div class="form-group">
           <label>Which operand</label>
@@ -285,50 +285,16 @@ function pabcInputSections({ id, p, fn, render, setOp, setOperand }) {
         </div>
 
         <details class="cuo-section" open>
-          <summary>1. The MMA Op</summary>
+          <summary>1. TiledMMA</summary>
           <div class="cuo-section-body">
-            <div class="form-group">
-              <label>MmaAtom type<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; warp-level (cute.nvgpu.warp) only</span></label>
-              <select id="${id}-${p}-op-input" onchange="${setOp}('${id}')">
-                <option value="f16bf16" selected>warp.MmaF16BF16Op</option>
-                <option value="tf32">warp.MmaTF32Op</option>
-                <option value="fp8">warp.MmaFP8Op</option>
-              </select>
-            </div>
-            <div class="form-group" id="${id}-${p}-ab-group">
-              <label>ab_dtype</label>
-              <select id="${id}-${p}-ab-input" onchange="${render}('${id}')"></select>
-            </div>
-            <div class="form-group" id="${id}-${p}-acc-group">
-              <label>acc_dtype</label>
-              <select id="${id}-${p}-acc-input" onchange="${render}('${id}')"></select>
-            </div>
-            <div class="form-group">
-              <label>shape_mnk<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; M and N are fixed at 16x8; only K varies</span></label>
-              <select id="${id}-${p}-k-input" onchange="${render}('${id}')"></select>
-            </div>
-          </div>
-        </details>
-
-        <details class="cuo-section" open>
-          <summary>2. The TiledMMA &mdash; the only source of a ThrMMA</summary>
-          <div class="cuo-section-body">
-            ${layoutInputField({
-              id: `${id}-${p}-atomlayout-input`, label: 'atom_layout_mnk', value: '(2, 2, 1)',
-              placeholder: '(1, 1, 1)',
-              hint: 'Rank 3 &mdash; how many warps along M, N and K. Blank = (1, 1, 1), CuTeDSL\'s own default.',
-            })}
-            ${layoutInputField({
-              id: `${id}-${p}-perm-input`, label: 'permutation_mnk', value: '',
-              placeholder: '(_, _, _)',
-              hint: 'Rank-3 Tiler. A number is a plain extent; <code>(2,16):(16,1)</code> genuinely permutes; <code>_</code> or blank leaves the mode alone.',
-            })}
+            <button class="btn btn-render btn-decode" id="${id}-${p}-decode-mma" onclick="${decodeMma}('${id}')">Decode from Pasteboard</button>
+            ${mtmManualConstructorMarkup({id, p, render, setOp, atomLayout:'(2, 2, 1)'})}
             <div id="${id}-${p}-tiled-result" class="cuo-result"></div>
           </div>
         </details>
 
         <details class="cuo-section" open>
-          <summary>3. get_slice(thr_idx)</summary>
+          <summary>2. get_slice(thr_idx)</summary>
           <div class="cuo-section-body">
             <div class="form-group">
               <label>Thread index</label>
@@ -345,7 +311,7 @@ function pabcInputSections({ id, p, fn, render, setOp, setOperand }) {
         </details>
 
         <details class="cuo-section" open>
-          <summary>4. The tensor being partitioned</summary>
+          <summary>3. The tensor being partitioned</summary>
           <div class="cuo-section-body">
             ${layoutInputField({
               id: `${id}-${p}-tensor-input`,
@@ -367,7 +333,7 @@ function generatePartitionABCTabContent(id) {
       <div class="controls">
         <h2>partition_A / B / C</h2>
 
-${pabcInputSections({ id, p: 'pabc', fn: 'partition', render: 'renderPartitionABC', setOp: 'setPabcOp', setOperand: 'setPabcOperand' })}
+${pabcInputSections({ id, p: 'pabc', fn: 'partition', render: 'renderPartitionABC', setOp: 'setPabcOp', setOperand: 'setPabcOperand', decodeMma: 'pabcDecodePasteboard' })}
 
         ${statusDivs(`${id}-pabc`)}
         <button class="btn btn-render" onclick="renderPartitionABC('${id}')">Render</button>
@@ -757,6 +723,23 @@ function setPabcMode(tabId, grid, mode) {
 function setPabcOp(tabId) {
   mmaSyncControls(tabId, document.getElementById(`${tabId}-pabc-op-input`).value, 'pabc');
   renderPartitionABC(tabId);
+}
+
+// Decode only the constructor. Operand, tensor, thread, fragment selection and
+// visualization modes belong to this partition and remain as entered.
+function pabcImportTiledMma(tabId, text) {
+  const parsed = parsePastedKeyParam(text);
+  if (!parsed || parsed.feature !== 'make_tiled_mma')
+    throw new Error('Paste a make_tiled_mma URL or its query string (?key=...).');
+  mtmWriteConstructorControls(tabId, 'pabc', parsed.inputs);
+  renderPartitionABC(tabId);
+}
+
+async function pabcDecodePasteboard(tabId) {
+  const text = await readPasteboardText('Paste the make_tiled_mma URL or its query string:');
+  if (text === null || text === undefined) return;
+  try { pabcImportTiledMma(tabId, text); }
+  catch (e) { showErr(`${tabId}-pabc-error`, e.message); }
 }
 
 function setPABC(tabId, which, opKey, ab, acc, k, atomLayout, perm, thr, tensor, fragmentSlice = '') {

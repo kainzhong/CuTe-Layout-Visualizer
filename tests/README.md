@@ -40,6 +40,8 @@ verifies every case was evaluated before accepting the run, and fails otherwise.
 
 | Section | Under test | Oracle |
 |---|---|---|
+| `gemm` | dispatch [4]/[5] and actual rank-one rejection, M/N/K coverage, every invocation’s A/B/C/D offsets, and imported TiledMMA traits | real `cute.gemm` trace plus `cute.slice_and_offset` / tensor indexing for every operand slice |
+| `index` | `idxComputeIndex`: nested and linear indices, wildcard retention, returned layout, every domain point, and base offset | `cute.slice_and_offset` |
 | `layout_ops` | `coalesce`, `filter`, `composition`, `complement`, the inverses, the whole divide / product family, `blocked_product`, `raked_product`, `slice_and_offset`, `size`/`cosize`, `crd2idx`/`idx2crd`, `shape_div`, `product_each` | the same call in `cutlass.cute` |
 | `basis_ops` | the same ops over **coordinate (scaled-basis) layouts** — only the ones CuTe defines for them (see the table in [`docs/architecture.md`](../docs/architecture.md)) | ditto |
 | `make_layout_tv` | `make_layout_tv(thr, val)`, the `make_tiled_copy_tv` tab's derivation | `cute.make_layout_tv` **and** the `TiledCopy` that `cute.make_tiled_copy_tv` builds |

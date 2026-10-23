@@ -268,7 +268,7 @@ input[type="number"], select {
   transition: border-color 0.15s;
 }
 input[type="number"]:focus, select:focus { outline: none; border-color: #3b82f6; }
-input[type="number"]:disabled, select:disabled { opacity: 0.55; cursor: not-allowed; }
+input[type="number"]:disabled, input[type="text"]:disabled, select:disabled { opacity: 0.55; cursor: not-allowed; }
 /* Linux/Windows draw the popup list from the OS palette unless the options
    themselves are coloured. */
 select option { background: #111827; color: #f3f4f6; }
@@ -301,6 +301,7 @@ textarea:focus { outline: none; border-color: #3b82f6; }
 .btn:hover { background: #3b82f6; color: #fff; }
 .btn.active { background: #3b82f6; color: #fff; border-color: #60a5fa; }
 .btn-render { width: 100%; margin-top: 4px; padding: 9px; font-weight: 600; }
+.btn-decode { margin-bottom: 10px; }
 
 .comp-result-box {
   display: none;
@@ -842,3 +843,17 @@ textarea:focus { outline: none; border-color: #3b82f6; }
   width: 100%;
 }
 .seg-control.seg-stacked .mode-btn { text-align: center; }
+
+
+/* GEMM dispatch reference: emphasize the rule driving the current panes. */
+.gemm-dispatch-scroll { overflow-x: auto; }
+.gemm-dispatch-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.gemm-dispatch-table th, .gemm-dispatch-table td {
+  padding: 9px 10px; text-align: left; border-bottom: 1px solid #334155;
+}
+.gemm-dispatch-table th { white-space: nowrap; }
+.gemm-dispatch-table code { white-space: nowrap; }
+.gemm-dispatch-table tr.active { background: #422006; color: #fef3c7; }
+.gemm-dispatch-table tr.active th { box-shadow: inset 3px 0 #f59e0b; }
+.gemm-dispatch-applied { display: none; margin-left: 6px; color: #fbbf24; font-size: 0.7rem; }
+.gemm-dispatch-table tr.active .gemm-dispatch-applied { display: inline; }

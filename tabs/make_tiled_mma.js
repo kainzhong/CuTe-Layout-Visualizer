@@ -531,28 +531,9 @@ function generateMakeTiledMmaTabContent(id) {
         </div>
 
         <details class="cuo-section" open>
-          <summary>1. The MMA Op</summary>
+          <summary>1. MMAAtom</summary>
           <div class="cuo-section-body">
-            <div class="form-group">
-              <label>MmaAtom type<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; warp-level (cute.nvgpu.warp) only</span></label>
-              <select id="${id}-mtm-op-input" onchange="setMtmOp('${id}')">
-                <option value="f16bf16" selected>warp.MmaF16BF16Op</option>
-                <option value="tf32">warp.MmaTF32Op</option>
-                <option value="fp8">warp.MmaFP8Op</option>
-              </select>
-            </div>
-            <div class="form-group" id="${id}-mtm-ab-group">
-              <label>ab_dtype</label>
-              <select id="${id}-mtm-ab-input" onchange="renderMakeTiledMma('${id}')"></select>
-            </div>
-            <div class="form-group" id="${id}-mtm-acc-group">
-              <label>acc_dtype</label>
-              <select id="${id}-mtm-acc-input" onchange="renderMakeTiledMma('${id}')"></select>
-            </div>
-            <div class="form-group">
-              <label>shape_mnk<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; M and N are fixed at 16x8; only K varies</span></label>
-              <select id="${id}-mtm-k-input" onchange="renderMakeTiledMma('${id}')"></select>
-            </div>
+            ${mmaAtomEditorMarkup({id,p:'mtm',render:'renderMakeTiledMma',setOp:'setMtmOp'})}
             <div id="${id}-mtm-op-params" class="cuo-result"></div>
           </div>
         </details>
@@ -967,4 +948,51 @@ function exportMTM(tabId) {
     document.getElementById(`${tabId}-mtm-k-input`).value,
     document.getElementById(`${tabId}-mtm-atomlayout-input`).value,
     document.getElementById(`${tabId}-mtm-perm-input`).value || 'na');
+}
+
+
+// Shared validation for TiledMMA constructor URLs imported by downstream tabs.
+function mtmDecodeConstructor(inputs) {
+  const [opKey, ab, acc, k, atomText, permText] = inputs;
+  const {atom} = mmaDecodeAtomInputs(inputs.slice(0,4));
+  const atomLayout = mtmParseAtomLayout(atomText);
+  const perm = mtmParsePerm(permText === 'na' ? '' : permText);
+  const tiled = mtmComputeTiledMma(atom, atomLayout, perm);
+  return {atom, atomLayout, perm, tiled, inputs: inputs.slice()};
+}
+
+// Shared editable fallback for tabs that primarily import a TiledMMA URL.
+function mtmManualConstructorMarkup({id, p, render, setOp, atomLayout = '(2,2,1)', perm = '', k = null, errorPrefix = p}) {
+  return `<details class="cuo-section" id="${id}-${p}-manual-construction">
+    <summary>Manual construction</summary>
+    <div class="cuo-section-body">
+      <details class="cuo-section" open><summary>MMAAtom</summary><div class="cuo-section-body">
+        ${mmaAtomEditorMarkup({id,p,render,setOp,k,errorPrefix})}
+      </div></details>
+      ${layoutInputField({id:`${id}-${p}-atomlayout-input`,label:'atom_layout_mnk',value:atomLayout,placeholder:'(1,1,1)',hint:'Warps along M, N, K. Blank uses (1,1,1).'})}
+      ${layoutInputField({id:`${id}-${p}-perm-input`,label:'permutation_mnk',value:perm,placeholder:'(_,_,_)',hint:'An extent expands a mode; a layout permutes it. Blank leaves modes unchanged.'})}
+    </div>
+  </details>`;
+}
+
+function mtmWriteConstructorControls(tabId, p, inputs) {
+  mtmDecodeConstructor(inputs); // Reject invalid imports before changing fields.
+  const [op, ab, acc, k, atomLayout, perm] = inputs;
+  const write = (key, value) => { document.getElementById(`${tabId}-${p}-${key}-input`).value = value; };
+  write('op', op);
+  mmaSyncControls(tabId, op, p);
+  if (ab !== 'na') write('ab', ab);
+  if (acc !== 'na') write('acc', acc);
+  write('k', String(k));
+  write('atomlayout', atomLayout);
+  write('perm', perm === 'na' ? '' : perm);
+}
+
+function mtmReadConstructorControls(tabId, p) {
+  const read = key => document.getElementById(`${tabId}-${p}-${key}-input`).value;
+  const opKey = read('op'), op = MMA_WARP_OPS[opKey];
+  if (!op) throw new Error(`Unknown MMA Op "${opKey}".`);
+  mmaSyncControls(tabId, opKey, p);
+  return [opKey, op.ab ? read('ab') : 'na', op.acc ? read('acc') : 'na',
+    read('k'), read('atomlayout'), read('perm') || 'na'];
 }

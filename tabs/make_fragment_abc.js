@@ -118,18 +118,10 @@ function generateMakeFragmentABCTabContent(id) {
           </div>
         </div>
         <details class="cuo-section" open>
-          <summary>1. Warp MMA Op</summary>
+          <summary>1. MMAAtom</summary>
           <div class="cuo-section-body">
-            <div class="form-group"><label>Op</label>
-              <select id="${id}-mfrag-op-input" onchange="setMfragOp('${id}')">
-                <option value="f16bf16" selected>warp.MmaF16BF16Op</option>
-                <option value="tf32">warp.MmaTF32Op</option>
-                <option value="fp8">warp.MmaFP8Op</option>
-              </select>
-            </div>
-            <div class="form-group" id="${id}-mfrag-ab-group"><label>ab_dtype</label><select id="${id}-mfrag-ab-input" onchange="renderMakeFragmentABC('${id}')"></select></div>
-            <div class="form-group" id="${id}-mfrag-acc-group"><label>acc_dtype</label><select id="${id}-mfrag-acc-input" onchange="renderMakeFragmentABC('${id}')"></select></div>
-            <div class="form-group"><label>shape_mnk</label><select id="${id}-mfrag-k-input" onchange="renderMakeFragmentABC('${id}')"><option value="16" selected>(16, 8, 16)</option></select></div>
+            ${mmaAtomEditorMarkup({id,p:'mfrag',render:'renderMakeFragmentABC',setOp:'setMfragOp',k:16})}
+            <div id="${id}-mfrag-op-params" class="cuo-result"></div>
           </div>
         </details>
         <details class="cuo-section" open>
@@ -185,6 +177,7 @@ function renderMakeFragmentABC(tabId) {
     const ab = op.ab ? document.getElementById(`${tabId}-mfrag-ab-input`).value : 'tfloat32_t';
     const acc = op.acc ? document.getElementById(`${tabId}-mfrag-acc-input`).value : 'float';
     if (ab === 'bfloat16_t' && acc !== 'float') throw new Error('bfloat16_t requires a float accumulator.');
+    mmaRenderOpParams(tabId,op,k,ab,acc,'mfrag');
     const raw = document.getElementById(`${tabId}-mfrag-partition-input`).value;
     const thrRaw = document.getElementById(`${tabId}-mfrag-thr-input`).value.trim();
     if (!/^\d+$/.test(thrRaw)) throw new Error('Thread ID must be a nonnegative whole number.');

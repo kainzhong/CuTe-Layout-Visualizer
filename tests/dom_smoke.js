@@ -323,7 +323,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     const hit = /^\s*(set[A-Z][A-Za-z]*)\('tab1'\s*,/.exec(src);
     if (!hit || typeof ctx[hit[1]] !== 'function') continue;
     const fnName = hit[1];
-    const pfx = { setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm', setMCAB: 'mcab', setRT: 'rt',
+    const pfx = { setGemm: 'gemm', setIdx: 'idx', setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm', setMCAB: 'mcab', setRT: 'rt',
                   setPSD: 'psd', setPSDURL: 'psd', setPsdSide: 'psd', setPsdMode: 'psd',
                   setPABC: 'pabc', setPabcOperand: 'pabc', setPabcMode: 'pabc',
                   setMfrag: 'mfrag', setMfragOperand: 'mfrag' }[fnName];
@@ -372,6 +372,61 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
         throw new Error(`result = ${got}, expected ${fn} = ${expected}`);
     }, paneIds.filter(id => id.startsWith(`${TAB}-${pfx}-`)));
   }
+
+  step('partition_ABC groups the MMA atom and tiling into one TiledMMA section', () => {
+    const panelStart = html.indexOf(`id="${TAB}-tab-partition_abc"`);
+    const sectionStart = html.indexOf('<summary>1. TiledMMA</summary>', panelStart);
+    const section = html.slice(sectionStart, html.indexOf('<summary>2. get_slice(thr_idx)</summary>', sectionStart));
+    if (!section) throw new Error('Merged TiledMMA section is missing');
+    for (const key of ['op','ab','acc','k','atomlayout','perm'])
+      if (!section.includes(`id="${TAB}-pabc-${key}-input"`)) throw new Error(`${key} is outside the TiledMMA section`);
+    if (!section.includes(`onclick="pabcDecodePasteboard('${TAB}')"`)) throw new Error('Pasteboard decode is not wired');
+    const panel = html.slice(html.indexOf(`id="${TAB}-tab-partition_abc"`), html.indexOf(`id="${TAB}-tab-make_fragment_abc"`));
+    for (const title of ['2. get_slice(thr_idx)', '3. The tensor being partitioned'])
+      if (!panel.includes(`<summary>${title}</summary>`)) throw new Error(`Missing renumbered section ${title}`);
+    if (panel.includes('<summary>1. The MMA Op</summary>') || panel.includes('2. The TiledMMA'))
+      throw new Error('Old split constructor sections remain');
+  });
+  step('partition_ABC decodes real exported TiledMMA URLs and preserves partition inputs', () => {
+    ctx.setPABC(TAB, 'B', 'f16bf16', 'half_t', 'float', 16, '(2,2,1)', '', '17', '(64,64,2):(64,1,4096)', '(_,_,_,1)');
+    const keep = ['thr','tensor','fragment-slice'].map(key => els.get(`${TAB}-pabc-${key}-input`).value);
+    const realExport = ctx.exportURL;
+    try {
+      for (const [i, args] of [
+        ['f16bf16','bfloat16_t','float',16,'(2,2,1):(2,1,4)','(32,32,16)'],
+        ['tf32',null,null,8,'(1,1,1)',''],
+        ['fp8','float_e5m2_t','float',32,'(2,2,1)','(32,32,32)'],
+      ].entries()) {
+        ctx.setMTM(TAB, ...args);
+        let exported;
+        ctx.exportURL = (btn, feature, ...inputs) => { exported = {feature, inputs}; };
+        ctx.exportMTM(TAB);
+        const query = `?key=${encodeURIComponent([exported.feature,...exported.inputs].join('-'))}`;
+        ctx.pabcImportTiledMma(TAB, i === 1 ? query : `file:///project/index.html${query}`);
+        const expected = exported.inputs;
+        for (const [key, value] of [['op',expected[0]],['k',expected[3]],['atomlayout',expected[4]],['perm',expected[5] === 'na' ? '' : expected[5]]])
+          if (els.get(`${TAB}-pabc-${key}-input`).value !== String(value)) throw new Error(`Imported ${key} differs from exported TiledMMA`);
+        for (const [key, value] of [['ab',expected[1]],['acc',expected[2]]])
+          if (value !== 'na' && els.get(`${TAB}-pabc-${key}-input`).value !== value) throw new Error(`${key} options were not rebuilt before import`);
+        if (ctx.pabcState[TAB].which !== 'B') throw new Error('Decode changed the selected operand');
+        if (JSON.stringify(['thr','tensor','fragment-slice'].map(key => els.get(`${TAB}-pabc-${key}-input`).value)) !== JSON.stringify(keep))
+          throw new Error('Decode changed thread, tensor, or fragment selection');
+        if (!els.get(`${TAB}-pabc-result`).innerHTML.includes('partition_B =')) throw new Error('Decode did not render the partition');
+        let partitionExport;
+        ctx.exportURL = (btn, feature, ...inputs) => { partitionExport = {feature, inputs}; };
+        ctx.exportPABC(TAB);
+        if (JSON.stringify(partitionExport.inputs.slice(1,7).map(String)) !== JSON.stringify(expected.map(String)))
+          throw new Error('Decoded constructor did not survive partition URL export');
+      }
+      const before = ['op','ab','acc','k','atomlayout','perm'].map(key => els.get(`${TAB}-pabc-${key}-input`).value);
+      for (const invalid of ['?key=layout-8:1', '?key=make_tiled_mma-f16bf16-half_t-half_t-99-(2,2,1)-na']) {
+        let rejected = false;
+        try { ctx.pabcImportTiledMma(TAB, invalid); } catch (_) { rejected = true; }
+        if (!rejected || JSON.stringify(before) !== JSON.stringify(['op','ab','acc','k','atomlayout','perm'].map(key => els.get(`${TAB}-pabc-${key}-input`).value)))
+          throw new Error('Failed decode altered constructor controls');
+      }
+    } finally { ctx.exportURL = realExport; }
+  }, paneIds.filter(id => id.startsWith(`${TAB}-pabc-`)));
 
   // The handoff reads the CURRENT partition controls, not cached state from
   // the last Render. The DOM shim has no real tab-bar tree, so capture the
@@ -521,9 +576,10 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
   // The operand views are identical, while ldmatrix's actual address and
   // destination ownership differ. Toggle and focus must update all four panes.
   const psdPanes= paneIds.filter(id=>id.startsWith(`${TAB}-psd-`));
-  step('partition_S/D takes a TiledCopy URL instead of constructor fields',()=>{
-    for(const field of ['op','bits','dtype','tv','tiler','copy-url']) if(html.includes(`id="${TAB}-psd-${field}-input"`))
-      throw new Error(`old constructor field remains: ${field}`);
+  step('partition_S/D has pasteboard and folded manual construction without a URL field',()=>{
+    if(html.includes(`id="${TAB}-psd-copy-url-input"`) || html.includes('>Decode URL</button>')) throw new Error('URL entry controls remain');
+    const manual = html.match(new RegExp(`<details class="cuo-section" id="${TAB}-psd-manual-manual-construction"([^>]*)>`));
+    if (!manual || /\bopen\b/.test(manual[1])) throw new Error('Manual TiledCopy section is missing or initially open');
     if(!html.includes(`onclick="psdDecodePasteboard('${TAB}')"`))throw new Error('clipboard decoder missing');
   });
   step('partition_S/D decodes a derived SIMT TiledCopy',()=>{
@@ -582,15 +638,69 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     for(const label of ['make_tiled_copy_A(copy_atom, tiled_mma)','Tiler MN = (32:1,16:1)','TV Layout tiled =','TV Layout Src =','TV Layout Dst =','4 warps, 128 threads; 8 destination values/thread; 1 copy instruction per warp.'])
       if(!expected.includes(label))throw new Error('missing decoded summary field '+label);
   },psdPanes);
+  step('partition_S/D manual fields are populated for every supported constructor family', () => {
+    const corpus = JSON.parse(fs.readFileSync(path.join(__dirname, 'cases.json'), 'utf8')).partition_sd;
+    for (const id of ['url_derived_simt','url_strided_tiler','url_A_x4_S','url_A_fp8_D']) {
+      const fixture = corpus.find(c => c.id === id);
+      ctx.setPSDURL(TAB, fixture.side, fixture.copy_url, '0', fixture.tensor);
+      const parsed = ctx.parsePastedKeyParam(fixture.copy_url);
+      const manual = ctx.mtcReadManualConstructor(TAB, 'psd-manual');
+      if (manual.feature !== parsed.feature || JSON.stringify(manual.inputs) !== JSON.stringify(parsed.inputs))
+        throw new Error(`Manual constructor fields differ from decoded ${id}`);
+      const expected = partitionRef.partition_sd[id].layout.str;
+      if (!els.get(`${TAB}-psd-result`).innerHTML.includes(expected)) throw new Error(`Manual ${id} differs from CuTeDSL`);
+    }
+  }, psdPanes);
+  step('partition_S/D manual edits preserve atom-specific SRC/DST and match CuTeDSL', () => {
+    const url = '?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp';
+    ctx.setPSDURL(TAB, 'S', url, '0', '(128,32,4):(32,1,4096)');
+    els.get(`${TAB}-psd-manual-atom-nm-input`).value = '1';
+    ctx.renderPartitionSD(TAB);
+    if (!els.get(`${TAB}-psd-result`).innerHTML.includes(partitionRef.partition_sd.url_A_x1_S.layout.str))
+      throw new Error('Manual ldmatrix.x1 SRC differs from CuTeDSL');
+    ctx.setPsdSide(TAB, 'D');
+    if (!els.get(`${TAB}-psd-result`).innerHTML.includes(partitionRef.partition_sd.url_A_x1_D.layout.str))
+      throw new Error('Manual ldmatrix.x1 DST differs from CuTeDSL');
+    const parsed = ctx.parsePastedKeyParam(ctx.mtcManualConstructorURL(TAB, 'psd-manual'));
+    if (parsed.inputs[8] !== '1') throw new Error('Manual copy edit did not reach the exported constructor');
+    ctx.setPSD(TAB, 'S', 'universal', 32, 'half_t', '((8,4),(2,2)):((16,2),(8,1))', '(8,16)', '0', '(16,32):(1,16)');
+    els.get(`${TAB}-psd-manual-atom-bits-input`).value = '64';
+    ctx.renderPartitionSD(TAB);
+    if (!els.get(`${TAB}-psd-result`).innerHTML.includes(partitionRef.partition_sd.cute_unvectorizable.layout.str))
+      throw new Error('Manual SIMT edit differs from CuTeDSL');
+  }, psdPanes);
+  step('partition_S/D manual edits survive URL export and invalid decode preserves fields', () => {
+    const read = () => JSON.stringify(ctx.mtcReadManualConstructor(TAB, 'psd-manual'));
+    const before = read();
+    let rejected = false;
+    try { ctx.psdImportTiledCopy(TAB, '?key=make_tiled_copy_ab-A-f16bf16-bfloat16_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-1-0-16-warp'); }
+    catch (_) { rejected = true; }
+    if (!rejected || read() !== before) throw new Error('Rejected decode changed manual fields');
+    const realExport = ctx.exportURL, realSwitch = ctx.switchInnerTab;
+    try {
+      let exported;
+      ctx.exportURL = (btn, feature, ...inputs) => { exported = [feature,...inputs]; };
+      ctx.switchInnerTab = () => {};
+      ctx.exportPSD(TAB);
+      ctx.setPSDURL(TAB, 'S', ctx.PSD_DEFAULT_COPY_URL, '0', '(16,32):(1,16)');
+      ctx.location.search = `?key=${encodeURIComponent(exported.join('-'))}`;
+      ctx.applyKeyParam(TAB);
+      if (read() !== before) throw new Error('URL export lost manual copy edits');
+    } finally { ctx.exportURL = realExport; ctx.switchInnerTab = realSwitch; ctx.location.search = ''; }
+  }, psdPanes);
   step('partition_S/D recovers after invalid decode',()=>{
     ctx.setPSD(TAB,'S','universal',32,'half_t','((8,4),(2,2)):((16,2),(8,1))','(8,16)','5','(16,32):(1,16)');
   },psdPanes);
 
   const rtPanes = [`${TAB}-rt-src-svg`, `${TAB}-rt-dst-svg`];
-  step('retile is in COPY and both paste buttons are wired', () => {
+  step('retile is in COPY and both decoded inputs have folded manual controls', () => {
     if (!html.includes('data-tab="retile" class="tab" data-scope="copy"')) throw new Error('retile missing from COPY');
     for (const kind of ['copy','input']) if (!html.includes(`onclick="rtDecodePasteboard('${TAB}','${kind}')"`))
       throw new Error(`missing ${kind} paste handler`);
+    for (const kind of ['copy','input']) {
+      const section = html.match(new RegExp(`<details class="cuo-section" id="${TAB}-rt-${kind}-manual-construction"([^>]*)>`));
+      if (!section || /\bopen\b/.test(section[1])) throw new Error(`retile ${kind} manual controls are not folded`);
+    }
   });
   step('retile imports TiledCopy A and computes a make_fragment URL', () => {
     ctx.rtImportURL(TAB,'copy','file:///index.html?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp');
@@ -605,6 +715,16 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     const expected=ctx.mfragBuildValueSVG({partition:r.layout,fragment:r.layout,pack:r.pack},7);
     if (els.get(`${TAB}-rt-dst-svg`).innerHTML!==expected) throw new Error('retile does not use shared fragment drawing');
   },rtPanes);
+  step('retile manual fields remain editable after decode', () => {
+    ctx.setRT(TAB, ctx.RT_DEFAULT_TV, '(32,16)', 8, 'half_t', '((2,2,2),4,2):((1,2,4),16,8)', 0);
+    const before = els.get(`${TAB}-rt-result`).innerHTML;
+    els.get(`${TAB}-rt-values-input`).value = '2';
+    ctx.renderRetile(TAB);
+    if (els.get(`${TAB}-rt-result`).innerHTML === before || ctx.rtState[TAB].layout.size() !== ctx.rtState[TAB].input.size())
+      throw new Error('Retile did not consume manual copy grouping');
+    ctx.rtImportURL(TAB, 'copy', '?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp');
+    if (els.get(`${TAB}-rt-values-input`).value !== '8') throw new Error('Decode did not refill retile manual fields');
+  }, rtPanes);
   step('retile B gathers across a Rest mode', () => {
     ctx.setRT(TAB,'((4,8,2,2),((2,2),(2,1))):((64,1,0,8),((32,256),(16,0)))','(32,16)',8,'half_t','((2,2),8,2):((1,2),8,4)',0);
     const r=ctx.rtState[TAB];
@@ -730,6 +850,22 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
       if (!reason.test(error || '')) throw new Error(`unexpected paste result: ${error}`);
       if (els.get(`${TAB}-mcab-copy-input`).value !== saved) throw new Error('bad paste mutated copy input');
     }
+  }, mcabPanes);
+  step('make_tiled_copy_AB: CopyAtom manual construction is folded and editable', () => {
+    const section = html.match(new RegExp(`<details class="cuo-section" id="${TAB}-mcab-copy-manual-construction"([^>]*)>([\\s\\S]*?)</details>`));
+    if (!section || /\bopen\b/.test(section[1])) throw new Error('CopyAtom manual controls are not folded by default');
+    for (const key of ['copy','nm','trans','bits'])
+      if (!section[2].includes(`id="${TAB}-mcab-${key}-input"`)) throw new Error(`${key} is outside the manual section`);
+    ctx.setMCAB(TAB, 'A', 'f16bf16', 'half_t', 'float', 16, '(2,2,1)', '(32,32,16)', 'ldmatrix', 4, 0, 16);
+    const before = els.get(`${TAB}-mcab-result`).innerHTML;
+    els.get(`${TAB}-mcab-nm-input`).value = '1';
+    ctx.renderMakeTiledCopyAB(TAB);
+    if (els.get(`${TAB}-mcab-result`).innerHTML === before) throw new Error('Manual CopyAtom edit did not affect the result');
+    els.get(`${TAB}-mcab-atomlayout-input`).value = '(1,1,1)';
+    ctx.renderMakeTiledCopyAB(TAB);
+    if (ctx.mcabState[TAB].mma.warps !== 1) throw new Error('Manual TiledMMA edit did not affect the result');
+    ctx.mcabImportConstructor(TAB, 'make_copy_atom', '?key=make_copy_atom-ldmatrix-128-half_t-4-0');
+    if (els.get(`${TAB}-mcab-nm-input`).value !== '4') throw new Error('Decode did not refill manual CopyAtom controls');
   }, mcabPanes);
   step('make_tiled_copy_AB: invalid copy width clears all panes', () => {
     ctx.setMCAB(TAB, 'B', 'f16bf16', 'half_t', 'float', 16,
@@ -979,9 +1115,329 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     }
   }
 
+  step('gemm input groups use the shared numbered collapsible sections', () => {
+    for (const [key,title,ids] of [
+      ['mma','1. TiledMMA',['gemm-mma-summary']],
+      ['fragments','2. Per-thread RMEM fragments',['gemm-a-input','gemm-b-input','gemm-c-input','gemm-d-input']]
+    ]) {
+      const opening = `<details class="cuo-section" id="${TAB}-gemm-${key}-section" open>`;
+      const start = html.indexOf(opening);
+      if (start < 0) throw new Error(`Missing shared section: ${title}`);
+      let depth = 0, end = start;
+      for (const match of html.slice(start).matchAll(/<details\b[^>]*>|<\/details>/g)) {
+        depth += match[0].startsWith('</') ? -1 : 1;
+        if (depth === 0) { end = start + match.index + match[0].length; break; }
+      }
+      const section = html.slice(start, end);
+      if (!section.includes(`<summary>${title}</summary>`) || !section.includes('class="cuo-section-body"'))
+        throw new Error(`Missing shared section: ${title}`);
+      for (const id of ids) if (!section.includes(`id="${TAB}-${id}"`)) throw new Error(`${id} is outside its input section`);
+      if (/onclick="(?:renderGemm|exportGemm)\(/.test(section)) throw new Error('Render/Export actions are inside an input section');
+    }
+  });
+  step('TiledMMA manual construction is folded by default in downstream tabs', () => {
+    for (const prefix of ['gemm-mma','pabc','mcab']) {
+      const opening = html.match(new RegExp(`<details class="cuo-section" id="${TAB}-${prefix}-manual-construction"([^>]*)>`));
+      if (!opening || /\bopen\b/.test(opening[1])) throw new Error(`${prefix} manual controls are not initially folded`);
+      for (const key of ['op','ab','acc','k','atomlayout','perm'])
+        if (!els.has(`${TAB}-${prefix}-${key}-input`)) throw new Error(`${prefix} is missing editable ${key}`);
+    }
+  });
+  step('gemm manual construction edits affect the visualization and URL export', () => {
+    const realExport = ctx.exportURL;
+    try {
+      ctx.setGemm(TAB, ctx.GEMM_DEFAULT_MMA, '(8,2):(1,8)', '(4,3):(1,4)', '(4,2,3):(1,4,8)', '', 0);
+      const before = els.get(`${TAB}-gemm-result`).textContent;
+      els.get(`${TAB}-gemm-mma-atomlayout-input`).value = '(1,1,1)';
+      ctx.renderGemm(TAB);
+      const after = els.get(`${TAB}-gemm-result`).textContent;
+      if (after === before || !els.get(`${TAB}-gemm-mma-summary`).textContent.includes('1 warps, 32 threads'))
+        throw new Error('Manual tiling did not update the summary');
+      if (ctx.gemmState[TAB].result.mma.tiled.warps !== 1) throw new Error('Manual tiling did not reach computation');
+      els.get(`${TAB}-gemm-mma-atomlayout-input`).value = '(2,1,1)';
+      let exported;
+      ctx.exportURL = (btn, feature, ...inputs) => { exported = inputs; };
+      ctx.exportGemm(TAB);
+      if (exported[4] !== '(2,1,1)') throw new Error('Export used stale constructor state');
+    } finally { ctx.exportURL = realExport; }
+  }, [`${TAB}-gemm-a-svg`,`${TAB}-gemm-b-svg`,`${TAB}-gemm-tile-svg`]);
+  step('MMAAtom and CopyAtom sections use type names and default-folded manual controls', () => {
+    for (const prefix of ['mma','mtm','mfrag','gemm-mma','pabc','mcab','psd-manual-mma']) {
+      if (!html.includes(`id="${TAB}-${prefix}-decode-atom"`)) throw new Error(`Missing MMAAtom decoder ${prefix}`);
+      const tag = html.match(new RegExp(`<details class="cuo-section" id="${TAB}-${prefix}-atom-manual-construction"([^>]*)>`));
+      if (!tag || /\bopen\b/.test(tag[1])) throw new Error(`MMAAtom ${prefix} manual section is not folded`);
+    }
+    for (const prefix of ['mca','mtc','mtv']) {
+      if (!html.includes(`id="${TAB}-${prefix}-decode-atom"`)) throw new Error(`Missing CopyAtom decoder ${prefix}`);
+      const tag = html.match(new RegExp(`<details class="cuo-section" id="${TAB}-${prefix}-atom-manual-construction"([^>]*)>`));
+      if (!tag || /\bopen\b/.test(tag[1])) throw new Error(`CopyAtom ${prefix} manual section is not folded`);
+    }
+    if (html.includes('<summary>1. The MMA Op</summary>') || html.includes('<summary>1. The Copy Op</summary>') ||
+        !html.includes('<summary>1. MMAAtom</summary>') || !html.includes('<summary>1. CopyAtom</summary>'))
+      throw new Error('Atom section names are inconsistent');
+  });
+  step('MMAAtom decode fills every consuming tab and preserves surrounding inputs', () => {
+    const url = '?key=make_mma_atom-f16bf16-bfloat16_t-float-16';
+    const targets = [
+      ['mma','renderMakeMmaAtom', () => ctx.setMMA(TAB,'f16bf16','half_t','float',16)],
+      ['mtm','renderMakeTiledMma', () => ctx.setMTM(TAB,'f16bf16','half_t','float',16,'(2,2,1)','')],
+      ['mfrag','renderMakeFragmentABC', () => ctx.setMfrag(TAB,'C','f16bf16','half_t','float',16,'((2,2),2,2):((1,256),1024,16)',0)],
+      ['pabc','renderPartitionABC', () => ctx.setPABC(TAB,'C','f16bf16','half_t','float',16,'(2,2,1)','','5','(64,64):(1,64)')],
+      ['gemm-mma','renderGemm', () => ctx.setGemm(TAB,ctx.GEMM_DEFAULT_MMA,'(8,2):(1,8)','(4,3):(1,4)','(4,2,3):(1,4,8)','',0)],
+      ['mcab','renderMakeTiledCopyAB', () => ctx.setMCAB(TAB,'A','f16bf16','half_t','float',16,'(2,2,1)','(32,32,16)','ldmatrix',4,0,16)],
+      ['psd-manual-mma','renderPartitionSD', () => ctx.setPSDURL(TAB,'S','?key=make_tiled_copy_ab-A-f16bf16-half_t-float-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp','0','(64,32):(32,1)')],
+    ];
+    for (const [prefix, render, setup] of targets) {
+      setup();
+      const other = ['pabc-tensor-input','mfrag-partition-input','gemm-a-input','mcab-copy-input','psd-tensor-input'].map(x => els.get(`${TAB}-${x}`).value);
+      ctx.mmaImportAtom(TAB,prefix,render,url);
+      for (const [key,value] of [['op','f16bf16'],['ab','bfloat16_t'],['acc','float'],['k','16']])
+        if (els.get(`${TAB}-${prefix}-${key}-input`).value !== value) throw new Error(`${prefix} did not decode ${key}`);
+      if (JSON.stringify(other) !== JSON.stringify(['pabc-tensor-input','mfrag-partition-input','gemm-a-input','mcab-copy-input','psd-tensor-input'].map(x => els.get(`${TAB}-${x}`).value)))
+        throw new Error('MMAAtom decode changed unrelated inputs');
+    }
+    const before = ['op','ab','acc','k'].map(x => els.get(`${TAB}-mma-${x}-input`).value);
+    let rejected = false;
+    try { ctx.mmaImportAtom(TAB,'mma','renderMakeMmaAtom','?key=make_mma_atom-f16bf16-bfloat16_t-half_t-16'); } catch (_) { rejected = true; }
+    if (!rejected || JSON.stringify(before) !== JSON.stringify(['op','ab','acc','k'].map(x => els.get(`${TAB}-mma-${x}-input`).value)))
+      throw new Error('Rejected MMAAtom decode altered controls');
+    for (const [op,ab,acc,k] of [['tf32','na','na',8],['fp8','float_e4m3_t','float',32]]) {
+      ctx.mmaImportAtom(TAB,'mma','renderMakeMmaAtom',`?key=make_mma_atom-${op}-${ab}-${acc}-${k}`);
+      if (ctx.mmaState[TAB].opKey !== op || els.get(`${TAB}-mma-k-input`).value !== String(k))
+        throw new Error('MMAAtom decode did not rebuild dependent options');
+    }
+  });
+  step('CopyAtom decode updates source and tiled tabs with each consumer domain enforced', () => {
+    ctx.setMTC(TAB,'universal',128,'half_t','((8,16),8):((128,1),16)','(16,64)');
+    ctx.setMTV(TAB,'universal',128,'half_t','(16,8):(8,1)','(1,8):(1,1)');
+    for (const [p,render] of [['mca','renderMakeCopyAtom'],['mtc','renderMakeTiledCopy'],['mtv','renderMakeTiledCopyTv']]) {
+      ctx.mcaImportAtom(TAB,p,render,'?key=make_copy_atom-universal-32-half_t');
+      if (els.get(`${TAB}-${p}-bits-input`).value !== '32' || els.get(`${TAB}-${p}-dtype-input`).value !== 'half_t')
+        throw new Error(`${p} did not decode the CopyAtom`);
+    }
+    ctx.mcaImportAtom(TAB,'mca','renderMakeCopyAtom','?key=make_copy_atom-ldmatrix16x16x8b-128-int8_t-2-1');
+    if (els.get(`${TAB}-mca-nm-input`).value !== '2' || els.get(`${TAB}-mca-trans-input`).value !== '1')
+      throw new Error('CopyAtom decoder did not rebuild matrix/transpose options');
+    const before = ['op','bits','dtype'].map(x => els.get(`${TAB}-mtc-${x}-input`).value);
+    let rejected = false;
+    try { ctx.mcaImportAtom(TAB,'mtc','renderMakeTiledCopy','?key=make_copy_atom-ldmatrix-128-half_t-4-0'); } catch (_) { rejected = true; }
+    if (!rejected || JSON.stringify(before) !== JSON.stringify(['op','bits','dtype'].map(x => els.get(`${TAB}-mtc-${x}-input`).value)))
+      throw new Error('SIMT-only tab accepted or mutated fields for an unsupported CopyAtom');
+    ctx.setPSDURL(TAB,'S','?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp','0','(128,32,4):(32,1,4096)');
+    ctx.mtcImportManualCopyAtom(TAB,'psd-manual','renderPartitionSD','?key=make_copy_atom-ldmatrix-128-half_t-1-0');
+    const refs = JSON.parse(fs.readFileSync(path.join(__dirname,'reference.json'),'utf8'));
+    if (!els.get(`${TAB}-psd-result`).innerHTML.includes(refs.partition_sd.url_A_x1_S.layout.str))
+      throw new Error('CopyAtom decode in partition_S/D differs from CuTeDSL');
+  });
+  step('gemm documents all five dispatches and their normalized forms', () => {
+    for (let i = 1; i <= 5; i++) {
+      if (!html.includes(`id="${TAB}-gemm-rule-${i}"`) || !html.includes(`Dispatch [${i}]`))
+        throw new Error(`Dispatch [${i}] is missing from the reference`);
+    }
+    for (const form of ['(V,1,1) × (V,1,1) → (V,1,1)', '(1,M,1) × (1,N,1) → (1,M,N)',
+                        '(1,M,K) × (1,N,K) → (1,M,N)', '(V,M,1) × (V,N,1) → (V,M,N)',
+                        '(V,M,K) × (V,N,K) → (V,M,N)'])
+      if (!html.includes(form)) throw new Error(`Missing dispatch form ${form}`);
+    if (!html.includes('This warp MMA view accepts [4] and [5]')) throw new Error('Backend support is not explained');
+  });
+  step('gemm: oracle dispatches, complete coverage, and K selection', () => {
+    const cases = JSON.parse(fs.readFileSync(path.join(__dirname, 'cases.json'), 'utf8')).gemm;
+    const refs = JSON.parse(fs.readFileSync(path.join(__dirname, 'reference.json'), 'utf8')).gemm;
+    for (const c of cases) {
+      const ref = refs[c.id];
+      if (ref.error) continue;
+      ctx.setGemm(TAB, c.mma, c.a, c.b, c.c, c.d, ref.mnk[2] - 1);
+      const query = `?key=${encodeURIComponent(['make_tiled_mma',...c.mma].join('-'))}`;
+      ctx.gemmImportMma(TAB, query);
+      if (JSON.stringify(ctx.mtmReadConstructorControls(TAB, 'gemm-mma')) !== JSON.stringify(c.mma))
+        throw new Error(`gemm ${c.id} decoded controls differ from imported constructor`);
+      const text = els.get(`${TAB}-gemm-result`).textContent;
+      const product = ([m,n,k]) => `(${m}, ${k}) @ (${k}, ${n}) = (${m}, ${n})`;
+      for (const line of [`Dispatch rule applied: [${ref.dispatch}]`,
+                          `TiledMMA: ${product(ref.base_mnk)}`, `GEMM: ${product(ref.mnk)}`,
+                          `Final result: ${product(ref.final_mnk)}`]) {
+        if (!text.includes(line)) throw new Error(`gemm ${c.id} summary differs from CuTeDSL: ${line}`);
+      }
+      const d = els.get(`${TAB}-gemm-d-input`);
+      if (!d.disabled || d.value !== c.c || ctx.gemmState[TAB].result.D !== undefined &&
+          JSON.stringify(ctx.gemmState[TAB].result.calls.map(x => x.d)) !== JSON.stringify(ctx.gemmState[TAB].result.calls.map(x => x.c)))
+        throw new Error('D is not disabled and synchronized with C');
+      for (let i = 1; i <= 5; i++) {
+        if (els.get(`${TAB}-gemm-rule-${i}`).classList.contains('active') !== (i === ref.dispatch))
+          throw new Error(`gemm ${c.id} did not highlight only the oracle dispatch`);
+      }
+      const svg = els.get(`${TAB}-gemm-tile-svg`).innerHTML;
+      if ((svg.match(/>TiledMMA<\/text>/g) || []).length !== ref.mnk[0] * ref.mnk[1])
+        throw new Error(`gemm ${c.id} grid does not cover M × N`);
+      for (const [which, count] of [['a',ref.mnk[0]*ref.mnk[2]],['b',ref.mnk[1]*ref.mnk[2]]]) {
+        const pane = els.get(`${TAB}-gemm-${which}-svg`).innerHTML;
+        if ((pane.match(/>TiledMMA<\/text>/g) || []).length !== count)
+          throw new Error(`gemm ${c.id}/${which} does not show all K blocks`);
+      }
+      if (els.get(`${TAB}-gemm-warning`).textContent) throw new Error('Semantic GEMM modes incorrectly warned about flattening');
+      if (/gemmSelectInvocation|cursor:pointer|#dc2626/.test(svg))
+        throw new Error('Coverage grid retained cell selection or a red boundary');
+      if (html.includes(`${TAB}-gemm-call`) || html.includes('scalar offsets/thread'))
+        throw new Error('Register inspection remains in the gemm UI');
+      if (els.get(`${TAB}-gemm-k-input`).value !== String(ref.mnk[2] - 1))
+        throw new Error('K selector did not retain the requested block');
+    }
+  }, [`${TAB}-gemm-tile-svg`]);
+  step('gemm: D follows live C edits and the default summary distinguishes scalar and invocation units', () => {
+    const d = els.get(`${TAB}-gemm-d-input`);
+    els.get(`${TAB}-gemm-c-input`).value = '(4,2,3):(1,4,8)';
+    ctx.gemmSyncD(TAB);
+    if (!d.disabled || d.value !== '(4,2,3):(1,4,8)') throw new Error('D did not follow C edit');
+    const field = html.match(new RegExp(`<input[^>]*id="${TAB}-gemm-d-input"[^>]*>`));
+    if (!field || !/\bdisabled\b/.test(field[0])) throw new Error('D was not disabled in the initial markup');
+    ctx.setGemm(TAB, ctx.GEMM_DEFAULT_MMA, '((2,2,2),4):((1,2,4),16)', '((2,2),8):((1,2),8)', '((2,2),4,8):((1,2),4,16)', '', 0);
+    const text = els.get(`${TAB}-gemm-result`).textContent;
+    if (!text.includes('Each element represents a TiledMMA invocation.') || !text.includes('Each element is a scalar.'))
+      throw new Error('Result units are not explained');
+  }, [`${TAB}-gemm-a-svg`,`${TAB}-gemm-b-svg`,`${TAB}-gemm-tile-svg`]);
+  step('gemm: alternative MK / KN / MN view transposes B and preserves the operands', () => {
+    ctx.setGemm(TAB, ctx.GEMM_DEFAULT_MMA, '(8,2,2):(1,16,8)', '(4,3,2):(1,8,4)', '(4,2,3):(1,4,8)', '', 1);
+    const original = ctx.gemmState[TAB].result;
+    const a = els.get(`${TAB}-gemm-a-svg`).innerHTML, c = els.get(`${TAB}-gemm-tile-svg`).innerHTML;
+    const b = els.get(`${TAB}-gemm-b-svg`).innerHTML;
+    if (!els.get(`${TAB}-gemm-b-title`).textContent.includes('N × K (3 × 2)')) throw new Error('Default B is not NK');
+    ctx.toggleGemmAltView(TAB);
+    if (!els.get(`${TAB}-gemm-b-title`).textContent.includes('K × N (2 × 3)')) throw new Error('Alternative B is not KN');
+    if (!els.get(`${TAB}-gemm-results`).classList.contains('mma-alt') || !els.get(`${TAB}-gemm-alt-btn`).classList.contains('active'))
+      throw new Error('Alternative view did not use the shared MMA layout and toggle');
+    if (a !== els.get(`${TAB}-gemm-a-svg`).innerHTML || c !== els.get(`${TAB}-gemm-tile-svg`).innerHTML)
+      throw new Error('Transposing B changed A or C');
+    if (JSON.stringify(original.calls) !== JSON.stringify(ctx.gemmState[TAB].result.calls))
+      throw new Error('Alternative view changed invocation operands');
+    if (!els.get(`${TAB}-gemm-rule-${original.dispatch}`).classList.contains('active'))
+      throw new Error('Alternative view changed the applied dispatch');
+    const alt = els.get(`${TAB}-gemm-b-svg`).innerHTML;
+    if (alt === b || !els.get(`${TAB}-gemm-desc`).textContent.includes('B[1,:]')) throw new Error('B display was not transposed');
+    els.get(`${TAB}-gemm-k-input`).value = '0';
+    ctx.renderGemm(TAB);
+    if (els.get(`${TAB}-gemm-b-svg`).innerHTML === alt) throw new Error('K highlight did not change B');
+    ctx.toggleGemmAltView(TAB);
+    els.get(`${TAB}-gemm-k-input`).value = '1';
+    ctx.renderGemm(TAB);
+    if (b !== els.get(`${TAB}-gemm-b-svg`).innerHTML) throw new Error('Toggling twice did not restore B');
+  }, [`${TAB}-gemm-a-svg`,`${TAB}-gemm-b-svg`,`${TAB}-gemm-tile-svg`]);
+  step('gemm: pasteboard constructor decode preserves fragment inputs and failed decode preserves MMA', () => {
+    const a = els.get(`${TAB}-gemm-a-input`).value;
+    const key = 'make_tiled_mma-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)';
+    ctx.gemmImportMma(TAB, `file:///project/index.html?key=${encodeURIComponent(key)}`);
+    if (els.get(`${TAB}-gemm-a-input`).value !== a) throw new Error('Constructor decode overwrote A');
+    if (!els.get(`${TAB}-gemm-mma-summary`).textContent.includes('4 warps, 128 threads'))
+      throw new Error('Decoded TiledMMA summary missing');
+    const before = JSON.stringify(ctx.gemmState[TAB].mmaInputs);
+    const controlsBefore = JSON.stringify(ctx.mtmReadConstructorControls(TAB, 'gemm-mma'));
+    for (const text of ['?key=layout-8:1', '?key=make_tiled_mma-f16bf16-half_t-half_t-16-(2,2,1)-(0,32,16)']) {
+      let failed = false;
+      try { ctx.gemmImportMma(TAB, text); } catch (_) { failed = true; }
+      if (!failed || JSON.stringify(ctx.gemmState[TAB].mmaInputs) !== before)
+        throw new Error('Invalid constructor decode replaced the last valid MMA');
+      if (JSON.stringify(ctx.mtmReadConstructorControls(TAB, 'gemm-mma')) !== controlsBefore)
+        throw new Error('Invalid decode changed manual fields');
+    }
+  }, [`${TAB}-gemm-tile-svg`]);
+  step('gemm: exported URL restores constructor, A/B/C, shared D, and K', () => {
+    const realSwitch = ctx.switchInnerTab, realExport = ctx.exportURL;
+    try {
+      ctx.switchInnerTab = () => {};
+      const a = '(8,2,2):(1,16,8)', b = '(4,3,2):(1,8,4)';
+      const c = '(4,2,3):(1,4,8)', d = '(4,2,3):(1,12,4)';
+      ctx.setGemm(TAB, ctx.GEMM_DEFAULT_MMA, a, b, c, d, 1, true);
+      const before = els.get(`${TAB}-gemm-tile-svg`).innerHTML;
+      let exported;
+      ctx.exportURL = (btn, feature, ...inputs) => { exported = [feature, ...inputs]; };
+      ctx.exportGemm(TAB);
+      if (exported[10] !== 'same') throw new Error('Disabled D did not export as same');
+      ctx.setGemm(TAB, ctx.GEMM_DEFAULT_MMA, '(8,1):(1,0)', '(4,1):(1,0)', '(4,1,1):(1,0,0)', '', 0);
+      ctx.location.search = `?key=${encodeURIComponent(exported.join('-'))}`;
+      ctx.applyKeyParam(TAB);
+      for (const [x, text] of Object.entries({a,b,c,d:c}))
+        if (els.get(`${TAB}-gemm-${x}-input`).value !== text) throw new Error(`gemm URL lost ${x}`);
+      if (els.get(`${TAB}-gemm-k-input`).value !== '1') throw new Error('gemm URL lost K selection');
+      if (!ctx.gemmState[TAB].altView) throw new Error('gemm URL lost alternative view');
+      if (els.get(`${TAB}-gemm-tile-svg`).innerHTML !== before) throw new Error('gemm URL changed coverage');
+      if (!html.includes(`onclick="gemmDecodePasteboard('${TAB}')"`)) throw new Error('Pasteboard button is not wired');
+    } finally {
+      ctx.switchInnerTab = realSwitch;
+      ctx.exportURL = realExport;
+      ctx.location.search = '';
+    }
+  }, [`${TAB}-gemm-tile-svg`]);
+  step('gemm: legacy URL defaults to MK / NK / MN', () => {
+    const realSwitch = ctx.switchInnerTab;
+    try {
+      ctx.switchInnerTab = () => {};
+      const inputs = [...ctx.GEMM_DEFAULT_MMA, '(8,2):(1,8)', '(4,3):(1,4)', '(4,2,3):(1,4,8)', '(4,2,3):(1,12,4)', '0'];
+      ctx.location.search = `?key=${encodeURIComponent(['gemm',...inputs].join('-'))}`;
+      ctx.applyKeyParam(TAB);
+      if (ctx.gemmState[TAB].altView || !els.get(`${TAB}-gemm-b-title`).textContent.includes('N × K'))
+        throw new Error('Legacy gemm URL did not restore default organization');
+      if (els.get(`${TAB}-gemm-d-input`).value !== inputs[8]) throw new Error('Legacy D override was not normalized to C');
+    } finally { ctx.switchInnerTab = realSwitch; ctx.location.search = ''; }
+  }, [`${TAB}-gemm-a-svg`,`${TAB}-gemm-b-svg`,`${TAB}-gemm-tile-svg`]);
+  step('gemm reports invalid fragment ranks and clears stale coverage', () => {
+    ctx.setGemm(TAB, ctx.GEMM_DEFAULT_MMA, '(8,2):(1,8)', '4:1', '(4,2,1):(1,4,8)', '', 0);
+    if (['a','b','tile'].some(x => els.get(`${TAB}-gemm-${x}-svg`).innerHTML))
+      throw new Error('Invalid GEMM retained stale coverage');
+    for (let i = 1; i <= 5; i++)
+      if (els.get(`${TAB}-gemm-rule-${i}`).classList.contains('active'))
+        throw new Error('Invalid GEMM retained an applied dispatch');
+  }, [], {expectError: /A and B must have the same rank/});
+
+  step('Index: oracle results, complete grid, and URL round trip', () => {
+    const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'reference.json'), 'utf8')).index;
+    for (const c of JSON.parse(fs.readFileSync(path.join(__dirname, 'cases.json'), 'utf8')).index) {
+      ctx.setIdx(TAB, c.a, c.index);
+      const text = els.get(`${TAB}-idx-result`).textContent;
+      if (!text.includes(`Returned layout = ${fixture[c.id].layout.str}`) ||
+          !text.includes(`Base offset = ${fixture[c.id].offset}`))
+        throw new Error(`Index ${c.id} did not display the CuTeDSL result`);
+      const svg = els.get(`${TAB}-idx-dst-svg`).innerHTML;
+      if (!svg.includes('<svg')) throw new Error(`Index ${c.id} did not render`);
+      if ((svg.match(/<rect\b/g) || []).length !== fixture[c.id].layout.size + 1)
+        throw new Error(`Index ${c.id} did not draw every selected element`);
+    }
+    const realSwitch = ctx.switchInnerTab, realExport = ctx.exportURL;
+    try {
+      ctx.switchInnerTab = () => {};
+      let exported;
+      ctx.exportURL = (btn, feature, ...inputs) => { exported = [feature, ...inputs]; };
+      ctx.setIdx(TAB, '(4,8):(8,1)', '(2,_)');
+      ctx.exportIdx(TAB);
+      ctx.setIdx(TAB, '8:1', '_');
+      ctx.location.search = `?key=${encodeURIComponent(exported.join('-'))}`;
+      ctx.applyKeyParam(TAB);
+      if (els.get(`${TAB}-idx-layout-input`).value !== '(4,8):(8,1)' ||
+          els.get(`${TAB}-idx-coord-input`).value !== '(2,_)') throw new Error('Index URL lost inputs');
+    } finally {
+      ctx.switchInnerTab = realSwitch;
+      ctx.exportURL = realExport;
+      ctx.location.search = '';
+    }
+  }, [`${TAB}-idx-dst-svg`]);
+  step('Index rank warning follows the returned layout only', () => {
+    const input = '((8,1),4,2,4):((1,0),1024,16,4096)';
+    ctx.setIdx(TAB, input, '(_,_,_,0)');
+    const warning = els.get(`${TAB}-idx-warning`);
+    if (!warning.textContent.includes('Returned layout'))
+      throw new Error('Rank-3 returned layout did not warn');
+    ctx.setIdx(TAB, input, '(0,_,_,0)');
+    if (warning.textContent) throw new Error('Rank-2 returned layout retained a rank warning');
+    if (!els.get(`${TAB}-idx-result`).textContent.includes('Returned layout = (4,2):(1024,16)'))
+      throw new Error('Rank-2 returned layout was not displayed');
+  }, [`${TAB}-idx-dst-svg`]);
+  step('Index rejects out-of-bounds coordinates and clears stale visualization', () => {
+    ctx.setIdx(TAB, '(4,8):(1,4)', '(4,_)');
+    if (els.get(`${TAB}-idx-dst-svg`).innerHTML) throw new Error('Stale Index result remained');
+  }, [], {expectError: /whole number/});
+
   // ── URL round-trip: every ?key= form must parse ──────────────────────────
   for (const key of [
     'layout-(10,10):(1,10)',
+    'index-((2,2,2),4,2,4):((1,256,8),1024,16,4096)-(_,_,_,0)',
     'make_copy_atom-universal-128-half_t',
     'make_copy_atom-ldmatrix-128-half_t-4-1',
     'make_copy_atom-g2r-128-half_t',

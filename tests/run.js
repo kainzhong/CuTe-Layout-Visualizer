@@ -166,6 +166,58 @@ function runLayoutOps(sectionName, basis) {
   }
 }
 
+if (section('gemm')) {
+  for (const c of CASES.gemm) {
+    const ref = refFor('gemm', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      if (ref.error) {
+        let rejected = false;
+        try { V.gemmCompute(c.mma, c.a, c.b, c.c, c.d); } catch (_) { rejected = true; }
+        check(c.id, 'rejected by CuTeDSL and JS', rejected, true);
+        return;
+      }
+      const r = V.gemmCompute(c.mma, c.a, c.b, c.c, c.d);
+      check(c.id, 'dispatch', r.dispatch, ref.dispatch);
+      check(c.id, 'M/N/K', [r.M,r.N,r.K], ref.mnk);
+      check(c.id, 'warps', r.mma.tiled.warps, ref.warps);
+      check(c.id, 'permutation tile', r.mma.tiled.tileMNK, ref.tile_mnk);
+      const dimensions = V.gemmResultDimensions(r);
+      check(c.id, 'per-invocation scalar dimensions', dimensions.tiled, ref.base_mnk);
+      check(c.id, 'GEMM dimensions in invocation units', dimensions.gemm, ref.mnk);
+      check(c.id, 'final scalar dimensions', dimensions.final, ref.final_mnk);
+      for (const key of ['a','b','c','d']) checkLayout(`${c.id}/${key}`, r[key.toUpperCase()], ref.layouts[key]);
+      const canonical = calls => calls.map(call => ['m','n','k','a','b','c','d'].map(key => call[key]));
+      check(c.id, 'every invocation and operand scalar offset', JSON.stringify(canonical(r.calls)), JSON.stringify(canonical(ref.calls)));
+      // Coverage panes are projections of the oracle's actual operand slices.
+      for (const alt of [false,true]) for (const which of ['a','b','c']) {
+        const grid = V.gemmCoverageGrid(r, which, alt, r.K - 1);
+        const fields = which === 'a' ? ['m','k'] : which === 'b' ? ['n','k'] : ['m','n'];
+        const signature = call => fields.map(x => call[x]).join(',');
+        const expected = [...new Set(ref.calls.map(signature))].sort();
+        const got = grid.cells.map(signature).sort();
+        check(`${c.id}/${which}/${alt}`, 'every operand block', JSON.stringify(got), JSON.stringify(expected));
+        const active = grid.cells.filter(cell => cell.active);
+        const selected = ref.calls.filter(call => call.k === r.K - 1);
+        check(`${c.id}/${which}/${alt}`, 'highlighted K contribution',
+          JSON.stringify(active.map(signature).sort()), JSON.stringify([...new Set(selected.map(signature))].sort()));
+      }
+    });
+  }
+}
+
+if (section('index')) {
+  for (const c of CASES.index) {
+    const ref = refFor('index', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const r = V.idxComputeIndex(c.a, c.index);
+      checkLayout(c.id, r.layout, ref.layout);
+      check(c.id, 'offset', r.offset, ref.offset);
+    });
+  }
+}
+
 runLayoutOps('layout_ops', false);
 runLayoutOps('basis_ops', true);
 

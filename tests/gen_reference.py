@@ -744,7 +744,72 @@ def run_swizzle(c):
     }
 
 
+def run_index(c):
+    crd = to_crd(c["crd"])
+    # Rank-one tuple coordinates are accepted by the UI for scalar-shaped layouts.
+    layout = parse_layout(c["a"])
+    if not isinstance(layout.shape, tuple) and isinstance(crd, tuple) and len(crd) == 1:
+        crd = crd[0]
+    result, offset = cute.slice_and_offset(crd, layout)
+    return {"layout": record(result), "offset": int(offset)}
+
+
+def run_gemm(c):
+    op, ab, acc, k, atom_layout, perm = c["mma"]
+    cfg = {"ab_dtype": "tfloat32_t" if ab == "na" else ab,
+           "acc_dtype": "float" if acc == "na" else acc, "k": int(k)}
+    atom = cute.make_mma_atom(MMA_OPS[op](cfg))
+    tmma = cute.make_tiled_mma(atom, parse_layout(atom_layout),
+                              parse_tiled_mma_perm(None if perm == "na" else perm))
+    layouts = {x: parse_layout(c[x] or c["c"]) for x in ("a", "b", "c", "d")}
+    tensors = {x: cute.make_rmem_tensor(l, DTYPES[cfg["ab_dtype"] if x in ("a", "b") else cfg["acc_dtype"]])
+               for x, l in layouts.items()}
+    # Exercise the real API as well as the operand views below. The combined
+    # generator traces IR; it does not execute arithmetic or assert issue order.
+    if c.get("expect_error"):
+        try:
+            cute.gemm(tmma, tensors["d"], tensors["a"], tensors["b"], tensors["c"])
+        except Exception:
+            return {"error": True}
+        raise AssertionError("CuTeDSL unexpectedly accepted an invalid GEMM")
+    cute.gemm(tmma, tensors["d"], tensors["a"], tensors["b"], tensors["c"])
+    ar, cr = cute.rank(layouts["a"]), cute.rank(layouts["c"])
+    dispatch = {(1,1):1, (1,2):2, (2,2):3, (2,3):4, (3,3):5}[(ar,cr)]
+    m = 1 if dispatch == 1 else int(cute.size(layouts["a"], mode=[1]))
+    n = 1 if dispatch == 1 else int(cute.size(layouts["b"], mode=[1]))
+    ks = int(cute.size(layouts["a"], mode=[2])) if dispatch == 5 else 1
+    calls = []
+    for ki in range(ks):
+        for ni in range(n):
+            for mi in range(m):
+                call = {"m": mi, "n": ni, "k": ki}
+                for x, tensor in tensors.items():
+                    if dispatch == 1:
+                        sliced, offset = layouts[x], 0
+                    else:
+                        coord = (None, mi) if x == "a" else (None, ni) if x == "b" else (None, mi, ni)
+                        if dispatch == 5 and x in ("a", "b"):
+                            coord += (ki,)
+                        sliced, offset = cute.slice_and_offset(coord, layouts[x])
+                        # Tensor indexing must return that same relative layout.
+                        if canon(tensor[coord].layout) != canon(sliced):
+                            raise AssertionError("tensor indexing disagrees with slice_and_offset")
+                    call[x] = [int(cute.crd2idx(i, sliced)) + int(offset)
+                               for i in range(int(cute.size(sliced)))]
+                calls.append(call)
+    base_mnk = [int(atom.shape_mnk[i]) * int(cute.size(tmma.thr_layout_vmnk, mode=[i+1]))
+                for i in range(3)]
+    final_mnk = [extent * repeats for extent,repeats in zip(base_mnk, [m,n,ks])]
+    return {"base_mnk": base_mnk, "final_mnk": final_mnk,
+            "dispatch": dispatch, "mnk": [m,n,ks], "calls": calls,
+            "warps": int(cute.size(tmma.thr_layout_vmnk)) // 32,
+            "tile_mnk": [int(tmma.get_tile_size(i)) for i in range(3)],
+            "layouts": {x: record(l) for x,l in layouts.items()}}
+
+
 SECTIONS = [
+    ("gemm", run_gemm),
+    ("index", run_index),
     ("layout_ops", lambda c: run_layout_op(c, allow_basis=False)),
     ("basis_ops", lambda c: run_layout_op(c, allow_basis=True)),
     ("make_layout_tv", run_make_layout_tv),

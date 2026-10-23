@@ -281,6 +281,7 @@ Atom-construction time. `ldmatrix` likewise has exactly one, SMEM→RMEM: the so
 
 ### tabs/*.js — one file per tab
 Each tab file holds everything specific to that feature:
+- `index.js`: BASICS tensor-view indexing; exact sliced layout, base offset, and offset grid.
 - The HTML template generator `generateXTabContent(id)`
 - The mutable state object (e.g. `layoutState`, `tvState`, `compState`, `cplState`, `ldState`)
 - The main `renderX(tabId)` function
@@ -576,7 +577,7 @@ Then wire it into the shell:
 
 The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. Each scope is a named bucket; only one scope's tabs are visible at a time. Current scopes:
 
-- `basics` — Layout, TV Layout, Swizzle. Accent color: blue (`#3b82f6`).
+- `basics` — Layout, TV Layout, Swizzle, Index. Accent color: blue (`#3b82f6`).
 - `operations` — the CuTe layout-algebra tabs (composition, complement, divide/product variants, `local_tile`). Accent color: purple (`#a855f7`).
 
   **`local_tile` uses CuTe's tiler convention, not the Divide tabs'.** A single line without a top-level
@@ -1147,7 +1148,8 @@ rank > 2 tensors.
 
 `tiled_copy.get_slice(t).partition_S(tensor)` — a port of `copy_atom.hpp`'s `partition_S` (:368),
 `tidfrg_S` (:221) and `tile2thrfrg` (:257). A **TiledCopy is the only source of a ThrCopy**, so the
-tab decodes its exported URL instead of offering duplicate constructor controls. Decode from Pasteboard accepts make_tiled_copy, make_tiled_copy_tv and make_tiled_copy_A/B;
+tab decodes its exported URL and offers the equivalent parameters in a default-collapsed
+Manual construction section. Decode from Pasteboard accepts make_tiled_copy, make_tiled_copy_tv and make_tiled_copy_A/B;
 there is no manual URL field or Decode URL button. The active source URL lives in
 `psdState.copyURL`, including a shipped default. A failed paste leaves the last valid copy intact.
 Shared DOM-free `mtcDecodeURL` preserves the atom SRC/DST/reference layouts, atom thread/value
@@ -1159,7 +1161,7 @@ the DOM-free whole of the derivation; `renderPartitionSD` only parses and draws.
 Export uses `partition_sd-url-<side>-<encoded copy URL>-<thread>-<tensor>`. The nested URL is
 URI-escaped including hyphens so the outer key's delimiter cannot split it. `legacyInputs`
 in FEATURE_SPEC keeps old eight-field constructor URLs working; setPSD converts those inputs
-into the equivalent primitive TiledCopy URL. No hidden constructor fields remain in the tab.
+into the equivalent primitive TiledCopy URL. Manual construction uses distinct psd-manual-prefixed fields; no URL text input is reintroduced.
 
 **The tensor is NOT pre-divided by the tiler, and thinking it is was the first design mistake.**
 `tidfrg_S` runs `zipped_divide(tensor, Tiler_MN)` itself. The only requirement CuTe states is
@@ -1589,7 +1591,11 @@ so this tab is exempt from the shared rank warning for the same reason as `make_
 The Copy scope includes this tab after `make_tiled_copy_tv`; the internal feature name is `make_tiled_copy_ab`.
 Its URL takes operand, MMA Op/ab/acc/K, atom layout, permutation, copy Op/matrix count/transpose/
 bits, view, optional focus, and optional comparison (`src_dst` or `mma_copy`). Older URLs default to SRC/DST. Dynamic controls are rebuilt before imported values are assigned.
-Each constructor section has a Decode from Pasteboard button. It reads a copied URL or query
+Each constructor section has a Decode from Pasteboard button followed by a default-collapsed
+Manual construction section for its editable fields. The TiledMMA form uses shared
+`mtmManualConstructorMarkup` and validated `mtmWriteConstructorControls`; the CopyAtom
+form retains its shared dynamic copy controls. Constructor summaries remain visible
+outside the folded controls. Decode reads a copied URL or query
 through shared `parseKeyParam(search)`, rebuilds dependent options, and fills only that constructor.
 Copy dtype must match the MMA operand; unsupported Copy Ops are rejected before changing inputs.
 Clipboard denial falls back to a paste dialog for direct-file browsers.
@@ -1640,6 +1646,16 @@ SIMT, and later-stage modes. DOM tests cover defaults, presets, both import fami
 SVG hosts, invalid-input clearing, and URL round trips.
 
 ### partition_A / partition_B / partition_C
+
+The input groups are `1. TiledMMA` (pasteboard decode, collapsed Manual construction
+for the MMA Op, dtypes, shape, atom layout and permutation, plus constructor summary), `2. get_slice(thr_idx)`, and
+`3. The tensor being partitioned`. The first group includes Decode from Pasteboard,
+using shared clipboard/query parsing. `pabcImportTiledMma` validates the complete
+constructor via `mtmDecodeConstructor` before updating controls, rebuilds dependent
+options before assigning dtype/K values, normalizes an absent permutation, and
+renders. Operand, thread, tensor, fragment selection, and visualization modes remain
+partition-local. Invalid URLs leave the previous constructor untouched.
+`mtmDecodeConstructor` lives with the TiledMMA math and is shared with gemm.
 
 `tiled_mma.get_slice(t).partition_A(gA)` — the MMA twin of `partition_sd`, deliberately the **same
 three levels with the same meanings**: a thread's work in one tile, that tile over the operand's
@@ -1786,3 +1802,203 @@ single `\n` emits a *real* newline into the attribute, which is a SyntaxError in
 JS string: the browser reports it and the button silently does nothing. Two presets shipped that way.
 `dom_smoke` now parses every inline handler and requires every preset button to have run, so this
 cannot recur silently.
+
+
+## Index (BASICS)
+
+`tabs/index.js` implements tensor-view indexing through the existing `slice_and_offset`
+port. `idxComputeIndex` is DOM-free: it parses an ordinary integer-strided layout
+without the grid parser's rank padding, validates nested wildcard/integer coordinates,
+and returns the exact sliced layout plus base offset. Scalar indices into hierarchical
+modes use CuTe's linear indexing within that mode. Selecting every mode returns the
+empty layout `():()` with one element and its base offset. `_` and `None` retain modes;
+a wildcard for an entire hierarchical mode preserves that hierarchy, while nested
+selectors follow CuTe's tuple concatenation rules.
+
+The result text retains all modes and relative strides. Only the SVG is normalized to
+a 2-D grid, with cells labeled by `base offset + relative offset`; the shared rank warning
+explains flattening of the returned layout only. Input rank does not trigger a warning,
+because the input is not drawn. No memory space is inferred. The `index` oracle section records
+CuTeDSL's complete layout, every domain point, and offset. DOM tests cover defaults,
+presets, oracle-derived result text, scalar rendering, error clearing, and URL round trips.
+
+
+## gemm (MMA)
+
+`tabs/gemm.js` visualizes `cute.gemm(tiled_mma, D, A, B, C)` coverage over already
+partitioned RMEM fragments. The constructor has editable controls under a default-collapsed Manual construction
+section, plus a read-only derived summary; `Decode from Pasteboard` accepts only `make_tiled_mma` URLs and
+validates the whole constructor before committing it. A failed decode retains the
+last valid constructor. A/B/C fragment inputs remain editable. D is disabled and
+synchronized with C on edits and rendering; the UI always computes with D=C.
+The pure computation retains separate-D support for the CuTeDSL differential corpus,
+but legacy URL D overrides are normalized to C and new URLs export `same`.
+
+`gemmCompute` is DOM-free and returns dispatch, M/N/K extents, TiledMMA traits, input
+layouts, and scalar operand offsets for every logical (m,n,k) invocation. Dispatch
+[4] and [5] apply to the existing warp MMA backend. Although algorithm.py documents
+rank-one dispatch [1], the installed CuTeDSL IR verifier requires A/B rank 2 or 3;
+the oracle pins this rejection. A single invocation uses (V,1) A/B and (V,1,1) C/D. The scalar dispatches [2]/[3]
+are recognized and rejected with an implicit-V=1 explanation: no scalar FMA atom is
+introduced by this tab. V sizes must match the imported atom; M/N/K extents must
+agree. Calls are enumerated for coverage, not as a promise of instruction order.
+Each C/D cell at a selected K represents all imported warps executing one atom
+instruction each; A/B cells show the corresponding operand blocks.
+The permutation changes matrix placement, not the explicit fragment repetition axes.
+
+The A/B/C-D grids expose MK / NK / MN. The shared Alternative View reorders the
+panes to the existing MMA quadrant arrangement and transposes B for display to KN.
+All K repetitions are drawn; the K selector highlights the contributing A column
+and B column (or row). Inactive K cells remain visible. V is one atom's register operands;
+all semantic modes are accounted for. This is an exemption from generic rank>2
+warnings, rather than a flattened layout visualization. Nested M/N/K modes use
+CuTe linear indexing within that mode. The UI shows coverage only: no cell selection,
+red selection boundary, or register-offset inspection. Per-invocation operand offsets
+remain in the pure computation for differential verification. No new hardware Op is exposed.
+
+`parseExactLayoutInput` in layout.js is shared with Index and avoids the grid
+parser's rank padding. The gemm URL stores all six constructor fields, A/B/C/D
+layouts (`same` for blank D), selected K, and an optional organization field
+(`mk_nk_mn` / `mk_kn_mn`). Old 11-field URLs use the default organization. Import rebuilds the K selector before
+assigning its value. SVG/fullscreen/export/text fitting reuse shared UI helpers.
+Differential cases exercise the actual `cute.gemm` API during tracing and compare
+every operand slice against CuTe tensor indexing, including K loops, nested modes,
+separate D strides, other supported atom types, permuted warps, and K warp replication.
+They do not assert compiler issue order or benchmark execution. DOM smoke covers
+defaults, every preset, oracle result summaries and A/B/C cell counts, K highlighting,
+B transpose and round-trip restoration, pasteboard decoding, failure preservation,
+URL round trips (including legacy URLs), and errors. `gemmCoverageGrid` projects
+the existing oracle invocation records into each operand grid; tests check all
+operand blocks and the selected K contribution in both organizations. Shared
+`.mma-group` / `.mma-alt` styles preserve the same SVG hosts and fullscreen controls.
+
+
+The gemm view includes a static five-row dispatch reference with normalized forms.
+`gemmHighlightDispatch` marks only the successfully validated `gemmCompute` dispatch,
+using an Applied badge and `aria-current`; invalid inputs clear all applied markers.
+The reference distinguishes documented rules from this warp backend's accepted
+[4]/[5] cases. Transposing B changes only its display and preserves the active rule.
+DOM checks drive all oracle cases, both dispatches, errors, and the alternative view.
+
+
+`gemmFormatResult` reports the applied dispatch followed by three explicit M×K @
+K×N = M×N shapes: per-cell TiledMMA dimensions in scalars, invocation-grid dimensions,
+and final scalar dimensions. `gemmResultDimensions` uses atom MNK × warp replication
+as the per-cell footprint, then multiplies componentwise by the fragment M/N/K repeats.
+It does not multiply repeats by the larger permutation tile period, which would
+count embedded repetitions twice (e.g. default N=16 per cell, not permutation N=32).
+These are covered-element dimensions, not the bounding box of possibly permuted
+coordinates. The oracle records base/final dimensions from the actual CuTeDSL atom
+and thread layout; DOM tests check all three displayed products against those records.
+The D field uses the shared layout input's `disabled` option and shows the current C
+layout. A live C edit updates D immediately without changing the rendered result
+until Render. Layout equality here is a UI simplification; CuTe itself permits
+separate C/D layouts with compatible extents.
+
+
+### Consistent input sections
+
+Project preference: tabs with multiple input groups use the existing numbered,
+initially open `<details class="cuo-section" open>` / `<summary>` /
+`.cuo-section-body` pattern. Render/Export actions and overall result/status hosts
+stay outside those sections. Do not replace this shared pattern with standalone
+headings or custom panels. The gemm controls follow it with `1. TiledMMA` (pasteboard
+decode and constructor summary) and `2. Per-thread RMEM fragments` (A/B/C and the
+disabled D input). Both groups can collapse independently using native browser
+behavior, with shared styling and unchanged input IDs.
+
+
+Pasteboard decode buttons use the shared `.btn-decode` class, which adds 10px
+of bottom margin before the following input or constructor summary. Keep this
+spacing shared across tabs rather than adding per-button inline margins.
+
+
+### Editable TiledMMA fallback
+
+The pasteboard-first TiledMMA sections in gemm, partition_A/B/C, and make_tiled_copy_A/B retain their
+visible decode buttons and derived summaries. `mtmManualConstructorMarkup` supplies
+a nested, default-collapsed Manual construction section with the same Op/dtype/K
+controls and layout fields used by the other MMA tabs. `mtmWriteConstructorControls`
+validates a complete constructor before changing controls and rebuilds dependent
+options before assigning values. Both imports and gemm presets/URL restores use it.
+`mtmReadConstructorControls` supplies gemm rendering and export from current editable
+fields, so cached decoded state cannot override a manual adjustment. Implied TF32
+dtypes export as `na`. Changing Op rebuilds its legal options; changing textual
+tiling fields takes effect on Render, and export reads them even before rendering.
+The K-instruction field uses gemm-mma as its prefix, separate from gemm's highlighted
+K-block selector. partition_ABC retains its public field IDs and its existing
+render/read/export logic. Neither import nor rendering forces an expanded manual
+section shut. DOM coverage checks initial folding, all imported constructor types,
+manual edits affecting computation and exports, and failed decode preserving fields.
+
+
+### Decode inputs always have an editable fallback
+
+Project preference applies to every decoding input, including both retile inputs
+(TiledCopy and RMEM fragment) and partition_S/D's TiledCopy. Keep Decode from
+Pasteboard visible with `.btn-decode`, place the editable fields under a nested,
+default-collapsed Manual construction section, and leave derived summaries outside.
+Decode fills the same controls used for rendering and export. Constructor changes
+must preserve dependent option ordering; invalid imports leave all controls intact.
+The root AGENTS.md records this convention for future tabs.
+
+For retile this folds the existing fields; math and imports stay unchanged.
+For partition_S/D, `mtcManualConstructorMarkup` offers primitive make_tiled_copy,
+thread/value-derived make_tiled_copy_tv, and MMA-derived make_tiled_copy_A/B.
+`mtcWriteManualConstructor` validates complete copy traits and MMA parameters before
+changing controls. `mtcReadManualConstructor` generates the source constructor from
+current fields; the existing `mtcDecodeURL` still supplies exact SRC/DST/reference
+traits to the partition math. The form shares SIMT Op and dtype definitions,
+TiledMMA controls, and the CopyAtom matrix/transpose synchronization with the
+constructor tabs. No atom trait is inferred from an edited TV map.
+
+The manual editor retains the imported source URL and a normalized field snapshot
+in its dataset. An unchanged form preserves the original URL, including optional
+view/focus tails; edited fields produce a canonical constructor URL. Render and
+Export URL both read current fields. Presets and URL restore refill the editor.
+This preserves legacy partition URLs while keeping manual edits shareable. DOM
+coverage checks all constructor families against committed CuTeDSL cases, ldmatrix
+SRC/DST after manual matrix-count changes, SIMT edits, rejected-import preservation,
+retile edits, and export/import after editing.
+
+
+### MMAAtom and CopyAtom inputs
+
+Atom input groups are named MMAAtom and CopyAtom; the underlying hardware operation
+remains an Op parameter, distinct from the constructed atom's type. These groups
+now use the same decode-first pattern as TiledMMA/TiledCopy: a visible Decode from
+Pasteboard button, default-folded Manual construction controls, and visible derived
+summaries. This applies to make_mma_atom, make_tiled_mma, make_fragment_A/B/C,
+make_copy_atom, make_tiled_copy, make_tiled_copy_tv, and atom inputs nested in the
+manual TiledMMA/TiledCopy forms used by gemm, partition_A/B/C, make_tiled_copy_A/B,
+and partition_S/D. A TMA atom is also a CopyAtom, with TMA-specific traits;
+its atom input section is named CopyAtom (TMA), as in tma_partition. TMA operation
+parameters remain identified as TMA operations.
+
+`mmaAtomEditorMarkup` reuses the same Op/dtype/K controls and preserves existing
+field IDs. `mmaDecodeAtomInputs` validates the supported Op/dtypes before updates;
+`mmaImportAtom` imports only the atom, rebuilds dependent options, assigns values,
+and invokes the owning render function. The owning status prefix is explicit for
+nested editors, keeping decode errors in the enclosing tab's error host. TiledMMA
+construction uses the same atom validation and nests this atom editor above its
+atom-layout/permutation fields.
+
+`mcaDecodeAtomURL` validates offered SIMT and ldmatrix atoms via the existing dtype
+and LdMatrix trait tables. `mcaImportAtom` serves the standalone CopyAtom tab and
+SIMT-only primitive/TV TiledCopy tabs; unsupported atoms are rejected before field
+updates. `mtcImportManualCopyAtom` serves a manual TiledCopy constructor and checks
+its allowed Op set and MMA operand dtype. make_tiled_copy_A/B keeps its existing
+CopyAtom import and shared dynamic matrix/transpose controls. No new hardware Op
+is introduced. Legacy unpack_bits URL tails remain ignored as required by the
+fixed-None convention. Constructor summaries stay outside the folded raw fields.
+
+DOM smoke checks all atom editor headings and initial folding, real renders after
+MMAAtom import in all consuming tabs, cross-Op dtype/K rebuilding, CopyAtom imports
+into source/SIMT/MMA-derived consumers, rejected-import preservation, and the
+partition_S layout against the existing ldmatrix CuTeDSL oracle. The existing
+preset/default and shareable URL tests continue to exercise the unchanged fields.
+
+
+`tma_partition` accepts `atom: CopyAtom` in CuTeDSL. Its first input section is
+therefore titled `1. CopyAtom (TMA)`; the current partition math uses only the atom
+element count and dtype. The TMA qualifier identifies the atom specialization.

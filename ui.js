@@ -700,6 +700,7 @@ function buildTiledLayoutSVG(shape, stride, mode, tileIdxFn, selection) {
  *  entry here as well as to `modeIndex` in switchInnerTab. */
 const TAB_RENDER_FN = {
   layout:             'renderLayout',
+  index:              'renderIndex',
   tv:                 'renderTV',
   swizzle:            'renderSwizzle',
   composition:        'renderComposition',
@@ -723,6 +724,7 @@ const TAB_RENDER_FN = {
   make_fragment_abc:  'renderMakeFragmentABC',
   make_tiled_copy_ab: 'renderMakeTiledCopyAB',
   retile: 'renderRetile',
+  gemm: 'renderGemm',
 };
 
 /** True on Apple platforms, where the modifier is ⌘ rather than Ctrl. */
@@ -791,7 +793,7 @@ function generateTabContent(id) {
       <div class="tab-scope-bar">
         <div class="tab-scope-btn active" data-scope="basics" onclick="switchTabGroup('${id}', 'basics')">
           <span class="tab-scope-icon">\u2756</span>Basics
-          <span class="tab-scope-count">3</span>
+          <span class="tab-scope-count">4</span>
         </div>
         <div class="tab-scope-btn" data-scope="operations" onclick="switchTabGroup('${id}', 'operations')">
           <span class="tab-scope-icon">\u25A3</span>Layout Operations
@@ -803,13 +805,14 @@ function generateTabContent(id) {
         </div>
         <div class="tab-scope-btn" data-scope="mma" onclick="switchTabGroup('${id}', 'mma')">
           <span class="tab-scope-icon">\u2B21</span>MMA
-          <span class="tab-scope-count">4</span>
+          <span class="tab-scope-count">5</span>
         </div>
       </div>
     <div class="tab-bar" data-scope="basics">
       <div data-tab="layout" class="tab active" data-scope="basics" onclick="switchInnerTab('${id}', 'layout')">Layout</div>
       <div data-tab="tv" class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'tv')">TV Layout</div>
       <div data-tab="swizzle" class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'swizzle')">Swizzle</div>
+      <div data-tab="index" class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'index')">Index</div>
       <div data-tab="composition" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'composition')">Composition</div>
       <div data-tab="complement" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'complement')">Complement</div>
       <div data-tab="divide" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'divide')">Logical Divide</div>
@@ -831,11 +834,13 @@ function generateTabContent(id) {
       <div data-tab="make_tiled_mma" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_tiled_mma')">make_tiled_mma</div>
       <div data-tab="partition_abc" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'partition_abc')">partition_A / B / C</div>
       <div data-tab="make_fragment_abc" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_fragment_abc')">make_fragment_A / B / C</div>
+      <div data-tab="gemm" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'gemm')">gemm</div>
     </div>
     </div>
     ${generateLayoutTabContent(id)}
     ${generateTVTabContent(id)}
     ${generateSwizzleTabContent(id)}
+    ${generateIndexTabContent(id)}
     ${generateCompositionTabContent(id)}
     ${generateComplementTabContent(id)}
     ${generateDivideTabContent(id)}
@@ -857,6 +862,7 @@ function generateTabContent(id) {
     ${generateMakeTiledMmaTabContent(id)}
     ${generatePartitionABCTabContent(id)}
     ${generateMakeFragmentABCTabContent(id)}
+    ${generateGemmTabContent(id)}
   </div>`;
 }
 
@@ -1085,7 +1091,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, composition: 3, complement: 4, divide: 5, zipped: 6, local_tile: 7, product: 8, zipped_product: 9, blocked_product: 10, raked_product: 11, make_copy_atom: 12, make_tiled_copy: 13, make_tiled_copy_tv: 14, make_tiled_copy_ab: 15, retile: 16, make_tiled_tma_atom: 17, tma_partition: 18, partition_sd: 19, make_mma_atom: 20, make_tiled_mma: 21, partition_abc: 22, make_fragment_abc: 23 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, index: 3, composition: 4, complement: 5, divide: 6, zipped: 7, local_tile: 8, product: 9, zipped_product: 10, blocked_product: 11, raked_product: 12, make_copy_atom: 13, make_tiled_copy: 14, make_tiled_copy_tv: 15, make_tiled_copy_ab: 16, retile: 17, make_tiled_tma_atom: 18, tma_partition: 19, partition_sd: 20, make_mma_atom: 21, make_tiled_mma: 22, partition_abc: 23, make_fragment_abc: 24, gemm: 25 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1167,19 +1173,20 @@ function collectHighRank(inputs) {
 // ═══════════════════════════════════════════════════════
 
 /** HTML for a layout-aware input field.
- *  opts: { id, label, value?, hint?, textarea?, rows?, placeholder?, oninput? } */
+ *  opts: { id, label, value?, hint?, textarea?, rows?, placeholder?, oninput?, disabled? } */
 function layoutInputField(opts) {
   const {
-    id, label, value = '', hint = '', textarea = false, rows = 2, placeholder = '', oninput = ''
+    id, label, value = '', hint = '', textarea = false, rows = 2, placeholder = '', oninput = '', disabled = false
   } = opts;
   const hintSpan = hint
     ? ` <span style="color:#6b7280;font-weight:normal">&mdash; ${hint}</span>`
     : '';
   const phAttr = placeholder ? ` placeholder="${placeholder}"` : '';
   const oiAttr = oninput ? ` oninput="${oninput}"` : '';
+  const disabledAttr = disabled ? ' disabled' : '';
   const field = textarea
-    ? `<textarea id="${id}" rows="${rows}"${phAttr}${oiAttr}>${value}</textarea>`
-    : `<input type="text" id="${id}" value="${value}"${phAttr}${oiAttr}>`;
+    ? `<textarea id="${id}" rows="${rows}"${phAttr}${oiAttr}${disabledAttr}>${value}</textarea>`
+    : `<input type="text" id="${id}" value="${value}"${phAttr}${oiAttr}${disabledAttr}>`;
   return `<div class="form-group">
       <label>${label}${hintSpan}</label>
       ${field}
@@ -1752,6 +1759,8 @@ function downloadSVG(hostId, filename) {
 // feature -> { expectedInputs, methods? }
 // If `methods` is set, the key must be "<feature>-<method>-<inputs...>".
 const FEATURE_SPEC = {
+  gemm: { inputs: 11, optional: 1 }, // MMA constructor (6), A/B/C/D, selected K [, view]
+  index:          { inputs: 2 },
   layout:         { inputs: 1 },
   tv:             { inputs: 2, methods: ['1', '2'] },
   composition:    { inputs: 2 },
@@ -1857,6 +1866,14 @@ function applyKeyParam(tabId) {
         document.getElementById(`${tabId}-tv-tile-input`).value = inputs[1];
         renderTV(tabId);
       }
+      break;
+    case 'gemm':
+      setGemm(tabId, inputs.slice(0,6), inputs[6], inputs[7], inputs[8], inputs[9] === 'same' ? '' : inputs[9], Number(inputs[10]), inputs[11] === 'mk_kn_mn');
+      switchInnerTab(tabId, 'gemm');
+      break;
+    case 'index':
+      setIdx(tabId, inputs[0], inputs[1]);
+      switchInnerTab(tabId, 'index');
       break;
     case 'composition':
       document.getElementById(`${tabId}-comp-a-input`).value = inputs[0];

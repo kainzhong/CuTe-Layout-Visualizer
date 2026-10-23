@@ -43,7 +43,7 @@ function generateTmaPartitionTabContent(id) {
         <h2>tma_partition</h2>
 
         <details class="cuo-section" open>
-          <summary>1. The atom &mdash; only its element count is used</summary>
+          <summary>1. CopyAtom (TMA)</summary>
           <div class="cuo-section-body">
             <div class="form-group">
               <label>TMA operation</label>

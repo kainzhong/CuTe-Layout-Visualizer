@@ -21,6 +21,30 @@ const { parseExact, fmt } = require('./harness');
 function runUnitTests(V, T) {
   const { check, guard, setSection } = T;
 
+  setSection('unit/index-input');
+  for (const [id, coord] of [
+    ['negative', '(-1,_)'], ['out-of-bounds', '(4,_)'], ['fraction', '(1.5,_)'],
+    ['bad-rank', '(_,_,_)'], ['bad-nesting', '((_,1),_)'], ['garbage', '(foo,_)'],
+    ['empty', ''], ['boolean', '(true,_)'], ['unsafe', '(9007199254740992,_)']
+  ]) guard(id, () => {
+    let threw = false;
+    try { V.idxComputeIndex('(4,8):(1,4)', coord); } catch (_) { threw = true; }
+    check(id, 'rejects invalid index', threw, true);
+  });
+  for (const text of ['8:(1,0)', '((2,2),4):(1,4)', '(0,4):(1,4)', '(2.5,4):(1,4)']) {
+    guard(`bad-index-layout-${text}`, () => {
+      let threw = false;
+      try { V.idxComputeIndex(text, '_'); } catch (_) { threw = true; }
+      check(text, 'rejects malformed layout', threw, true);
+    });
+  }
+  guard('aliases-and-trailing-comma', () => {
+    const a = V.idxComputeIndex('(4,8):(1,4)', '(None, 3,)');
+    const b = V.idxComputeIndex('(4,8):(1,4)', '(_, 3)');
+    check('aliases-and-trailing-comma', 'same layout', fmt(V, a.layout), fmt(V, b.layout));
+    check('aliases-and-trailing-comma', 'same offset', a.offset, b.offset);
+  });
+
   // ── parseLayout: the tab-facing parser, which normalizes to rank 2 ──────────
   setSection('unit/parseLayout');
   const P = (s, o) => {

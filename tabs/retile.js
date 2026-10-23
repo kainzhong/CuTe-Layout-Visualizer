@@ -57,16 +57,20 @@ function generateRetileTabContent(id) {
   return `<div id="${id}-tab-retile" class="panel"><div class="controls">
     <h2>TiledCopy.retile</h2>
     <details class="cuo-section" open><summary>1. TiledCopy</summary><div class="cuo-section-body">
-      <button class="btn btn-render" id="${id}-rt-decode-copy" onclick="rtDecodePasteboard('${id}','copy')">Decode from Pasteboard</button>
+      <button class="btn btn-render btn-decode" id="${id}-rt-decode-copy" onclick="rtDecodePasteboard('${id}','copy')">Decode from Pasteboard</button>
+      <details class="cuo-section" id="${id}-rt-copy-manual-construction"><summary>Manual construction</summary><div class="cuo-section-body">
       ${layoutInputField({id:`${id}-rt-tv-input`,label:'TV Layout tiled',value:RT_DEFAULT_TV,hint:'Two modes: (threads, values). Decode a make_tiled_copy, make_tiled_copy_tv, or make_tiled_copy_A/B URL.'})}
       ${layoutInputField({id:`${id}-rt-tile-input`,label:'Tiler_MN',value:'(32,16)',hint:'Two independent tiler modes, as printed by TiledCopy.'})}
       <div class="form-group"><label>CopyAtom values per thread</label><input id="${id}-rt-values-input" type="text" value="8"></div>
+      </div></details>
     </div></details>
     <details class="cuo-section" open><summary>2. RMEM fragment from make_fragment</summary><div class="cuo-section-body">
-      <button class="btn btn-render" id="${id}-rt-decode-input" onclick="rtDecodePasteboard('${id}','input')">Decode from Pasteboard</button>
+      <button class="btn btn-render btn-decode" id="${id}-rt-decode-input" onclick="rtDecodePasteboard('${id}','input')">Decode from Pasteboard</button>
+      <details class="cuo-section" id="${id}-rt-input-manual-construction"><summary>Manual construction</summary><div class="cuo-section-body">
       ${layoutInputField({id:`${id}-rt-input-input`,label:'RMEM fragment layout',value:'((2,2,2),4,2):((1,2,4),16,8)',hint:'Copy the Export URL from make_fragment_A/B/C, then click Decode from Pasteboard to fill this fragment layout.'})}
       <div class="form-group"><label>Value dtype</label><select id="${id}-rt-dtype-input">${['half_t','bfloat16_t','float','tfloat32_t','float_e4m3_t','float_e5m2_t','int8_t','uint8_t','int16_t','int32_t'].map(d=>`<option value="${d}">${d}</option>`).join('')}</select></div>
       <div class="form-group"><label>Thread ID for T/V labels</label><input type="text" id="${id}-rt-thread-input" value="0"></div>
+      </div></details>
     </div></details>
     ${statusDivs(`${id}-rt`)}
     <button class="btn btn-render" onclick="renderRetile('${id}')">Render</button>

@@ -99,31 +99,26 @@ function generateMakeTiledCopyABTabContent(id) {
         <details class="cuo-section" open>
           <summary>1. TiledMMA</summary>
           <div class="cuo-section-body">
-            <button class="btn btn-render" id="${id}-mcab-decode-mma" onclick="mcabDecodePasteboard('${id}','make_tiled_mma')">Decode from Pasteboard</button>
-            <div class="form-group"><label>MMA Op</label>
-              <select id="${id}-mcab-op-input" onchange="renderMakeTiledCopyAB('${id}')">
-                <option value="f16bf16" selected>warp.MmaF16BF16Op</option>
-                <option value="tf32">warp.MmaTF32Op</option><option value="fp8">warp.MmaFP8Op</option>
-              </select>
-            </div>
-            <div class="form-group" id="${id}-mcab-ab-group"><label>ab_dtype</label><select id="${id}-mcab-ab-input" onchange="renderMakeTiledCopyAB('${id}')"></select></div>
-            <div class="form-group" id="${id}-mcab-acc-group"><label>acc_dtype</label><select id="${id}-mcab-acc-input" onchange="renderMakeTiledCopyAB('${id}')"></select></div>
-            <div class="form-group"><label>shape_mnk</label><select id="${id}-mcab-k-input" onchange="renderMakeTiledCopyAB('${id}')"><option value="16" selected>(16, 8, 16)</option></select></div>
+            <button class="btn btn-render btn-decode" id="${id}-mcab-decode-mma" onclick="mcabDecodePasteboard('${id}','make_tiled_mma')">Decode from Pasteboard</button>
+            ${mtmManualConstructorMarkup({id,p:'mcab',render:'renderMakeTiledCopyAB',atomLayout:'(2, 2, 1)',perm:'(32, 32, 16)',k:16})}
             <div id="${id}-mcab-op-params" class="cuo-result"></div>
-            ${layoutInputField({ id: `${id}-mcab-atomlayout-input`, label: 'atom_layout_mnk', value: '(2, 2, 1)', hint: 'Rank 3: warps along M, N, K. Blank uses (1,1,1). A stride reorders warps.' })}
-            ${layoutInputField({ id: `${id}-mcab-perm-input`, label: 'permutation_mnk', value: '(32, 32, 16)', hint: 'Rank-3 tiler. An extent expands a mode; a layout permutes it; blank leaves the modes unchanged.' })}
           </div>
         </details>
         <details class="cuo-section" open>
           <summary>2. CopyAtom</summary>
           <div class="cuo-section-body">
-            <button class="btn btn-render" id="${id}-mcab-decode-copy" onclick="mcabDecodePasteboard('${id}','make_copy_atom')">Decode from Pasteboard</button>
-            <div class="form-group"><label>Copy Op</label>
-              <select id="${id}-mcab-copy-input" onchange="renderMakeTiledCopyAB('${id}')">${MCAB_COPY_OPS.map(key => `<option value="${key}">${key === 's2r' ? 'CopyUniversalOp (SMEM → RMEM)' : MCA_OPS[key].label}</option>`).join('')}</select>
-            </div>
-            <div class="form-group" id="${id}-mcab-nm-group"><label>num_matrices</label><select id="${id}-mcab-nm-input" onchange="renderMakeTiledCopyAB('${id}')"></select></div>
-            <div class="form-group" id="${id}-mcab-trans-group"><label>transpose</label><select id="${id}-mcab-trans-input" onchange="renderMakeTiledCopyAB('${id}')"><option value="0" selected>False</option><option value="1">True</option></select></div>
-            <div class="form-group" id="${id}-mcab-bits-group"><label>num_bits_per_copy</label><input type="text" id="${id}-mcab-bits-input" value="16"></div>
+            <button class="btn btn-render btn-decode" id="${id}-mcab-decode-copy" onclick="mcabDecodePasteboard('${id}','make_copy_atom')">Decode from Pasteboard</button>
+            <details class="cuo-section" id="${id}-mcab-copy-manual-construction">
+              <summary>Manual construction</summary>
+              <div class="cuo-section-body">
+                <div class="form-group"><label>Op</label>
+                  <select id="${id}-mcab-copy-input" onchange="renderMakeTiledCopyAB('${id}')">${MCAB_COPY_OPS.map(key => `<option value="${key}">${key === 's2r' ? 'CopyUniversalOp (SMEM → RMEM)' : MCA_OPS[key].label}</option>`).join('')}</select>
+                </div>
+                <div class="form-group" id="${id}-mcab-nm-group"><label>num_matrices</label><select id="${id}-mcab-nm-input" onchange="renderMakeTiledCopyAB('${id}')"></select></div>
+                <div class="form-group" id="${id}-mcab-trans-group"><label>transpose</label><select id="${id}-mcab-trans-input" onchange="renderMakeTiledCopyAB('${id}')"><option value="0" selected>False</option><option value="1">True</option></select></div>
+                <div class="form-group" id="${id}-mcab-bits-group"><label>num_bits_per_copy</label><input type="text" id="${id}-mcab-bits-input" value="16"></div>
+              </div>
+            </details>
             <div id="${id}-mcab-atom-result" class="cuo-result"></div>
           </div>
         </details>
@@ -166,14 +161,7 @@ function mcabImportConstructor(tabId, feature, text) {
   const inputs = parsed.inputs;
   const write = (key, value) => { document.getElementById(`${tabId}-mcab-${key}-input`).value = String(value); };
   if (feature === 'make_tiled_mma') {
-    if (!MMA_WARP_OPS[inputs[0]]) throw new Error(`Unsupported MMA Op "${inputs[0]}".`);
-    write('op', inputs[0]);
-    mmaSyncControls(tabId, inputs[0], 'mcab');
-    if (inputs[1] !== 'na') write('ab', inputs[1]);
-    if (inputs[2] !== 'na') write('acc', inputs[2]);
-    write('k', inputs[3]);
-    write('atomlayout', inputs[4]);
-    write('perm', inputs[5] === 'na' ? '' : inputs[5]);
+    mtmWriteConstructorControls(tabId, 'mcab', inputs);
   } else if (feature === 'make_copy_atom') {
     // UniversalCopy is presented as an SMEM→RMEM load in this tab.
     const copyKey = inputs[0] === 'universal' ? 's2r' : inputs[0];
@@ -205,15 +193,15 @@ async function mcabDecodePasteboard(tabId, feature) {
   }
 }
 
-function mcabSyncCopyControls(tabId) {
-  const key = document.getElementById(`${tabId}-mcab-copy-input`).value;
+function mcabSyncCopyControls(tabId, p = 'mcab') {
+  const key = document.getElementById(`${tabId}-${p}-copy-input`).value;
   const ldsm = key !== 's2r';
-  for (const part of ['nm', 'trans']) document.getElementById(`${tabId}-mcab-${part}-group`).style.display = ldsm ? '' : 'none';
-  document.getElementById(`${tabId}-mcab-bits-group`).style.display = ldsm ? 'none' : '';
+  for (const part of ['nm', 'trans']) document.getElementById(`${tabId}-${p}-${part}-group`).style.display = ldsm ? '' : 'none';
+  document.getElementById(`${tabId}-${p}-bits-group`).style.display = ldsm ? 'none' : '';
   if (!ldsm) return;
   const spec = MCA_LDSM_SPECS[(MCA_OPS[key] || MCA_OPS.ldmatrix).ldsm];
   // Reuse the same dynamic option and required-transpose logic as CopyAtom.
-  mcaSyncLdsmControls(tabId, spec, 'mcab');
+  mcaSyncLdsmControls(tabId, spec, p);
 }
 
 function renderMakeTiledCopyAB(tabId) {

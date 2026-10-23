@@ -59,6 +59,9 @@ Run the narrowest relevant test while iterating and `npm test` before handoff. A
 
 ## UI and DOM conventions
 
+- For tabs with multiple input groups, use numbered, initially open `<details class="cuo-section" open>` sections with a `<summary>` and `.cuo-section-body`, matching existing Copy/MMA tabs. Keep Render/Export buttons and overall results outside the input sections. Reuse this convention instead of standalone headings or custom section styles.
+- For every input with a pasteboard/URL decode button, keep that button visible (with the shared `.btn-decode` spacing) and provide editable inputs in a nested **Manual construction** section, folded by default. Decoding fills those same controls; rendering and URL export read current edits rather than stale decoded state. Keep derived summaries outside the folded controls. Reuse shared constructor controls and rebuild dependent options before assigning decoded values. Failed decode must preserve the previous controls and constructor.
+- Name typed atom input sections **MMAAtom** and **CopyAtom** (or **CopyAtom (TMA)** for TMA atoms), rather than "The MMA Op" / "The Copy Op". Ordinary atom sections accept their `make_mma_atom` / `make_copy_atom` URL through Decode from Pasteboard and keep editable construction fields folded by default; specialized TMA atoms use their own TMA constructor rather than `make_copy_atom`. Hardware Op selection remains an `Op` parameter inside that form. Preserve each consumer's supported Op set; decoding must not expose unsupported hardware.
 - Use `layoutInputField(...)` for layout/shape syntax fields and `statusDivs(prefix)` for standard error/warning hosts. Call `updateRankWarning(...)` from render functions where applicable.
 - A `.viz-box` must contain a child SVG host with an id:
 

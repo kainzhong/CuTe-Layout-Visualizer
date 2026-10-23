@@ -82,6 +82,19 @@ function assertNoDuplicateLexicals(files) {
 
 let CACHED = null;
 
+/** Keep browser globals isolated without proxying every global lookup through
+ * Node's contextified sandbox. Recursive layout evaluation makes millions of
+ * such lookups. When supported, use an ordinary VM global object; older Node
+ * versions retain the original contextified behavior.
+ */
+function createBrowserContext(globals) {
+  const ctx = vm.createContext(vm.constants?.DONT_CONTEXTIFY ?? {});
+  Object.assign(ctx, globals);
+  ctx.window = ctx;
+  ctx.globalThis = ctx;
+  return ctx;
+}
+
 /** Returns the sandbox holding every global the visualizer defines. */
 function loadVisualizer() {
   if (CACHED) return CACHED;
@@ -94,7 +107,7 @@ function loadVisualizer() {
   // Copy the lexical bindings onto the global object so the caller can see them.
   parts.push(`\n;Object.assign(globalThis, { ${lexicalNames.join(', ')} });\n`);
 
-  const ctx = {
+  const ctx = createBrowserContext({
     console, URLSearchParams,
     document: makeDomStub(),
     navigator: { platform: 'x86_64', userAgent: 'node' },
@@ -102,10 +115,7 @@ function loadVisualizer() {
     history: { replaceState() {} },
     setTimeout, clearTimeout, requestAnimationFrame: (fn) => fn(),
     Blob: class {}, URL: { createObjectURL() { return ''; }, revokeObjectURL() {} },
-  };
-  ctx.window = ctx;
-  ctx.globalThis = ctx;
-  vm.createContext(ctx);
+  });
   vm.runInContext(parts.join(''), ctx, { filename: 'visualizer-bundle.js' });
 
   CACHED = ctx;
@@ -174,4 +184,4 @@ function evalAll(V, L, cap) {
   return out;
 }
 
-module.exports = { loadVisualizer, parseExact, parseTiler, fmt, evalAll, sourceFiles, ROOT };
+module.exports = { loadVisualizer, createBrowserContext, parseExact, parseTiler, fmt, evalAll, sourceFiles, ROOT };

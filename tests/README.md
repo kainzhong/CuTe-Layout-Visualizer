@@ -20,6 +20,7 @@ unit.js           the parts with no CuTeDSL analogue (parsers, checks CuTe skips
 npm test                      # or: node tests/run.js
 node tests/run.js layout_ops  # only sections whose name contains the filter
 node tests/run.js --verbose   # print passing assertions too
+node tests/run.js --timings   # report elapsed time per section and overall
 ```
 
 Running the tests needs **only node** — `reference.json` is committed for exactly that
@@ -35,6 +36,17 @@ at **trace time** inside one `@cute.jit` function; nothing is launched. (The gen
 prints a note when MLIR compilation of that combined trace fails — that is a property
 of tracing a hundred unrelated TMA descriptors in one function, not of the cases. It
 verifies every case was evaluated before accepting the run, and fails otherwise.)
+
+The full Node suite keeps every corpus case, validation and DOM scenario. WGMMA
+constructors are checked for all configurations, but identical actual shape/stride
+layouts pointing to the same oracle record are evaluated pointwise only once.
+This reduces WGMMA point evaluations from 3,588,224 to 483,328 without sampling
+the unique maps. Shape, stride, size, cosize and tile coverage remain checked per
+configuration.
+
+The math and DOM harnesses share isolated browser globals through Node's VM API.
+When available, `vm.constants.DONT_CONTEXTIFY` avoids proxy overhead on recursive
+global function calls; older Node versions use the original contextified fallback.
 
 ## What is checked
 
@@ -99,3 +111,54 @@ load-order hazard [`docs/architecture.md`](../docs/architecture.md) warns about.
 `tests/variables.js` exercises the named-variable drawer, clipboard and storage fallbacks, rename/delete/preview/visualize actions, TV Layout import, and layout-valued URL extraction against the existing CuTeDSL oracle. It runs in `npm test` and with `node tests/run.js variables`.
 
 `node tests/run.js decoding` runs pure JavaScript cross-API round trips. It uses the production URL encoder and consumer decoders, checks layout maps against the committed CuTeDSL oracle, and rejects any access to the DOM, clipboard, or localStorage. Coverage includes MMAAtom → TiledMMA → partition_A/B/C → make_fragment, CopyAtom + TiledMMA → TiledCopy, nested TiledCopy URLs → partition_S/D, TV Layout → make_tiled_copy_tv, and fragment/Layout → retile. It also covers full URLs, query strings, optional fields, transpose/matrix counts, and invalid or incompatible inputs. Rendering tests remain separate in dom_smoke.
+
+## Hopper WGMMA atoms
+
+`warpgroup_mma_atom` covers all supported N sizes for all three dense families,
+both floating-point A sources (INT8 is SMEM-only due to a CuTeDSL 4.8
+register-signedness lowering failure), supported major modes, and additional accumulator/input dtype
+combinations (including mixed FP8 and INT8). CuTeDSL is traced in a separate
+SM90a process; no Hopper GPU is needed to regenerate the layout oracle.
+Register maps are compared at every domain point. Descriptor maps check the
+broadcast thread mode and every logical operand value separately.
+
+DOM smoke coverage includes mixed warp/WGMMA presets, default and matrix views,
+memory badges, highlight/value controls, source-dependent options, mixed input
+types, editable-field exports, clipboard and deep-link round trips, and rejection
+by warp-only consumers without mutating their controls.
+
+On a Hopper H100/H200 node, run:
+
+```bash
+python3 tests/gpu_check.py --warpgroup
+```
+
+This compiles and executes the same WGMMA corpus and compares a nonzero-C MMA
+against NumPy. `--case <substring>` narrows the corpus during debugging.
+`--compile-only` checks lowering without a GPU; it does **not** pass the execution gate.
+
+Execution validated with CuTeDSL 4.8.0 on NVIDIA H100 PCIe: all 303 offered
+WGMMA configurations compiled and executed with exact agreement against NumPy.
+
+## WGMMA TiledMMA
+
+`warpgroup_tiled_mma` adds 22 focused CuTeDSL cases for M/N/K replication, group
+ordering, repeated tiles, a nontrivial permutation, source/major modes and mixed
+dtypes. It reuses the already exhaustive atom traits instead of multiplying the
+entire atom corpus by every tiling. RMEM partitions compare every thread/value;
+SMEM partitions compare each group leader's complete values plus all broadcast
+thread offsets. Node tests also cover all three display modes, real memory badges,
+both orientations, atom and tiled decoding, invalid-import preservation, exports,
+deep links, named-variable previews and warp-only downstream rejection.
+
+```bash
+python3 tests/gpu_check.py --warpgroup --tiled
+```
+
+This executes the representative cases marked `gpu` in the same corpus. K-split
+layouts are checked against CuTeDSL partition ownership, while numerical GEMMs use
+disjoint output tiles. Fine-grained permutation can require RMEM A: CuTeDSL 4.8
+failed to construct a canonical SMEM descriptor for the tested row permutation.
+
+H100 PCIe execution validation: all 10 marked tiled WGMMA cases compiled and ran
+with exact NumPy agreement, including the nontrivial permutation with RMEM A.

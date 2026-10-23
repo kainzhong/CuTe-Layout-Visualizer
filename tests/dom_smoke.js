@@ -23,7 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { sourceFiles, ROOT } = require('./harness');
+const { sourceFiles, ROOT, createBrowserContext } = require('./harness');
 
 const TAB = 'tab1';
 
@@ -70,15 +70,12 @@ function makeContext() {
     createElement() { return makeEl('created'); },
     body: makeEl('body'), documentElement: makeEl('html'),
   };
-  const ctx = {
+  const ctx = createBrowserContext({
     console, document,
     navigator: { platform: 'x86_64', userAgent: 'node' },
     location: { search: '', origin: 'http://localhost', pathname: '/' },
     URLSearchParams, setTimeout,
-  };
-  ctx.window = ctx;
-  ctx.globalThis = ctx;
-  vm.createContext(ctx);
+  });
   vm.runInContext(src, ctx);
   return { ctx, els, missing };
 }
@@ -1207,6 +1204,194 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
         throw new Error('MMAAtom decode did not rebuild dependent options');
     }
   });
+  step('WGMMA renders descriptor tiles and 128-thread register ownership in both views', () => {
+    for (const [source,am,bm] of [['SMEM','K','K'],['SMEM','MN','MN'],['RMEM','K','MN']]) {
+      ctx.setMMA(TAB,'wg_f16bf16','half_t','float',16,24,source,am,bm);
+      ctx.mmaState[TAB].altView = false;
+      ctx.mmaState[TAB].showValue = false;
+      els.get(`${TAB}-mma-highlight-tid`).value = '127';
+      ctx.renderMakeMmaAtom(TAB);
+      const s = ctx.mmaState[TAB];
+      if (s.thrId.shape !== 128 || s.highlightTid !== 127) throw new Error('WGMMA did not accept thread 127');
+      const before = ['A','B','C'].map(key => s[key].str).join(';');
+      for (const [side,space] of [['a',source],['b','SMEM'],['c','RMEM']]) {
+        if (els.get(`${TAB}-mma-${side}-space`).textContent !== space) throw new Error('Wrong WGMMA memory badge');
+        const svg = els.get(`${TAB}-mma-${side}-svg`).innerHTML;
+        if (space === 'SMEM') {
+          if (!svg.includes('fill="#a7f3d0"') || svg.includes('opacity=')) throw new Error('SMEM tile has thread coloring or highlighting');
+          if (els.get(`${TAB}-mma-${side}-title`).textContent.includes('per lane')) throw new Error('Descriptor shown as per-lane registers');
+        }
+      }
+      const title = side => els.get(`${TAB}-mma-${side}-title`).textContent;
+      if (!title('a').includes(am === 'MN' ? '16×64' : '64×16') || !title('b').includes(bm === 'MN' ? '16×24' : '24×16'))
+        throw new Error('Default view does not follow major modes');
+      for (const [side,mode,axis] of [['a',am,'M'],['b',bm,'N']]) {
+        const label = `${mode === 'MN' ? axis : 'K'}-major`;
+        if (!els.get(`${TAB}-mma-${side}-desc`).innerHTML.includes(label) && (side === 'b' || source === 'SMEM'))
+          throw new Error('Operand description uses the shared enum name instead of its axis');
+        if (!els.get(`${TAB}-mma-${side}major-input`).innerHTML.includes(`>${label}</option>`))
+          throw new Error('Major-mode options do not name the operand axis');
+      }
+      const smemBefore = els.get(`${TAB}-mma-b-svg`).innerHTML;
+      ctx.toggleMmaValue(TAB);
+      if (els.get(`${TAB}-mma-b-svg`).innerHTML === smemBefore) throw new Error('Value toggle did not update SMEM labels');
+      ctx.toggleMmaAltView(TAB);
+      if (!title('a').includes('64×16') || !title('b').includes('16×24') || !title('c').includes('64×24'))
+        throw new Error('Alternative view does not show MK × KN');
+      if (before !== ['A','B','C'].map(key => s[key].str).join(';')) throw new Error('Display rotation changed TV mapping');
+    }
+    els.get(`${TAB}-mma-highlight-tid`).value = '';
+  }, ['a','b','c'].map(side => `${TAB}-mma-${side}-svg`));
+  step('WGMMA export, clipboard decode and deep links preserve the editable constructor', () => {
+    const realExport = ctx.exportURL, realSwitch = ctx.switchInnerTab;
+    try {
+      ctx.switchInnerTab = () => {};
+      ctx.setMMA(TAB,'wg_fp8','float_e4m3_t','half_t',32,128,'RMEM','K','K','float_e5m2_t');
+      // Export must use edits, even before Render.
+      els.get(`${TAB}-mma-n-input`).value = '24';
+      let exported;
+      ctx.exportURL = (btn,feature,...inputs) => { exported = [feature,...inputs]; };
+      ctx.exportMMA(TAB);
+      const url = '?key=' + encodeURIComponent(exported.join('-'));
+      ctx.setMMA(TAB,'f16bf16','half_t','float',16);
+      ctx.mmaImportAtom(TAB,'mma','renderMakeMmaAtom',url);
+      if (ctx.mmaState[TAB].n !== 24 || ctx.mmaState[TAB].bDtype !== 'float_e5m2_t' || ctx.mmaState[TAB].aSrc !== 'RMEM')
+        throw new Error('Clipboard lost WGMMA fields');
+      ctx.setMMA(TAB,'f16bf16','half_t','float',16);
+      ctx.location.search = url;
+      ctx.applyKeyParam(TAB);
+      if (JSON.stringify(ctx.mmaReadAtomInputs(TAB)) !== JSON.stringify(exported.slice(1))) throw new Error('Deep link lost WGMMA fields');
+      const before = JSON.stringify(ctx.mmaReadAtomInputs(TAB));
+      for (const invalid of [url.replace('wg_fp8','missing'),'?key=make_mma_atom-wg_int8-int8_t-int32_t-32-40-SMEM-K-K-int8_t']) {
+        let rejected = false;
+        try { ctx.mmaImportAtom(TAB,'mma','renderMakeMmaAtom',invalid); } catch (_) { rejected = true; }
+        if (!rejected || JSON.stringify(ctx.mmaReadAtomInputs(TAB)) !== before) throw new Error('Failed WGMMA decode altered controls');
+      }
+      // Source-dependent major options must be rebuilt before MN is assigned.
+      ctx.mmaImportAtom(TAB,'mma','renderMakeMmaAtom','?key=make_mma_atom-wg_f16bf16-half_t-float-16-64-SMEM-MN-MN-half_t');
+      if (ctx.mmaState[TAB].aMajor !== 'MN') throw new Error('SMEM major mode was assigned before options');
+      for (const p of ['mfrag','pabc','gemm-mma','mcab','psd-manual-mma']) {
+        const fields = ['op','ab','acc','k'];
+        const previous = fields.map(key => els.get(`${TAB}-${p}-${key}-input`).value);
+        let rejected = false;
+        try { ctx.mmaAssignAtomInputs(TAB,p,exported.slice(1)); } catch (_) { rejected = true; }
+        if (!rejected || JSON.stringify(previous) !== JSON.stringify(fields.map(key => els.get(`${TAB}-${p}-${key}-input`).value)))
+          throw new Error('Warp-only consumer accepted a WGMMA atom or changed controls');
+        if (els.get(`${TAB}-${p}-op-input`).innerHTML.includes('warpgroup.')) throw new Error('Warp-only picker exposes WGMMA');
+      }
+      ctx.setMMA(TAB,'wg_int8','int8_t','int32_t',32,24,'SMEM','K','K','uint8_t');
+      if (ctx.mmaState[TAB].n !== 24) throw new Error('INT8 lost its N input');
+      if (els.get(`${TAB}-mma-asrc-input`).innerHTML.includes('RMEM'))
+        throw new Error('INT8 exposes the CuTeDSL register signedness failure');
+    } finally {
+      ctx.exportURL = realExport; ctx.switchInnerTab = realSwitch; ctx.location.search = '';
+      ctx.setMMA(TAB,'f16bf16','half_t','float',16);
+    }
+  }, ['a','b','c'].map(side => `${TAB}-mma-${side}-svg`));
+  step('WGMMA N is editable and illegal values are rejected without replacing the input', () => {
+    if (!html.includes(`<input type="number" id="${TAB}-mma-n-input"`)) throw new Error('N is not an input box');
+    for (const [op,k,ab,acc,invalid] of [
+      ['wg_f16bf16',16,'half_t','float',['','0','7','12','264','16.5','abc']],
+      ['wg_int8',32,'int8_t','int32_t',['40','56','256.5']]
+    ]) {
+      ctx.setMMA(TAB,op,ab,acc,k,24);
+      const input = els.get(`${TAB}-mma-n-input`);
+      for (const value of invalid) {
+        input.value = value;
+        ctx.renderMakeMmaAtom(TAB);
+        if (input.value !== value) throw new Error('Illegal N was silently replaced');
+        if (!els.get(`${TAB}-mma-error`).textContent.includes('Illegal N')) throw new Error('Illegal N was not rejected');
+        ctx.toggleMmaAltView(TAB);
+        ctx.toggleMmaValue(TAB);
+        for (const side of ['a','b','c']) if (els.get(`${TAB}-mma-${side}-svg`).innerHTML) throw new Error('Illegal N retained a visualization');
+      }
+      input.value = '32';
+      ctx.renderMakeMmaAtom(TAB);
+      if (ctx.mmaState[TAB].n !== 32 || els.get(`${TAB}-mma-error`).textContent) throw new Error('Legal N did not recover');
+    }
+    ctx.setMMA(TAB,'f16bf16','half_t','float',16);
+  }, ['a','b','c'].map(side => `${TAB}-mma-${side}-svg`));
+  step('Tiled WGMMA decodes an MMAAtom and offers TVs, warps and warp groups', () => {
+    ctx.setMTM(TAB,'f16bf16','half_t','float',16,'(2,1,1)','');
+    ctx.mmaImportAtom(TAB,'mtm','renderMakeTiledMma','?key=make_mma_atom-wg_f16bf16-half_t-float-16-16-RMEM-K-MN-half_t');
+    const s = ctx.mtmState[TAB];
+    if (!s.atom.warpgroup || s.permStage.threads !== 256 || s.permStage.warps !== 8 || s.permStage.atomGroups !== 2)
+      throw new Error('WGMMA replication did not count 128 threads per atom');
+    if (s.mode !== 'warpgroup' || els.get(`${TAB}-mtm-group-mode-btn`).style.display === 'none')
+      throw new Error('Show Warp Groups is missing');
+    s.altView = false; s.showValue = false;
+    ctx.renderMakeTiledMma(TAB);
+    const smem = els.get(`${TAB}-mtm-warp-b-svg`).innerHTML;
+    els.get(`${TAB}-mtm-focus-input`).value = '1';
+    ctx.setMtmHighlight(TAB);
+    if (els.get(`${TAB}-mtm-focus-label`).textContent !== 'Warp group id' || !els.get(`${TAB}-mtm-warp-c-svg`).innerHTML.includes('WG1'))
+      throw new Error('Group focus does not label WG1');
+    ctx.setMtmMode(TAB,'warp');
+    if (els.get(`${TAB}-mtm-focus-label`).textContent !== 'Warp id' || !els.get(`${TAB}-mtm-warp-c-svg`).innerHTML.includes('W1'))
+      throw new Error('Physical warp mode was lost');
+    els.get(`${TAB}-mtm-focus-input`).value = '255';
+    ctx.setMtmMode(TAB,'tv');
+    if (!els.get(`${TAB}-mtm-warp-c-svg`).innerHTML.includes('T255')) throw new Error('TV mode lost thread 255');
+    if (els.get(`${TAB}-mtm-warp-b-svg`).innerHTML !== smem) throw new Error('Thread/group focus changed SMEM coloring');
+    for (const stage of ['warp','perm']) for (const [side,space] of [['a','RMEM'],['b','SMEM'],['c','RMEM']])
+      if (els.get(`${TAB}-mtm-${stage}-${side}-space`).textContent !== space) throw new Error('Incorrect tiled memory badge');
+    els.get(`${TAB}-mtm-focus-input`).value = '';
+    ctx.setMtmMode(TAB,'warpgroup');
+  }, ['warp','perm'].flatMap(stage=>['a','b','c'].map(side=>`${TAB}-mtm-${stage}-${side}-svg`)));
+  step('Tiled WGMMA default and matrix views preserve operand layouts', () => {
+    ctx.setMTM(TAB,'wg_f16bf16','bfloat16_t','float',16,'(1,1,1)','',24,'SMEM','MN','MN');
+    const s = ctx.mtmState[TAB]; s.altView = false;
+    ctx.renderMakeTiledMma(TAB);
+    const tv = ['A','B','C'].map(key=>ctx.formatLayoutStr(s.permStage[key].tv.shape,s.permStage[key].tv.stride)).join(';');
+    const title = side=>els.get(`${TAB}-mtm-perm-${side}-title`).textContent;
+    if (!title('a').includes('16×64') || !title('b').includes('16×24')) throw new Error('Default view ignores M/N-major modes');
+    ctx.toggleMtmAltView(TAB);
+    if (!title('a').includes('64×16') || !title('b').includes('16×24')) throw new Error('Matrix view does not show MK × KN');
+    if (tv !== ['A','B','C'].map(key=>ctx.formatLayoutStr(ctx.mtmState[TAB].permStage[key].tv.shape,ctx.mtmState[TAB].permStage[key].tv.stride)).join(';'))
+      throw new Error('Display orientation changed the TV layouts');
+    ctx.toggleMtmValue(TAB);
+  }, ['warp','perm'].flatMap(stage=>['a','b','c'].map(side=>`${TAB}-mtm-${stage}-${side}-svg`)));
+  step('Tiled WGMMA exports current edits and decodes its complete constructor transactionally', () => {
+    const realExport=ctx.exportURL, realSwitch=ctx.switchInnerTab;
+    try {
+      ctx.switchInnerTab=()=>{};
+      ctx.setMTM(TAB,'wg_fp8','float_e4m3_t','float',32,'(2,1,1)','',32,'RMEM','K','K','float_e5m2_t');
+      els.get(`${TAB}-mtm-n-input`).value='24';
+      let exported;
+      ctx.exportURL=(btn,feature,...inputs)=>{exported=[feature,...inputs];};
+      ctx.exportMTM(TAB);
+      const url='?key='+encodeURIComponent(exported.join('-'));
+      ctx.setMTM(TAB,'f16bf16','half_t','float',16,'(1,1,1)','');
+      ctx.mtmImportConstructor(TAB,url);
+      if (JSON.stringify(ctx.mtmReadConstructorControls(TAB,'mtm'))!==JSON.stringify(exported.slice(1))) throw new Error('Tiled WGMMA clipboard round trip lost fields');
+      ctx.setMTM(TAB,'f16bf16','half_t','float',16,'(1,1,1)','');
+      ctx.location.search=url;ctx.applyKeyParam(TAB);
+      if (ctx.mtmState[TAB].atom.n!==24 || ctx.mtmState[TAB].atom.bDtype!=='float_e5m2_t') throw new Error('Deep link lost WGMMA fields');
+      const before=JSON.stringify(ctx.mtmReadConstructorControls(TAB,'mtm'));
+      for (const bad of [url.replace('wg_fp8','missing'),'?key=make_tiled_mma-wg_int8-int8_t-int32_t-32-(1,1,1)-na-40-SMEM-K-K-int8_t']) {
+        let rejected=false;try{ctx.mtmImportConstructor(TAB,bad);}catch(_){rejected=true;}
+        if(!rejected || JSON.stringify(ctx.mtmReadConstructorControls(TAB,'mtm'))!==before) throw new Error('Invalid import changed constructor fields');
+      }
+      for(const p of ['pabc','mcab','gemm-mma','psd-manual-mma']) {
+        let rejected=false;try{ctx.mtmWriteConstructorControls(TAB,p,exported.slice(1));}catch(_){rejected=true;}
+        if(!rejected)throw new Error('Unsupported downstream consumer accepted WGMMA');
+      }
+      els.get(`${TAB}-mtm-perm-input`).value='(128,48,32)';
+      ctx.renderMakeTiledMma(TAB);
+      const keep=JSON.stringify(ctx.mtmReadConstructorControls(TAB,'mtm'));
+      let rejected=false;
+      try { ctx.mmaImportAtom(TAB,'mtm','renderMakeTiledMma','?key=make_mma_atom-wg_f16bf16-half_t-float-16-64-SMEM-K-K-half_t'); }
+      catch (_) { rejected=true; }
+      if(!rejected || JSON.stringify(ctx.mtmReadConstructorControls(TAB,'mtm'))!==keep)
+        throw new Error('An atom incompatible with the current tiling changed controls');
+      els.get(`${TAB}-mtm-n-input`).value='12';ctx.renderMakeTiledMma(TAB);
+      if(!els.get(`${TAB}-mtm-error`).textContent.includes('Illegal N'))throw new Error('Tiled N input did not reject illegal values');
+    } finally {
+      ctx.exportURL=realExport;ctx.switchInnerTab=realSwitch;ctx.location.search='';
+      els.get(`${TAB}-mtm-focus-input`).value='';
+      ctx.setMTM(TAB,'f16bf16','half_t','float',16,'(2,2,1)','');
+    }
+  }, ['warp','perm'].flatMap(stage=>['a','b','c'].map(side=>`${TAB}-mtm-${stage}-${side}-svg`)));
   step('CopyAtom decode updates source and tiled tabs with each consumer domain enforced', () => {
     ctx.setMTC(TAB,'universal',128,'half_t','((8,16),8):((128,1),16)','(16,64)');
     ctx.setMTV(TAB,'universal',128,'half_t','(16,8):(8,1)','(1,8):(1,1)');
@@ -1489,6 +1674,9 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     'make_copy_atom-g2r-128-half_t',
     'make_mma_atom-f16bf16-half_t-float-16',
     'make_mma_atom-tf32-na-na-8',
+    'make_mma_atom-wg_f16bf16-half_t-float-16-64-SMEM-MN-K-half_t',
+    'make_mma_atom-wg_fp8-float_e4m3_t-float-32-24-RMEM-K-K-float_e5m2_t',
+    'make_mma_atom-wg_int8-int8_t-int32_t-32-256-SMEM-K-K-uint8_t',
     'make_tiled_mma-f16bf16-half_t-float-16-(2, 2, 1)-(32, 32, 16)',
     'make_tiled_mma-tf32-na-na-8-(2, 2, 1)-na',
     'local_tile-(16, 16):(16, 1)-(4, 4)-(1, 2)',

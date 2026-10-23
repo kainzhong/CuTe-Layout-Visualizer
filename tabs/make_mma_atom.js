@@ -1,4 +1,4 @@
-// make_mma_atom tab (MMA scope): build ONE warp-level MMA Atom and visualize
+// make_mma_atom tab (MMA scope): build ONE warp or warpgroup MMA Atom and visualize
 // its three operand fragments. Functions become globals on `window`.
 //
 // Mirrors `cute.make_mma_atom(op)` — the same two-step shape every atom in the
@@ -21,11 +21,11 @@
 //
 // because the instruction reads two operands and accumulates into a third.
 //
-// SCOPE: `cute.nvgpu.warp`, and within it the three DENSE `WarpMmaOp`
-// subclasses — MmaF16BF16Op, MmaTF32Op, MmaFP8Op. Every configuration offered
-// here has been compiled and EXECUTED on a GB200 (tests/gpu_check.py), not just
-// traced — tracing alone would not distinguish a usable instruction from one the
-// DSL can describe but not lower.
+// SCOPE: three dense warp Op families and three dense Hopper warpgroup
+// families. The warp traits remain shared with warp-only downstream tabs.
+// WGMMA uses separate traits and constructor controls, with SMEM operands
+// displayed as uniform logical tiles instead of per-thread registers.
+// Execution gate: tests/gpu_check.py --warpgroup (Hopper SM90a required).
 //
 // Deliberately excluded:
 //   MmaF16BF16SparseOp — the fourth WarpMmaOp subclass. Structured (2:4)
@@ -121,6 +121,63 @@ const MMA_WARP_OPS = {
 
 const MMA_M = 16, MMA_N = 8;   // every warp MMA here is m16n8k*
 
+// WGMMA traits from CuTeDSL 4.8 / mma_traits_sm90_gmma.hpp. SMEM TV
+// layouts broadcast the whole logical operand across the thread mode; they
+// describe a descriptor operand, not 128 independent register fragments.
+const MMA_WARPGROUP_OPS = {
+  wg_f16bf16: { label: 'warpgroup.MmaF16BF16Op', ab: ['half_t', 'bfloat16_t'], acc: ['half_t', 'float'], kDomain: [16] },
+  wg_fp8: { label: 'warpgroup.MmaF8Op', ab: ['float_e4m3_t', 'float_e5m2_t'], acc: ['half_t', 'float'], kDomain: [32] },
+  wg_int8: { label: 'warpgroup.MmaI8Op', ab: ['int8_t', 'uint8_t'], acc: ['int32_t'], kDomain: [32] },
+};
+const MMA_WARPGROUP_A_RMEM = {
+  16: '((4,8,4),(2,2,2)):((128,1,16),(64,8,512))',
+  32: '((4,8,4),(4,2,2)):((256,1,16),(64,8,1024))',
+};
+
+function mmaWarpgroupNs(opKey) {
+  return Array.from({length: 32}, (_, i) => (i + 1) * 8)
+    .filter(n => opKey !== 'wg_int8' || n === 8 || n === 24 || n % 16 === 0);
+}
+
+// CuTe shares the enum value MN; display the actual contiguous operand axis.
+function mmaMajorLabel(operand, major) {
+  return `${major === 'MN' ? (operand === 'A' ? 'M' : 'N') : 'K'}-major`;
+}
+
+function mmaWarpgroupAtom(opKey, ab, acc, k, n, aSrc, aMajor, bMajor, bDtype = ab) {
+  const op = MMA_WARPGROUP_OPS[opKey];
+  if (!op) throw new Error(`Unknown warpgroup MMA Op "${opKey}"`);
+  if (!op.ab.includes(ab) || !op.ab.includes(bDtype) || !op.acc.includes(acc))
+    throw new Error('Unsupported warpgroup MMA dtype.');
+  if (opKey === 'wg_f16bf16' && (ab !== bDtype || (ab === 'bfloat16_t' && acc !== 'float')))
+    throw new Error('F16/BF16 requires matching A/B types; bfloat16_t requires a float accumulator.');
+  if (!op.kDomain.includes(k))
+    throw new Error('Unsupported warpgroup MMA instruction shape.');
+  if (!mmaWarpgroupNs(opKey).includes(n))
+    throw new Error(opKey === 'wg_int8'
+      ? 'Illegal N: INT8 WGMMA requires 8, 24, or a multiple of 16 from 16 through 256.'
+      : 'Illegal N: WGMMA requires a multiple of 8 from 8 through 256.');
+  if (!['SMEM', 'RMEM'].includes(aSrc) || !['K', 'MN'].includes(aMajor) || !['K', 'MN'].includes(bMajor))
+    throw new Error('Unsupported warpgroup operand source or major mode.');
+  // CuTeDSL 4.8 gemm verification rejects signed/unsigned register A as i8.
+  if (opKey === 'wg_int8' && aSrc !== 'SMEM')
+    throw new Error('INT8 WGMMA currently supports SMEM A only (CuTeDSL register signedness limitation).');
+  if ((aSrc === 'RMEM' && aMajor !== 'K') || (opKey !== 'wg_f16bf16' && (aMajor !== 'K' || bMajor !== 'K')))
+    throw new Error('This warpgroup MMA requires K-major operands (only SMEM F16/BF16 supports M-major A or N-major B).');
+  const mk = (str, rows, cols, space, major) => {
+    const p = parseLayout(str);
+    return { ...p, str, tile: {shape: [rows, cols], stride: [1, rows]},
+      numVal: product(p.shape[1]), space, major };
+  };
+  const c = n === 8 ? '((4,8,4),(2,2)):((128,1,16),(64,8))'
+    : `((4,8,4),(2,2,${n / 8})):((128,1,16),(64,8,512))`;
+  return { opKey, op, k, n, aSrc, aMajor, bMajor, bDtype, abDtype: ab, accDtype: acc,
+    warpgroup: true, shapeMNK: [64, n, k], thrId: {shape: 128, stride: 1},
+    A: mk(aSrc === 'RMEM' ? MMA_WARPGROUP_A_RMEM[k] : `(128,(64,${k})):(0,(1,64))`, 64, k, aSrc, aMajor),
+    B: mk(`(128,(${n},${k})):(0,(1,${n}))`, n, k, 'SMEM', bMajor),
+    C: mk(c, 64, n, 'RMEM', 'MN') };
+}
+
 /** The Atom produced by `make_mma_atom(op)`, DOM-free so tests/run.js can diff
  *  it against CuTeDSL (see tests/cases.json, section `mma_atom`).
  *
@@ -192,7 +249,7 @@ function generateMakeMmaAtomTabContent(id) {
         <details class="cuo-section" open>
           <summary>1. MMAAtom</summary>
           <div class="cuo-section-body">
-            ${mmaAtomEditorMarkup({id,p:'mma',render:'renderMakeMmaAtom',setOp:'setMmaOp'})}
+            ${mmaAtomEditorMarkup({id,p:'mma',render:'renderMakeMmaAtom',setOp:'setMmaOp',warpgroup:true})}
             <div id="${id}-mma-op-params" class="cuo-result"></div>
           </div>
         </details>
@@ -216,66 +273,29 @@ function generateMakeMmaAtomTabContent(id) {
         <div class="presets">
           <h3>Presets</h3>
           <div class="preset-list">
-            <button class="preset-btn" onclick="setMMA('${id}','f16bf16','half_t','float',16)">m16n8k16 &mdash; f16 x f16 + f32 (the canonical one)</button>
-            <button class="preset-btn" onclick="setMMA('${id}','f16bf16','half_t','float',8)">m16n8k8 &mdash; f16 x f16 + f32 (half the K)</button>
-            <button class="preset-btn" onclick="setMMA('${id}','f16bf16','half_t','half_t',16)">m16n8k16 &mdash; f16 accumulator (same layouts, half the registers)</button>
-            <button class="preset-btn" onclick="setMMA('${id}','f16bf16','bfloat16_t','float',16)">m16n8k16 &mdash; bf16 x bf16 + f32</button>
-            <button class="preset-btn" onclick="setMMA('${id}','tf32',null,null,8)">m16n8k8 &mdash; tf32 (no dtype parameters)</button>
-            <button class="preset-btn" onclick="setMMA('${id}','tf32',null,null,4)">m16n8k4 &mdash; tf32 (B is one element per lane)</button>
-            <button class="preset-btn" onclick="setMMA('${id}','fp8','float_e4m3_t','float',32)">m16n8k32 &mdash; fp8 e4m3 (4 elements per register)</button>
+            <button class="preset-btn" onclick="setMMA('${id}','f16bf16','half_t','float',16)">Warp MMA — m16n8k16 FP16 / FP32</button>
+            <button class="preset-btn" onclick="setMMA('${id}','tf32',null,null,8)">Warp MMA — m16n8k8 TF32</button>
+            <button class="preset-btn" onclick="setMMA('${id}','fp8','float_e4m3_t','float',32)">Warp MMA — m16n8k32 FP8</button>
+            <button class="preset-btn" onclick="setMMA('${id}','wg_f16bf16','half_t','float',16,64,'SMEM','K','K')">WGMMA — m64n64k16 FP16, SMEM / SMEM</button>
+            <button class="preset-btn" onclick="setMMA('${id}','wg_f16bf16','bfloat16_t','float',16,128,'SMEM','MN','MN')">WGMMA — m64n128k16 BF16, M-major A / N-major B</button>
+            <button class="preset-btn" onclick="setMMA('${id}','wg_f16bf16','half_t','half_t',16,32,'RMEM','K','MN')">WGMMA — m64n32k16 FP16, register A</button>
+            <button class="preset-btn" onclick="setMMA('${id}','wg_fp8','float_e4m3_t','float',32,64,'RMEM','K','K','float_e5m2_t')">WGMMA — m64n64k32 mixed FP8, register A</button>
+            <button class="preset-btn" onclick="setMMA('${id}','wg_int8','int8_t','int32_t',32,24,'SMEM','K','K','uint8_t')">WGMMA — m64n24k32 signed / unsigned INT8</button>
           </div>
         </div>
 
         <div class="hint">
-          <b>An MMA Atom is one instruction's register signature.</b> It says how
-          many threads take part (<code>ThrID</code>) and which elements of A, B
-          and C each of them holds. That is the whole object &mdash; there is
-          nothing here about memory, tiles or how the data arrives.<br><br>
-          <b>Three TV layouts over three different tiles.</b> This is the one
-          structural difference from a Copy Atom, whose <code>src</code> and
-          <code>dst</code> are two views of a <em>single</em> tile. An MMA reads
-          two operands and accumulates into a third, so:
-          <code>tv_layout_A</code> is over <code>(M, K)</code>,
-          <code>tv_layout_B</code> over <code>(N, K)</code>, and
-          <code>tv_layout_C</code> over <code>(M, N)</code>. All three are
-          bijections &mdash; <code>size == cosize</code> &mdash; so every cell is
-          owned by exactly one lane, with no broadcast.<br><br>
-          <b>One thread mode, three value modes.</b> Every layout here shares the
-          thread mode <code>(4, 8)</code>: <code>t/4</code> picks the row,
-          <code>t%4</code> picks the column pair. The value modes just say which
-          of the doublings apply &mdash; A doubles in both M and K, B only in K,
-          C only in M.<br><br>
-          <b>The dtypes pick the instruction, not the layouts.</b> Verified over
-          all 16 valid parameter combinations: the three layouts depend only on
-          the Op family and K. <code>acc_dtype</code> never changes
-          <code>tv_layout_C</code> &mdash; an f16 accumulator packs the same four
-          values into two registers instead of four, which changes the register
-          count, not the map. Nor does <code>ab_dtype</code> within a family:
-          half_t and bfloat16_t agree, and so do e4m3 and e5m2.<br><br>
-          <b>Why this tab is a table.</b> CUTLASS defines these as hand-written
-          <code>MMA_Traits</code> specializations &mdash; literal
-          <code>Layout&lt;Shape&lt;...&gt;, Stride&lt;...&gt;&gt;</code> typedefs,
-          one per instruction (<code>include/cute/atom/mma_traits_sm80.hpp:78</code>).
-          There is no derivation to port, because an MMA atom is a hardware fact
-          rather than a computation. Every entry is diffed against CuTeDSL.<br><br>
-          <b>Scope.</b> <code>cute.nvgpu.warp</code>, and within it the three
-          <em>dense</em> <code>WarpMmaOp</code> subclasses.
-          <code>MmaF16BF16SparseOp</code> is left out: <code>MmaAtom</code>
-          exposes no metadata (E) layout and its A layout is over the
-          <em>logical</em> (M,&nbsp;K) tile, so the 2:4 compression that makes it
-          sparse would be invisible in the only thing this tab draws. The
-          block-scaled Ops (<code>MmaMXF4Op</code>, <code>MmaMXF8Op</code>,
-          <code>MmaMXF4NVF4Op</code>, <code>MmaMXF8F6F4Op</code>) subclass
-          <code>MmaOp</code> directly and are sm_120-only. Hopper
-          <code>wgmma</code> and Blackwell <code>tcgen05</code> are a different
-          shape of problem: their operands come from SMEM descriptors and TMEM
-          respectively, so the "three register fragments" reading does not
-          hold.<br><br>
-          <b>Next step.</b> <code>make_tiled_mma(op_or_atom, atom_layout_mnk)</code>
-          replicates this atom across warps &mdash; the MMA counterpart of
-          <b>make_tiled_copy</b>. And <code>tv_layout_A</code> is exactly what
-          <code>make_tiled_copy_A</code> hands to a copy as its target, which is
-          how <b>make_copy_atom</b>'s ldmatrix ends up producing this fragment.
+          <b>One MMA instruction.</b> Warp MMA uses 32 threads; Hopper WGMMA uses 128.
+          Register operands show thread/value ownership. Shared-memory operands are drawn in
+          one color: their TV layouts broadcast the operand across threads and describe SMEM
+          descriptors rather than per-thread registers. Highlighting affects register operands only.<br><br>
+          <b>Views.</b> The default view follows each operand's major mode. Alternative View
+          always shows A as M×K, B as K×N, and C as M×N; it changes the display, not the TV layouts.
+          SMEM cells are unlabeled by default; value shows logical offsets, not physical addresses or swizzle.<br><br>
+          <b>Execution.</b> Warp MMA is synchronous. WGMMA is asynchronous and requires
+          warpgroup-uniform issue plus fence, commit_group, and wait_group synchronization.<br><br>
+          Sparse metadata, block-scaled operands and Blackwell tcgen05 remain outside this tab.
+          TiledMMA supports both scopes; partition and fragment tabs currently accept warp atoms only.
         </div>
       </div>
 
@@ -297,21 +317,11 @@ function renderMakeMmaAtom(tabId) {
   showWarn(`${tabId}-mma-warning`, '');
   try {
     const opKey = document.getElementById(`${tabId}-mma-op-input`).value;
-    const op = MMA_WARP_OPS[opKey] || MMA_WARP_OPS.f16bf16;
     mmaSyncControls(tabId, opKey);
-
-    const k = parseInt(document.getElementById(`${tabId}-mma-k-input`).value, 10);
-    const abDtype  = op.ab  ? document.getElementById(`${tabId}-mma-ab-input`).value  : 'tfloat32_t';
-    const accDtype = op.acc ? document.getElementById(`${tabId}-mma-acc-input`).value : 'float';
-
-    // Mirrored from __post_init__: bf16 has no f16-accumulator form.
-    if (op.ab && abDtype === 'bfloat16_t' && accDtype !== 'float') {
-      throw new Error(
-        `${op.label} requires acc_dtype = float when ab_dtype is bfloat16_t ` +
-        `(there is no bf16 MMA with an f16 accumulator).`);
-    }
-
-    const a = mmaWarpAtom(opKey, k);
+    const inputs = mmaReadAtomInputs(tabId);
+    const {atom: a, op} = mmaDecodeAtomInputs(inputs);
+    const k = a.k, abDtype = inputs[1] === 'na' ? 'tfloat32_t' : inputs[1];
+    const accDtype = inputs[2] === 'na' ? 'float' : inputs[2];
     const prev = mmaState[tabId] || {};
     // Same control, same convention as the tv / make_tiled_copy /
     // make_tiled_copy_tv tabs: live on `oninput`, an out-of-range id WARNS and
@@ -322,11 +332,12 @@ function renderMakeMmaAtom(tabId) {
     mmaState[tabId] = { ...a, abDtype, accDtype, showValue: !!prev.showValue,
                         altView: !!prev.altView, highlightTid: hl.tid };
 
-    mmaRenderOpParams(tabId, op, k, abDtype, accDtype);
+    mmaRenderOpParams(tabId, op, k, abDtype, accDtype, 'mma', a);
     mmaRenderResult(tabId);
     mmaRenderViz(tabId);
-    updateOuterTabLabel(tabId, `make_mma_atom:${op.label.replace('warp.', '')}/k${k}`);
+    updateOuterTabLabel(tabId, `make_mma_atom:${op.label}/${a.shapeMNK.join('x')}`);
   } catch (e) {
+    mmaState[tabId] = null;
     showErr(`${tabId}-mma-error`, e.message);
     for (const s of ['a', 'b', 'c']) {
       const el = document.getElementById(`${tabId}-mma-${s}-svg`);
@@ -348,7 +359,8 @@ function renderMakeMmaAtom(tabId) {
  *  repopulate-then-assign order is easier to keep right than two. */
 function mmaSyncControls(tabId, opKey, p) {
   p = p || 'mma';
-  const op = MMA_WARP_OPS[opKey] || MMA_WARP_OPS.f16bf16;
+  const wg = ['mma', 'mtm'].includes(p) && MMA_WARPGROUP_OPS[opKey];
+  const op = wg || MMA_WARP_OPS[opKey] || MMA_WARP_OPS.f16bf16;
   const fill = (sel, values, labelFn) => {
     if (!sel || !values.length) return;
     const want = sel.value;
@@ -368,7 +380,18 @@ function mmaSyncControls(tabId, opKey, p) {
   fill(document.getElementById(`${tabId}-${p}-ab-input`), op.ab || []);
   fill(document.getElementById(`${tabId}-${p}-acc-input`), op.acc || []);
   fill(document.getElementById(`${tabId}-${p}-k-input`), op.kDomain,
-       v => `(16, 8, ${v})   —   m16n8k${v}`);
+       v => wg ? `K = ${v}` : `(16, 8, ${v})   —   m16n8k${v}`);
+  if (['mma', 'mtm'].includes(p)) {
+    document.getElementById(`${tabId}-${p}-ab-label`).textContent = wg && opKey !== 'wg_f16bf16' ? 'a_dtype' : 'ab_dtype';
+    document.getElementById(`${tabId}-${p}-shape-label`).textContent = wg ? 'instruction_shape (K; M = 64, N below)' : 'shape_mnk';
+    fill(document.getElementById(`${tabId}-${p}-b-input`), op.ab || []);
+    fill(document.getElementById(`${tabId}-${p}-asrc-input`), opKey === 'wg_int8' ? ['SMEM'] : ['SMEM', 'RMEM']);
+    const source = document.getElementById(`${tabId}-${p}-asrc-input`).value;
+    fill(document.getElementById(`${tabId}-${p}-amajor-input`), wg && opKey === 'wg_f16bf16' && source === 'SMEM' ? ['K', 'MN'] : ['K'], v => mmaMajorLabel('A', v));
+    fill(document.getElementById(`${tabId}-${p}-bmajor-input`), wg && opKey === 'wg_f16bf16' ? ['K', 'MN'] : ['K'], v => mmaMajorLabel('B', v));
+    for (const key of ['n','asrc','amajor','bmajor']) show(`${tabId}-${p}-${key}-group`, !!wg);
+    show(`${tabId}-${p}-b-group`, !!wg && opKey !== 'wg_f16bf16');
+  }
   show(`${tabId}-${p}-ab-group`, !!op.ab);
   show(`${tabId}-${p}-acc-group`, !!op.acc);
 }
@@ -378,9 +401,14 @@ function setMmaOp(tabId) {
   renderMakeMmaAtom(tabId);
 }
 
-function mmaRenderOpParams(tabId, op, k, abDtype, accDtype, p) {
+function mmaRenderOpParams(tabId, op, k, abDtype, accDtype, p, atom) {
   const host = document.getElementById(`${tabId}-${p || 'mma'}-op-params`);
   if (!host) return;
+  if (atom && atom.warpgroup) {
+    const args = atom.opKey === 'wg_f16bf16' ? [abDtype, accDtype] : [abDtype, atom.bDtype, accDtype];
+    host.textContent = `${op.label}(${args.join(', ')}, (${atom.shapeMNK.join(', ')}), ${atom.aSrc}, ${mmaMajorLabel('A', atom.aMajor)}, ${mmaMajorLabel('B', atom.bMajor)})`;
+    return;
+  }
   const args = [];
   if (op.ab)  args.push(abDtype);
   if (op.acc) args.push(accDtype);
@@ -402,27 +430,29 @@ function mmaRenderResult(tabId) {
   // its A operand being stored compressed.)
   const regs = (n, bits) =>
     ` = ${(n * bits) / 32} &times; 32-bit register${(n * bits) / 32 === 1 ? '' : 's'}`;
-  const line = (name, L, rows, cols, what, bits) =>
-    `<div class="cuo-result-line">tv_layout_${name} = ${L.str}</div>` +
+  const line = (name, L, rows, cols, what, bits) => L.space === 'SMEM'
+    ? `<div class="cuo-result-line">tv_layout_${name} = ${L.str}</div>` +
+      `<div class="cuo-result-line">${rows}×${cols} SMEM operand; descriptor, ${mmaMajorLabel(name, L.major)}; broadcast across threads.</div>`
+    : `<div class="cuo-result-line">tv_layout_${name} = ${L.str}</div>` +
     `<div class="cuo-result-line" style="color:#9ca3af">&nbsp;&nbsp;over the ${rows}&times;${cols} ` +
-    `${what} tile &mdash; ${L.numVal} element${L.numVal === 1 ? '' : 's'}/lane` +
+    `${what} tile &mdash; ${L.numVal} element${L.numVal === 1 ? '' : 's'}/${s.warpgroup ? 'thread' : 'lane'}` +
     `${regs(L.numVal, bits)}</div>`;
 
   document.getElementById(`${tabId}-mma-atom-result`).innerHTML =
     `<div class="cuo-result-line"><b>MMA_Atom&lt;${s.op.label.replace('warp.', '')}&gt;</b></div>` +
     `<div class="cuo-result-line">ThrID       = ${formatLayoutStr(s.thrId.shape, s.thrId.stride)}` +
-    `<span style="color:#9ca3af"> &mdash; warp-collective; mma.sync.aligned needs all 32 lanes converged</span></div>` +
+    `<span style="color:#9ca3af"> &mdash; ${s.warpgroup ? 'warpgroup-collective; wgmma.mma_async needs all 128 threads' : 'warp-collective; mma.sync.aligned needs all 32 lanes converged'}</span></div>` +
     `<div class="cuo-result-line">Shape MNK   = (${M}, ${N}, ${K})</div>` +
     line('A', s.A, M, K, 'A (M&times;K)', abBits) +
-    line('B', s.B, N, K, 'B (N&times;K)', abBits) +
+    line('B', s.B, N, K, 'B (N&times;K)', DTYPE_BITS[s.bDtype] || abBits) +
     line('C', s.C, M, N, 'C (M&times;N)', accBits) +
-    `<div class="cuo-result-line" style="color:#9ca3af">All three are bijections ` +
-    `(<code>size == cosize</code>) &mdash; every cell owned by exactly one lane, no broadcast.</div>`;
+    `<div class="cuo-result-line" style="color:#9ca3af">${s.warpgroup
+      ? 'RMEM operands show register ownership; SMEM operands are descriptor broadcasts.'
+      : 'All three are bijections (size == cosize): every cell owned by exactly one lane.'}</div>`;
 }
 
-/** The quadrant-layout toggle. Only the CSS class and B's tile change; the
- *  layouts themselves are untouched, which is the point — B really is the same
- *  fragment, just drawn with its axes the other way round. */
+/** Matrix view fixes A/B/C to MK/KN/MN regardless of operand major modes.
+ * The operand TV layouts are untouched. */
 function toggleMmaAltView(tabId) {
   const s = mmaState[tabId];
   if (!s) return;
@@ -438,11 +468,8 @@ function toggleMmaValue(tabId) {
   mmaRenderViz(tabId);
 }
 
-// Each operand is drawn with buildTVSVG — the same builder the TV Layout tab
-// and make_copy_atom use, since the question is identical ("which (thread,
-// value) slot owns this cell"). No `cellIndex` override is needed here: these
-// tiles are COL-major in their own codomain, which is buildTVSVG's default.
-// No `dimTids` either — an MMA atom has no broadcast (size == cosize).
+// RMEM uses the shared TV renderer; descriptor operands use the shared
+// colored-layout renderer with one color and optional logical offsets.
 function mmaRenderViz(tabId) {
   const s = mmaState[tabId];
   if (!s) return;
@@ -451,7 +478,7 @@ function mmaRenderViz(tabId) {
   const panes = [
     ['a', 'A', s.A, M, K, 'M&times;K', s.abDtype,
      'The A operand. Lane <code>t</code> holds rows {t/4, t/4+8} and a run of k decided by t%4.'],
-    ['b', 'B', s.B, N, K, 'N&times;K', s.abDtype,
+    ['b', 'B', s.B, N, K, 'N&times;K', s.bDtype || s.abDtype,
      'The B operand. Only one row per lane &mdash; B has no M extent, so the row group collapses.'],
     ['c', 'C', s.C, M, N, 'M&times;N', s.accDtype,
      'The accumulator. This is the layout your epilogue has to deal with, and the one ' +
@@ -471,19 +498,24 @@ function mmaRenderViz(tabId) {
     // axes swapped. The `value` overlay then needs its own cellIndex, since
     // buildTVSVG's default assumes the tile is col-major in its own codomain
     // and would print k + n*K where the layout's output is n + N*k.
-    const rot = !!s.altView && side === 'b';
+    const rot = s.altView ? side === 'b' : (s.warpgroup && side !== 'c' && L.major === 'MN');
     const tileShape  = rot ? [cols, rows] : L.tile.shape;
+    const displayDims = side === 'a' ? (rot ? 'K×M' : 'M×K') : side === 'b' ? (rot ? 'K×N' : 'N×K') : 'M×N';
+    const space = L.space || 'RMEM';
+    setMemorySpaceBadge(`${tabId}-mma-${side}-space`, space);
     const tileStride = rot ? [rows, 1] : L.tile.stride;
     const opts = rot ? { cellIndex: (m, n) => n + rows * m } : undefined;
 
     document.getElementById(`${tabId}-mma-${side}-title`).textContent =
       `${name} — ${tileShape[0]}×${tileShape[1]} ${dtype} ` +
-      `(${(rot ? 'K&times;N' : dims).replace('&times;', '×')}), ${L.numVal} per lane`;
+      `(${displayDims}), ${space === 'SMEM' ? 'descriptor' : `${L.numVal} per ${s.warpgroup ? 'thread' : 'lane'}`}`;
     document.getElementById(`${tabId}-mma-${side}-desc`).innerHTML =
-      `${desc}${rot ? ' Shown transposed, as K&times;N.' : ''} ` +
+      `${s.warpgroup ? (space === 'SMEM' ? `Shared-memory operand, ${mmaMajorLabel(name, L.major)}. Logical tile; no per-thread register ownership.` : 'Register fragment distributed across 128 threads.') : desc}${rot ? ' Shown transposed.' : ''} ` +
       `<code>tv_layout_${name} = ${L.str}</code>`;
     document.getElementById(`${tabId}-mma-${side}-svg`).innerHTML =
-      buildTVSVG(L.shape, L.stride, tileShape, tileStride, false, 'col',
+      space === 'SMEM'
+      ? buildColoredLayoutSVG(tileShape, tileStride, [], (m, n, offset) => ({bg: '#a7f3d0', text: s.showValue ? [String(offset)] : null}))
+      : buildTVSVG(L.shape, L.stride, tileShape, tileStride, false, 'col',
                  s.highlightTid === undefined ? null : s.highlightTid, labelMode, opts);
     applyZoomState(`${tabId}-mma-${side}-svg`);
   }
@@ -495,57 +527,88 @@ function setMmaHighlight(tabId) {
   renderMakeMmaAtom(tabId);
 }
 
-function setMMA(tabId, opKey, ab, acc, k) {
-  document.getElementById(`${tabId}-mma-op-input`).value = opKey;
-  mmaSyncControls(tabId, opKey);        // options BEFORE values, or the assign is a no-op
-  if (ab)  document.getElementById(`${tabId}-mma-ab-input`).value  = ab;
-  if (acc) document.getElementById(`${tabId}-mma-acc-input`).value = acc;
-  document.getElementById(`${tabId}-mma-k-input`).value = String(k);
+function setMMA(tabId, opKey, ab, acc, k, n=64, aSrc='SMEM', aMajor='K', bMajor='K', bDtype=ab) {
+  const inputs = [opKey, ab || 'na', acc || 'na', String(k)];
+  if (MMA_WARPGROUP_OPS[opKey]) inputs.push(String(n), aSrc, aMajor, bMajor, bDtype);
+  mmaAssignAtomInputs(tabId, 'mma', inputs);
   renderMakeMmaAtom(tabId);
 }
 
-function exportMMA(tabId) {
-  exportURL(`${tabId}-mma-export`, 'make_mma_atom',
-    document.getElementById(`${tabId}-mma-op-input`).value,
-    document.getElementById(`${tabId}-mma-ab-input`).value || 'na',
-    document.getElementById(`${tabId}-mma-acc-input`).value || 'na',
-    document.getElementById(`${tabId}-mma-k-input`).value);
+function mmaReadAtomInputs(tabId, p = 'mma') {
+  const read = key => document.getElementById(`${tabId}-${p}-${key}-input`).value;
+  const op = read('op');
+  const inputs = [op, op === 'tf32' ? 'na' : read('ab') || 'na', op === 'tf32' ? 'na' : read('acc') || 'na', read('k')];
+  if (MMA_WARPGROUP_OPS[op]) inputs.push(read('n'), read('asrc'), read('amajor'), read('bmajor'),
+    op === 'wg_f16bf16' ? read('ab') : read('b'));
+  return inputs;
 }
 
+function exportMMA(tabId) {
+  exportURL(`${tabId}-mma-export`, 'make_mma_atom', ...mmaReadAtomInputs(tabId));
+}
 
 function mmaDecodeAtomInputs(inputs) {
-  const [opKey, ab, acc, k] = inputs;
+  const [opKey, ab, acc, k, n, aSrc, aMajor, bMajor, bDtype] = inputs;
+  if (MMA_WARPGROUP_OPS[opKey]) {
+    if (inputs.length !== 9) throw new Error('Warpgroup MMAAtom requires N, operand source, major modes and B dtype.');
+    return {
+      atom: mmaWarpgroupAtom(opKey, ab, acc, Number(k), Number(n), aSrc, aMajor, bMajor, bDtype),
+      op: MMA_WARPGROUP_OPS[opKey]
+    };
+  }
+  if (inputs.length !== 4) throw new Error('Unexpected warp MMAAtom parameters.');
   const atom = mmaWarpAtom(opKey, Number(k)), op = MMA_WARP_OPS[opKey];
   if (op.ab && (!op.ab.includes(ab) || !op.acc.includes(acc))) throw new Error('Unsupported MMAAtom dtype.');
   if (op.ab && ab === 'bfloat16_t' && acc !== 'float') throw new Error('bfloat16_t requires a float accumulator.');
   return {atom, op};
 }
 
-function mmaAtomEditorMarkup({id,p,render,setOp,k=null,errorPrefix=p}) {
+function mmaAssignAtomInputs(tabId, p, inputs) {
+  const {atom} = mmaDecodeAtomInputs(inputs);
+  if (!['mma', 'mtm'].includes(p) && atom.warpgroup) throw new Error('This consumer supports warp MMA atoms only.');
+  const [op,ab,acc,k,n,aSrc,aMajor,bMajor,bDtype] = inputs;
+  const write = (key,value) => { document.getElementById(`${tabId}-${p}-${key}-input`).value = String(value); };
+  write('op',op);
+  mmaSyncControls(tabId,op,p);
+  write('ab',ab === 'na' ? '' : ab);
+  write('acc',acc === 'na' ? '' : acc);
+  write('k',k);
+  if (atom.warpgroup) {
+    write('n',n); write('asrc',aSrc);
+    mmaSyncControls(tabId,op,p); // Rebuild major modes after the source changes.
+    write('amajor',aMajor); write('bmajor',bMajor); write('b',bDtype || ab);
+  }
+}
+
+function mmaAtomEditorMarkup({id,p,render,setOp,k=null,errorPrefix=p,warpgroup=false}) {
   return `<button class="btn btn-render btn-decode" id="${id}-${p}-decode-atom" onclick="mmaDecodeAtomPasteboard('${id}','${p}','${render}','${errorPrefix}')">Decode from Pasteboard</button>
     <details class="cuo-section" id="${id}-${p}-atom-manual-construction"><summary>Manual construction</summary><div class="cuo-section-body">
       <div class="form-group"><label>Op</label>
         <select id="${id}-${p}-op-input" onchange="${setOp || render}('${id}')">
-          ${Object.entries(MMA_WARP_OPS).map(([key,op]) => `<option value="${key}">${op.label}</option>`).join('')}
+          ${Object.entries(warpgroup ? {...MMA_WARP_OPS, ...MMA_WARPGROUP_OPS} : MMA_WARP_OPS).map(([key,op]) => `<option value="${key}">${op.label}</option>`).join('')}
         </select>
       </div>
-      <div class="form-group" id="${id}-${p}-ab-group"><label>ab_dtype</label><select id="${id}-${p}-ab-input" onchange="${render}('${id}')"></select></div>
+      <div class="form-group" id="${id}-${p}-ab-group"><label id="${id}-${p}-ab-label">ab_dtype</label><select id="${id}-${p}-ab-input" onchange="${render}('${id}')"></select></div>
       <div class="form-group" id="${id}-${p}-acc-group"><label>acc_dtype</label><select id="${id}-${p}-acc-input" onchange="${render}('${id}')"></select></div>
-      <div class="form-group"><label>shape_mnk</label><select id="${id}-${p}-k-input" onchange="${render}('${id}')">${k === null ? '' : `<option value="${k}">(16, 8, ${k})</option>`}</select></div>
+      <div class="form-group"><label id="${id}-${p}-shape-label">shape_mnk</label><select id="${id}-${p}-k-input" onchange="${render}('${id}')">${k === null ? '' : `<option value="${k}">(16, 8, ${k})</option>`}</select></div>
+      ${warpgroup ? `<div class="form-group" id="${id}-${p}-n-group"><label>N</label><input type="number" id="${id}-${p}-n-input" value="64" min="8" max="256" step="8" onchange="${render}('${id}')"></div>` : ''}
+      ${warpgroup ? [
+        ['b','b_dtype',[]], ['asrc','A source',['SMEM','RMEM']],
+        ['amajor','A major mode',['K','MN']], ['bmajor','B major mode',['K','MN']]
+      ].map(([key,label,values]) => `<div class="form-group" id="${id}-${p}-${key}-group"><label>${label}</label><select id="${id}-${p}-${key}-input" onchange="${render}('${id}')">${values.map(v => `<option value="${v}">${v}</option>`).join('')}</select></div>`).join('') : ''}
     </div></details>`;
 }
 
 function mmaImportAtom(tabId, p, render, text) {
   const parsed = parsePastedKeyParam(text);
   if (!parsed || parsed.feature !== 'make_mma_atom') throw new Error('Paste a make_mma_atom URL or its query string.');
-  mmaDecodeAtomInputs(parsed.inputs); // Validate before changing any control.
-  const [op,ab,acc,k] = parsed.inputs;
-  const write = (key,value) => { document.getElementById(`${tabId}-${p}-${key}-input`).value = String(value); };
-  write('op',op);
-  mmaSyncControls(tabId,op,p);
-  if (ab !== 'na') write('ab',ab);
-  if (acc !== 'na') write('acc',acc);
-  write('k',k);
+  if (p === 'mtm') mtmDecodeConstructor([
+    ...parsed.inputs.slice(0,4),
+    document.getElementById(`${tabId}-mtm-atomlayout-input`).value,
+    document.getElementById(`${tabId}-mtm-perm-input`).value || 'na',
+    ...parsed.inputs.slice(4)
+  ], {warpgroup: true});
+  mmaAssignAtomInputs(tabId, p, parsed.inputs);
   globalThis[render](tabId);
 }
 

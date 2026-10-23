@@ -1,5 +1,5 @@
-// make_tiled_mma tab (MMA scope): replicate ONE warp-level MMA Atom across
-// warps, then optionally reshape/permute the tile it covers.
+// make_tiled_mma tab: replicate warp or warpgroup MMA atoms, then optionally
+// reshape/permute the tile. The atom supplies its own 32/128-thread ThrID.
 //
 // Mirrors `cute.make_tiled_mma(op_or_atom, atom_layout_mnk, permutation_mnk)`
 // (python/CuTeDSL/cutlass/cute/atom.py:771). This is the MMA counterpart of
@@ -64,7 +64,7 @@
 // So this port gives C the same stride-0 treatment A and B get, and the
 // differential test uses partition_C as its oracle.
 
-const MTM_ATOM_THREADS = 32;      // AtomThrID for every cute.nvgpu.warp MMA
+const MTM_ATOM_THREADS = 32;      // Physical warp width (also a warp atom's ThrID)
 
 /** The stride `cute.make_layout(shape)` implies, for a shape given without one.
  *  Column-major, EXCEPT that a size-1 mode gets stride 0 rather than the running
@@ -187,8 +187,8 @@ function mtmThrfrg(atomTV, atomExt, perm, thrTile, names, tensorL) {
     if (tile[i] % covered !== 0)
       throw new Error(
         `permutation_mnk's ${names[i]} mode has size ${tile[i]}, which is not a multiple ` +
-        `of the ${covered} the warps cover there (atom ${atomExt[i]} × ` +
-        `${thrTile[i]} warp${thrTile[i] === 1 ? '' : 's'}). ` +
+        `of the ${covered} the atoms cover there (atom ${atomExt[i]} × ` +
+        `${thrTile[i]} atom${thrTile[i] === 1 ? '' : 's'}). ` +
         `zipped_divide needs it to divide exactly — try ${covered} or ${covered * 2}.`);
   }
   let T = tensorL || new Layout([tile[0], tile[1]], [1, tile[0]]);
@@ -221,17 +221,18 @@ function mtmThrfrg(atomTV, atomExt, perm, thrTile, names, tensorL) {
  *  prints and the same order `partition_X` hands back its fragment in. */
 function mtmComputeTiledMma(atom, atomLayout, perm, tensors) {
   const [M, N, K] = atom.shapeMNK;
-  const thrVmnk = tiled_product(new Layout(MTM_ATOM_THREADS, 1), atomLayout);
+  const atomThreads = product(atom.thrId.shape);
+  const thrVmnk = tiled_product(new Layout(atom.thrId.shape, atom.thrId.stride), atomLayout);
   const aM = product(thrVmnk.shape[1]);
   const aN = product(thrVmnk.shape[2]);
   const aK = product(thrVmnk.shape[3]);
-  const threads = MTM_ATOM_THREADS * aM * aN * aK;
+  const threads = atomThreads * aM * aN * aK;
   if (!isBijective(thrVmnk))
     throw new Error(
       `atom_layout_mnk = ${formatLayoutStr(atomLayout.shape, atomLayout.stride)} does not give ` +
-      `each warp a distinct id — thr_layout_vmnk = ` +
+      `each atom a distinct id — thr_layout_vmnk = ` +
       `${formatLayoutStr(thrVmnk.shape, thrVmnk.stride)} is not a bijection. ` +
-      `A stride of 0, or two modes landing on the same index, would make two warps the same warp.`);
+      `A stride of 0, or two modes landing on the same index, would make two atoms share an id.`);
   // thread index -> the (v, m, n, k) coordinate of thr_layout_vmnk. The
   // identity for the usual column-major atom_layout_mnk, a real permutation
   // once a stride is given. `left_inverse` IS the C++ expression: mma_atom.hpp
@@ -270,6 +271,7 @@ function mtmComputeTiledMma(atom, atomLayout, perm, tensors) {
     const val = make_layout(r.frgV, make_layout(r.restX, r.restY, ...r.restExtra));
     return {
       tile: r.tile, thr, val,
+      space: spec.L.space || 'RMEM', major: spec.L.major || 'K', atomThreads,
       tv: make_layout(thr, val),
       frgSize: product(r.frgV.shape),
       restShape: [product(r.restX.shape), product(r.restY.shape)],
@@ -282,7 +284,8 @@ function mtmComputeTiledMma(atom, atomLayout, perm, tensors) {
   };
 
   return {
-    thrVmnk, threads, warps: threads / MTM_ATOM_THREADS,
+    thrVmnk, threads, warps: threads / MTM_ATOM_THREADS, atomThreads,
+    atomGroups: aM * aN * aK,
     atomLayoutMNK: [aM, aN, aK],
     A: build('A'), B: build('B'), C: build('C'),
     // tile_size(i), i.e. TiledMma.get_tile_size — the M, N, K of the whole tile
@@ -303,7 +306,10 @@ function mtmOperandGrid(op) {
   const [M, N] = op.tile;
   const nT = product(op.thr.shape), nV = product(op.val.shape);
   const grid = Array.from({ length: M }, () => Array.from({ length: N }, () => ({ entries: [], rest: 0 })));
-  for (let t = 0; t < nT; t++) {
+  // A descriptor broadcasts within each atom. One representative per group
+  // suffices for coverage/repetition; the SMEM renderer never labels it T/V.
+  const atomThreads = op.atomThreads || MTM_ATOM_THREADS;
+  for (let t = 0; t < nT; t += op.space === 'SMEM' ? atomThreads : 1) {
     const tOff = op.thr.call(t);
     for (let v = 0; v < nV; v++) {
       const off = tOff + op.val.call(v);
@@ -328,12 +334,12 @@ function mtmTransposeGrid(grid) {
 /** Compact label for the set of warps that touch a cell.
  *  `sum` is set for C, where the several warps hold PARTIAL SUMS of the same
  *  accumulator (the K reduction) rather than several readers of one value. */
-function mtmWarpLabel(warps, sum) {
+function mtmWarpLabel(warps, sum, prefix = 'W') {
   const w = [...new Set(warps)].sort((a, b) => a - b);
-  if (w.length === 1) return `W${w[0]}`;
+  if (w.length === 1) return `${prefix}${w[0]}`;
   const contiguous = w[w.length - 1] - w[0] === w.length - 1;
-  const body = contiguous ? `W${w[0]}..W${w[w.length - 1]}`
-                          : w.map(x => `W${x}`).join(sum ? '+' : ',');
+  const body = contiguous ? `${prefix}${w[0]}..${prefix}${w[w.length - 1]}`
+                          : w.map(x => `${prefix}${x}`).join(sum ? '+' : ',');
   return sum ? `Σ${body}` : body;
 }
 
@@ -353,11 +359,11 @@ const MTM_MAX_WARP_LINES = 4;
  *
  *  Cells the focused warp does not touch are drawn blank by mtmBuildSVG, so the
  *  listing below is only ever reached when the box is empty. */
-function mtmWarpLines(warps, sum, focus) {
+function mtmWarpLines(warps, sum, focus, prefix = 'W') {
   const w = [...new Set(warps)].sort((a, b) => a - b);
-  if (focus !== null && focus !== undefined && w.includes(focus)) return [`W${focus}`];
-  if (w.length > MTM_MAX_WARP_LINES) return [mtmWarpLabel(w, sum)];
-  return w.map(x => `W${x}`);
+  if (focus !== null && focus !== undefined && w.includes(focus)) return [`${prefix}${focus}`];
+  if (w.length > MTM_MAX_WARP_LINES) return [mtmWarpLabel(w, sum, prefix)];
+  return w.map(x => `${prefix}${x}`);
 }
 
 /** The label lines a TV-mode cell carries — the `mtmWarpLines` counterpart.
@@ -372,6 +378,17 @@ function mtmTvLines(entries, focus) {
   const use = mine.length ? mine : entries;
   if (use.length === 1) return [`T${use[0].t}`, `V${use[0].v}`];
   return use.map(e => `T${e.t}/V${e.v}`);
+}
+
+function mtmRestOverlay(grid, {cs, margin, M, N}) {
+  let body = '';
+  const seg = (x1,y1,x2,y2) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#e53e3e" stroke-width="1.8"/>`;
+  for (let m=0; m<M; m++) for (let n=0; n<N; n++) {
+    const x=margin+n*cs, y=margin+m*cs;
+    if (m>0 && grid[m][n].rest !== grid[m-1][n].rest) body += seg(x,y,x+cs,y);
+    if (n>0 && grid[m][n].rest !== grid[m][n-1].rest) body += seg(x,y,x,y+cs);
+  }
+  return body;
 }
 
 /** Draw one operand's tile.
@@ -399,6 +416,10 @@ function mtmBuildSVG(grid, M, N, opts) {
   opts = opts || {};
   if (M * N > MAX_CELLS) return errSVG(`Tile too large: ${M}×${N} = ${M * N} cells (max ${MAX_CELLS})`);
   if (M === 0 || N === 0) return errSVG(`Empty tile: ${M}×${N}`);
+  if (opts.space === 'SMEM') return buildColoredLayoutSVG([M,N], [1,M], [],
+    (m,n) => ({bg: '#a7f3d0', text: opts.showValue
+      ? [String(opts.cellIndex ? opts.cellIndex(m,n) : m+n*M)] : null}),
+    {overlay: opts.dimRest ? geometry => mtmRestOverlay(grid, geometry) : undefined});
 
   const cs = cellSize(M, N);
   const margin = cs;
@@ -428,8 +449,8 @@ function mtmBuildSVG(grid, M, N, opts) {
         continue;
       }
 
-      const isWarpMode = opts.mode === 'warp';
-      const warps = entries.map(e => e.w);
+      const isWarpMode = opts.mode === 'warp' || opts.mode === 'warpgroup';
+      const warps = entries.map(e => opts.mode === 'warpgroup' ? Math.floor(e.t / (opts.atomThreads || 128)) : e.w);
       const focused = opts.focus !== null && opts.focus !== undefined;
       const touched = !focused || (isWarpMode ? warps.includes(opts.focus)
                                               : entries.some(e => e.t === opts.focus));
@@ -460,7 +481,7 @@ function mtmBuildSVG(grid, M, N, opts) {
 
       if (blank) continue;
       const focusArg = focused ? opts.focus : null;
-      const lines = isWarpMode ? mtmWarpLines(warps, opts.sum, focusArg)
+      const lines = isWarpMode ? mtmWarpLines(warps, opts.sum, focusArg, opts.groupPrefix)
                                : mtmTvLines(entries, focusArg);
       if (opts.showValue) lines.push(idxLabel);
       body += cellTextSVG(x + cs / 2, y + cs / 2, lines, cs, fg);
@@ -470,17 +491,7 @@ function mtmBuildSVG(grid, M, N, opts) {
   // A tile boundary is a LINE, not a property of the cells beside it — faking
   // one with per-cell strokes gives a doubled, fuzzy edge. Same call as
   // tma_partition's red outlines.
-  if (opts.dimRest) {
-    const seg = (x1, y1, x2, y2) =>
-      `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#e53e3e" stroke-width="1.8"/>`;
-    for (let m = 0; m < M; m++) {
-      for (let n = 0; n < N; n++) {
-        const x = margin + n * cs, y = margin + m * cs;
-        if (m > 0 && grid[m][n].rest !== grid[m - 1][n].rest) body += seg(x, y, x + cs, y);
-        if (n > 0 && grid[m][n].rest !== grid[m][n - 1].rest) body += seg(x, y, x, y + cs);
-      }
-    }
-  }
+  if (opts.dimRest) body += mtmRestOverlay(grid, {cs,margin,M,N});
 
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="${svgFitStyle(W, H)}">
     <rect width="${W}" height="${H}" fill="white"/>
@@ -518,6 +529,7 @@ function generateMakeTiledMmaTabContent(id) {
           <div class="seg-control" id="${id}-mtm-mode-btns">
             <button class="mode-btn" onclick="setMtmMode('${id}', 'tv')">Show TVs</button>
             <button class="mode-btn active" onclick="setMtmMode('${id}', 'warp')">Show Warps</button>
+            <button class="mode-btn" id="${id}-mtm-group-mode-btn" style="display:none" onclick="setMtmMode('${id}', 'warpgroup')">Show Warp Groups</button>
           </div>
         </div>
 
@@ -533,7 +545,7 @@ function generateMakeTiledMmaTabContent(id) {
         <details class="cuo-section" open>
           <summary>1. MMAAtom</summary>
           <div class="cuo-section-body">
-            ${mmaAtomEditorMarkup({id,p:'mtm',render:'renderMakeTiledMma',setOp:'setMtmOp'})}
+            ${mmaAtomEditorMarkup({id,p:'mtm',render:'renderMakeTiledMma',setOp:'setMtmOp',warpgroup:true})}
             <div id="${id}-mtm-op-params" class="cuo-result"></div>
           </div>
         </details>
@@ -541,16 +553,19 @@ function generateMakeTiledMmaTabContent(id) {
         <details class="cuo-section" open>
           <summary>2. make_tiled_mma(atom, atom_layout_mnk, permutation_mnk)</summary>
           <div class="cuo-section-body">
+            <button class="btn btn-render btn-decode" id="${id}-mtm-decode" onclick="mtmDecodePasteboard('${id}')">Decode from Pasteboard</button>
+            <details class="cuo-section" id="${id}-mtm-tiled-manual-construction"><summary>Manual construction</summary><div class="cuo-section-body">
             ${layoutInputField({
               id: `${id}-mtm-atomlayout-input`, label: 'atom_layout_mnk', value: '(2, 2, 1)',
               placeholder: '(1, 1, 1)',
-              hint: 'Rank 3 — how many warps along M, N and K. A stride reorders which warp is which: (2,2,1):(2,1,4). Blank = (1, 1, 1), CuTeDSL\'s own default: one warp, which makes this identical to make_mma_atom.',
+              hint: 'Rank 3 — atoms along M, N and K: one warp or one 128-thread warp group per atom. A stride reorders which warp is which: (2,2,1):(2,1,4). Blank = (1, 1, 1), CuTeDSL\'s own default: one atom, which makes this identical to make_mma_atom.',
             })}
             ${layoutInputField({
-              id: `${id}-mtm-perm-input`, label: 'permutation_mnk', value: '(32, 32, 16)',
+              id: `${id}-mtm-perm-input`, label: 'permutation_mnk', value: '',
               placeholder: '(_, _, _)',
               hint: 'Rank-3 Tiler, one mode per axis. A number is a plain extent; (2,16):(16,1) genuinely permutes; "_" leaves the mode alone. Blank = none.',
             })}
+            </div></details>
             <div id="${id}-mtm-result" class="cuo-result"></div>
           </div>
         </details>
@@ -562,65 +577,38 @@ function generateMakeTiledMmaTabContent(id) {
         <div class="presets">
           <h3>Presets</h3>
           <div class="preset-list">
-            <button class="preset-btn" onclick="setMTM('${id}','f16bf16','half_t','float',16,'(2, 2, 1)','')">(2,2,1) &mdash; the canonical 4-warp SM80 GEMM, no permutation</button>
-            <button class="preset-btn" onclick="setMTM('${id}','f16bf16','half_t','float',16,'(1, 1, 1)','')">(1,1,1) &mdash; one warp; identical to make_mma_atom</button>
-            <button class="preset-btn" onclick="setMTM('${id}','f16bf16','half_t','float',16,'(4, 1, 1)','')">(4,1,1) &mdash; 4 warps stacked along M</button>
-            <button class="preset-btn" onclick="setMTM('${id}','f16bf16','half_t','float',16,'(2, 2, 1)','(32, 32, 16)')">(2,2,1) + perm (32,32,16) &mdash; N repeats twice</button>
-            <button class="preset-btn" onclick="setMTM('${id}','f16bf16','half_t','float',16,'(2, 2, 1)','(64, 32, 16)')">(2,2,1) + perm (64,32,16) &mdash; M and N both repeat</button>
-            <button class="preset-btn" onclick="setMTM('${id}','f16bf16','half_t','float',16,'(2, 2, 1)','((2,16):(16,1), 32, 16)')">(2,2,1) + a real M permutation &mdash; (2,16):(16,1)</button>
-            <button class="preset-btn" onclick="setMTM('${id}','f16bf16','half_t','float',16,'(1, 1, 2)','')">(1,1,2) &mdash; K-split; C becomes &Sigma;W0..W1</button>
-            <button class="preset-btn" onclick="setMTM('${id}','f16bf16','half_t','float',16,'(2, 2, 2)','')">(2,2,2) &mdash; 8 warps: broadcast in A/B and a reduction in C</button>
-            <button class="preset-btn" onclick="setMTM('${id}','tf32',null,null,8,'(2, 2, 1)','')">tf32 m16n8k8, (2,2,1)</button>
-            <button class="preset-btn" onclick="setMTM('${id}','fp8','float_e4m3_t','float',32,'(2, 2, 1)','')">fp8 e4m3 m16n8k32, (2,2,1)</button>
+            <button class="preset-btn" onclick="setMTM('${id}','f16bf16','half_t','float',16,'(2,2,1)','')">Warp MMA — four warps, (2,2,1)</button>
+            <button class="preset-btn" onclick="setMTM('${id}','f16bf16','half_t','float',16,'(2,2,1)','(64,32,16)')">Warp MMA — repeated M/N tile</button>
+            <button class="preset-btn" onclick="setMTM('${id}','tf32',null,null,8,'(2,2,1)','')">Warp MMA — TF32</button>
+            <button class="preset-btn" onclick="setMTM('${id}','wg_f16bf16','half_t','float',16,'(1,1,1)','',64,'SMEM','K','K')">WGMMA — one warpgroup, 64×64×16</button>
+            <button class="preset-btn" onclick="setMTM('${id}','wg_f16bf16','half_t','float',16,'(2,1,1)','',64,'SMEM','K','K')">WGMMA — two warpgroups along M, 256 threads</button>
+            <button class="preset-btn" onclick="setMTM('${id}','wg_f16bf16','bfloat16_t','float',16,'(1,2,1)','',32,'SMEM','MN','MN')">WGMMA — M-major A / N-major B, two groups along N</button>
+            <button class="preset-btn" onclick="setMTM('${id}','wg_f16bf16','half_t','float',16,'(1,1,1)','(128,64,16)',32,'RMEM','K','MN')">WGMMA — register A, repeated tile</button>
+            <button class="preset-btn" onclick="setMTM('${id}','wg_fp8','float_e4m3_t','float',32,'(2,1,1)','',32,'RMEM','K','K','float_e5m2_t')">WGMMA — mixed FP8, register A</button>
+            <button class="preset-btn" onclick="setMTM('${id}','wg_int8','int8_t','int32_t',32,'(1,2,1)','',24,'SMEM','K','K','uint8_t')">WGMMA — mixed signed/unsigned INT8</button>
+            <button class="preset-btn" onclick="setMTM('${id}','wg_f16bf16','half_t','float',16,'(1,1,2)','',16,'SMEM','K','K')">WGMMA — split K, partial accumulators need reduction</button>
           </div>
         </div>
 
         <div class="hint">
-          <b>One atom, many warps.</b> <code>make_mma_atom</code> stops at a single
-          instruction: 32 lanes, one <code>(16,8,K)</code> tile. A real GEMM runs
-          several warps at once, and <code>make_tiled_mma</code> is how CuTe says
-          which. <code>atom_layout_mnk</code> is a rank-3 layout counting warps
-          along M, N and K, so <code>(2,2,1)</code> is four warps covering a
-          <code>32&times;16&times;16</code> tile &mdash; the top row of grids.<br><br>
-          <b>Every operand sees a different slice of that.</b> A is over
-          <code>(M, K)</code>, so it does not depend on the N warps at all: the two
-          warps that differ only in <code>n</code> read the <em>same</em> A cells.
-          That is a <b>broadcast</b>, and CuTe writes it as a stride-0 thread mode.
-          B broadcasts across the M warps the same way. C is over
-          <code>(M, N)</code> and does not depend on K, but there the several
-          warps are not readers &mdash; each holds a <em>partial sum</em> of the
-          same accumulator, which is why the C grid labels them
-          <code>&Sigma;W0..W1</code> and why a K-split TiledMMA needs a reduction
-          across warps afterwards.<br><br>
-          <b>permutation_mnk is a Tiler, not a shape.</b> It says what tile each
-          mode is really over. Make it bigger than the warps cover and the whole
-          warp pattern <em>repeats</em> &mdash; that is the bottom row, where only
-          the first copy is coloured and red lines mark where the copies meet.
-          Give a mode an actual layout (<code>(2,16):(16,1)</code>) and the rows it
-          lands on are permuted instead, which is how
-          <code>make_tiled_copy_A</code> ends up with a swizzle-friendly
-          fragment.<br><br>
-          <b>Warp count.</b> <code>thr_layout_vmnk = tiled_product(ThrID,
-          atom_layout_mnk)</code>, so the thread count is
-          <code>32 &times; size(atom_layout_mnk)</code> and the warp id of thread
-          <code>t</code> is simply <code>t / 32</code>. Giving
-          <code>atom_layout_mnk</code> a stride reorders which warp lands where;
-          the thread mode is composed with
-          <code>right_inverse(thr_layout_vmnk)</code> so the grids stay indexed by
-          thread <em>index</em> rather than by the <code>(v,m,n,k)</code>
-          coordinate.<br><br>
-          <b>Where this meets the Copy scope.</b> <code>tv_layout_A</code> of the
-          <em>tiled</em> MMA is exactly what
-          <code>make_tiled_copy_A(atom, tiled_mma)</code> hands a copy as its
-          <code>layout_tv</code> &mdash; and it is the broadcast above that makes
-          <code>size(layout_tv)</code> a multiple of <code>size(Tiler_MN)</code>
-          there, the case <b>make_tiled_copy</b>'s coverage check has to allow.<br><br>
-          <b>One accessor to distrust.</b> CuTeDSL's
-          <code>tv_layout_C_tiled</code> fuses the N and K thread modes when both
-          are &gt; 1, sending the K warps to a second copy of C.
-          <code>partition_C</code> on the same object disagrees and is the one a
-          kernel actually uses; this tab follows <code>partition_C</code>, and so
-          does its differential test.
+          <b>Replicate instructions.</b> atom_layout_mnk counts atoms along M, N, K.
+          A warp atom has 32 threads; a WGMMA atom has 128 threads (one warpgroup).
+          For WGMMA, (2,1,1) means two warpgroups: eight warps and 256 threads.<br><br>
+          <b>Views.</b> Show TVs displays register ownership. The other mode groups cells by
+          warp or warpgroup. SMEM operands remain one-color logical tiles; focus applies to
+          register operands only. Default orientation follows M-major A / N-major B where
+          selected. Alternative View always shows MK × KN → MN.<br><br>
+          <b>Replication and repetition.</b> atom_layout_mnk adds participating groups.
+          A larger permutation_mnk repeats work over a larger tile using the same groups.
+          Red boundaries mark the repetitions. A broadcasts across N groups; B across M groups.<br><br>
+          <b>Split K.</b> Groups differing along K hold partial accumulators. The C view
+          shows their overlapping ownership; make_tiled_mma performs no reduction.<br><br>
+          <b>WGMMA execution.</b> Issue GEMM uniformly within each warpgroup, with the
+          required fence, commit and wait operations. This constructor partitions work;
+          it neither stages shared memory nor supplies those synchronization operations.
+          Logical permutations still require a compatible physical SMEM descriptor layout.
+          Copy, partition, fragment and gemm tabs currently accept warp MMA constructors only.
+
         </div>
       </div>
 
@@ -654,41 +642,34 @@ function renderMakeTiledMma(tabId) {
   showWarn(`${tabId}-mtm-warning`, '');
   try {
     const opKey = document.getElementById(`${tabId}-mtm-op-input`).value;
-    const op = MMA_WARP_OPS[opKey] || MMA_WARP_OPS.f16bf16;
     mmaSyncControls(tabId, opKey, 'mtm');
-
-    const k = parseInt(document.getElementById(`${tabId}-mtm-k-input`).value, 10);
-    const abDtype  = op.ab  ? document.getElementById(`${tabId}-mtm-ab-input`).value  : 'tfloat32_t';
-    const accDtype = op.acc ? document.getElementById(`${tabId}-mtm-acc-input`).value : 'float';
-    if (op.ab && abDtype === 'bfloat16_t' && accDtype !== 'float')
-      throw new Error(
-        `${op.label} requires acc_dtype = float when ab_dtype is bfloat16_t ` +
-        `(there is no bf16 MMA with an f16 accumulator).`);
-
-    const atomLayoutStr = document.getElementById(`${tabId}-mtm-atomlayout-input`).value;
-    const permStr       = document.getElementById(`${tabId}-mtm-perm-input`).value;
-    const mode        = (mtmState[tabId] || {}).mode || 'warp';
-    const atom        = mmaWarpAtom(opKey, k);
-    const atomLayout  = mtmParseAtomLayout(atomLayoutStr);
-    const perm        = mtmParsePerm(permStr);
+    const inputs = mtmReadConstructorControls(tabId, 'mtm');
+    const {atom, atomLayout, perm, tiled: permStage} = mtmDecodeConstructor(inputs, {warpgroup: true});
+    const {op, k} = atom;
+    const abDtype = inputs[1] === 'na' ? 'tfloat32_t' : inputs[1];
+    const accDtype = inputs[2] === 'na' ? 'float' : inputs[2];
+    const previous = mtmState[tabId] || {};
+    let mode = previous.mode || 'warp';
+    if (atom.warpgroup && !previous.atom?.warpgroup) mode = 'warpgroup';
+    if (!atom.warpgroup && mode === 'warpgroup') mode = 'warp';
 
     // The top row is the SAME derivation with the permutation left out — that
     // is precisely what permutation_mnk adds, so showing it against a
     // separately-computed baseline would be a second implementation to keep
     // honest rather than a comparison.
-    const warpStage = mtmComputeTiledMma(atom, atomLayout, [null, null, null]);
-    const permStage = mtmComputeTiledMma(atom, atomLayout, perm);
+    const warpStage = perm.some(p => p !== null)
+      ? mtmComputeTiledMma(atom, atomLayout, [null, null, null]) : permStage;
 
     const prev = mtmState[tabId] || {};
     mtmState[tabId] = {
       atom, atomLayout, perm, warpStage, permStage, abDtype, accDtype, op, k,
       hasPerm: perm.some(p => p !== null),
       mode, showValue: !!prev.showValue, altView: !!prev.altView,
-      ...mtmReadFocus(tabId, mode, warpStage.warps, warpStage.threads),
+      ...mtmReadFocus(tabId, mode, warpStage.warps, warpStage.threads, 'mtm', warpStage.atomGroups),
     };
 
     mtmSyncFocusField(tabId, mode);
-    mmaRenderOpParams(tabId, op, k, abDtype, accDtype, 'mtm');
+    mmaRenderOpParams(tabId, op, k, abDtype, accDtype, 'mtm', atom);
     mtmRenderResult(tabId);
     mtmRenderViz(tabId);
     updateOuterTabLabel(tabId,
@@ -704,22 +685,26 @@ function renderMakeTiledMma(tabId) {
 }
 
 const MTM_MODE_HINT =
-  "Show TVs is make_mma_atom's picture — every cell carries the T/V slot that owns it. " +
-  'Show Warps drops it and names the warps instead.';
+  'Show TVs labels individual register T/V slots. Show Warps groups by physical 32-thread warp. ' +
+  'Show Warp Groups groups WGMMA by its 128-thread atoms. SMEM descriptor tiles stay uniform.';
 
 /** What the focus box means in each mode. One control, because the question is
  *  always "which unit am I looking at" — it is only the unit that changes with
  *  the cell labels. */
 const MTM_FOCUS = {
+  warpgroup: {
+    label: 'Warp group id', placeholder: 'all warpgroups', unit: 'warpgroup', letter: 'WG',
+    hint: 'Focus one 128-thread warpgroup. Register cells show WG<id>; shared-memory descriptor tiles remain uniform. Blank shows all groups.',
+  },
   warp: {
     label: 'Warp id', placeholder: 'all warps', unit: 'warp', letter: 'W',
-    hint: 'Applies to all six grids. Only that warp\'s region stays coloured — every cell it ' +
+    hint: 'Applies to register grids. Only that warp\'s region stays coloured — every cell it ' +
           'touches reads W<id> — and every other cell goes grey and unlabelled. Blank lists ' +
           'every warp that touches a cell, one per line.',
   },
   tv: {
     label: 'Thread ID', placeholder: 'all threads', unit: 'thread', letter: 'T',
-    hint: 'Applies to all six grids. Only that thread\'s region stays coloured, and each of its ' +
+    hint: 'Applies to register grids. Only that thread\'s region stays coloured, and each of its ' +
           'cells shows the V slot that lands there; every other cell goes grey and unlabelled. ' +
           'Blank is make_mma_atom\'s picture — every thread at full brightness.',
   },
@@ -735,10 +720,10 @@ const MTM_FOCUS = {
  *  Returns the message rather than writing it, so the error box has exactly one
  *  author (mtmRenderViz); two functions racing for one element is how a message
  *  goes missing. */
-function mtmReadFocus(tabId, mode, warps, threads, p) {
+function mtmReadFocus(tabId, mode, warps, threads, p, warpgroups = warps) {
   p = p || 'mtm';
   const spec = MTM_FOCUS[mode] || MTM_FOCUS.warp;
-  const limit = mode === 'tv' ? threads : warps;
+  const limit = mode === 'tv' ? threads : mode === 'warpgroup' ? warpgroups : warps;
   const raw = (document.getElementById(`${tabId}-${p}-focus-input`).value || '').trim();
   if (raw === '') return { focus: null, focusErr: '' };
   if (!/^\d+$/.test(raw))
@@ -819,13 +804,13 @@ function mtmRenderResult(tabId) {
     `${formatLayoutStr(opnd.tv.shape, opnd.tv.stride)}</div>` +
     `<div class="cuo-result-line" style="color:#9ca3af">&nbsp;&nbsp;over the ` +
     `${opnd.tile[0]}&times;${opnd.tile[1]} ${dims} tile &mdash; ${opnd.frgSize} element` +
-    `${opnd.frgSize === 1 ? '' : 's'}/lane per atom, Rest = (${opnd.restShape.join(', ')})</div>`;
+    `${opnd.frgSize === 1 ? '' : 's'}${opnd.space === 'SMEM' ? ' in SMEM (descriptor)' : '/thread per atom'}, Rest = (${opnd.restShape.join(', ')})</div>`;
 
   document.getElementById(`${tabId}-mtm-result`).innerHTML =
     `<div class="cuo-result-line"><b>TiledMMA&lt;${s.op.label.replace('warp.', '')}&gt;</b></div>` +
     `<div class="cuo-result-line">Thr Layout VMNK = ${formatLayoutStr(w.thrVmnk.shape, w.thrVmnk.stride)}` +
     `<span style="color:#9ca3af"> &mdash; ${w.warps} warp${w.warps === 1 ? '' : 's'}, ` +
-    `${w.threads} thread${w.threads === 1 ? '' : 's'}</span></div>` +
+    `${w.threads} thread${w.threads === 1 ? '' : 's'}${s.atom.warpgroup ? `; ${w.atomGroups} warpgroup${w.atomGroups === 1 ? '' : 's'}` : ''}</span></div>` +
     `<div class="cuo-result-line">Permutation MNK = ${permStr}</div>` +
     `<div class="cuo-result-line">Atom Shape MNK  = (${M}, ${N}, ${K})` +
     `<span style="color:#9ca3af"> &nbsp;&rarr;&nbsp; warps cover (${M * w.atomLayoutMNK[0]}, ` +
@@ -842,8 +827,9 @@ function mtmRenderViz(tabId) {
   if (!s) return;
   document.getElementById(`${tabId}-mtm-mode-btns`).querySelectorAll('.mode-btn')
     .forEach(b => b.classList.toggle('active',
-      b.textContent.trim() === (s.mode === 'tv' ? 'Show TVs' : 'Show Warps')));
+      b.textContent.trim() === ({tv: 'Show TVs', warp: 'Show Warps', warpgroup: 'Show Warp Groups'}[s.mode])));
 
+  document.getElementById(`${tabId}-mtm-group-mode-btn`).style.display = s.atom.warpgroup ? '' : 'none';
   const host = document.getElementById(`${tabId}-mtm-results`);
   if (host) host.classList.toggle('mma-alt', !!s.altView);
   const altBtn = document.getElementById(`${tabId}-mtm-alt-btn`);
@@ -879,16 +865,18 @@ function mtmRenderViz(tabId) {
   for (const [stage, res, isPerm, desc, tail] of stages) {
     for (const side of ['a', 'b', 'c']) {
       const opnd = res[side.toUpperCase()];
-      const dtype = side === 'c' ? s.accDtype : s.abDtype;
+      const dtype = side === 'c' ? s.accDtype : side === 'b' ? s.atom.bDtype || s.abDtype : s.abDtype;
+      setMemorySpaceBadge(`${tabId}-mtm-${stage}-${side}-space`, opnd.space);
       // In the quadrant view B is drawn K x N so its K axis meets A's and its N
       // axis meets C's. Transposing the GRID re-reads the same cells with the
       // axes swapped — nothing about the derivation moves — but the `value`
       // overlay then needs its own cellIndex, since mtmBuildSVG's default
       // assumes the tile is col-major in its own codomain.
-      const rot = !!s.altView && side === 'b';
-      const dims = side === 'a' ? 'M×K' : side === 'b' ? (rot ? 'K×N' : 'N×K') : 'M×N';
+      const rot = s.altView ? side === 'b' : s.atom.warpgroup && side !== 'c' && opnd.major === 'MN';
+      const dims = side === 'a' ? (rot ? 'K×M' : 'M×K') : side === 'b' ? (rot ? 'K×N' : 'N×K') : 'M×N';
       const btn = document.getElementById(`${tabId}-mtm-${stage}-${side}-val-btn`);
       if (btn) btn.classList.toggle('active', !!s.showValue);
+      if (product(opnd.tile) > MAX_CELLS) throw new Error(`Tile too large: ${opnd.tile.join('×')} cells (max ${MAX_CELLS}).`);
       let grid = mtmOperandGrid(opnd);
       const holes = grid.reduce((n, row) => n + row.filter(c => !c.entries.length).length, 0);
       if (holes) uncovered.push(`${side.toUpperCase()} ${holes}`);
@@ -904,11 +892,11 @@ function mtmRenderViz(tabId) {
         `${side.toUpperCase()} — ${rows}×${cols} ${dtype} (${dims})` +
         (isPerm && opnd.restShape.some(r => r > 1) ? `, Rest ${opnd.restShape.join('×')}` : '');
       document.getElementById(`${tabId}-mtm-${stage}-${side}-desc`).innerHTML =
-        `${desc}${bcast[side] ? bcast[side] + ' ' : ''}` +
-        `${rot ? 'Shown transposed, as K×N. ' : ''}<code>${tail}</code>`;
+        `${opnd.space === 'SMEM' ? `Shared-memory descriptor, ${mmaMajorLabel(side.toUpperCase(), opnd.major)}. Uniform logical tile; focus applies to RMEM only. ` : desc.replace(/warp/g, s.atom.warpgroup ? 'warpgroup' : 'warp')}${bcast[side] ? bcast[side].replace(/warp/g, s.atom.warpgroup ? 'warpgroup' : 'warp') + ' ' : ''}` +
+        `${rot ? 'Shown transposed. ' : ''}<code>${tail}</code>`;
       document.getElementById(`${tabId}-mtm-${stage}-${side}-svg`).innerHTML =
         mtmBuildSVG(grid, rows, cols, {
-          cellIndex,
+          cellIndex, space: opnd.space, atomThreads: s.permStage.atomThreads, groupPrefix: s.mode === 'warpgroup' ? 'WG' : 'W',
           mode: s.mode,
           focus: s.focus,
           dimRest: isPerm,
@@ -929,36 +917,42 @@ function mtmRenderViz(tabId) {
     : '');
 }
 
-function setMTM(tabId, opKey, ab, acc, k, atomLayout, perm) {
-  document.getElementById(`${tabId}-mtm-op-input`).value = opKey;
-  mmaSyncControls(tabId, opKey, 'mtm');    // options BEFORE values, or the assign is a no-op
-  if (ab)  document.getElementById(`${tabId}-mtm-ab-input`).value  = ab;
-  if (acc) document.getElementById(`${tabId}-mtm-acc-input`).value = acc;
-  document.getElementById(`${tabId}-mtm-k-input`).value = String(k);
-  document.getElementById(`${tabId}-mtm-atomlayout-input`).value = atomLayout;
-  document.getElementById(`${tabId}-mtm-perm-input`).value = perm;
+function setMTM(tabId, opKey, ab, acc, k, atomLayout, perm, n=64, aSrc='SMEM', aMajor='K', bMajor='K', bDtype=ab) {
+  const inputs = [opKey, ab || 'na', acc || 'na', String(k), atomLayout, perm || 'na'];
+  if (MMA_WARPGROUP_OPS[opKey]) inputs.push(String(n), aSrc, aMajor, bMajor, bDtype);
+  mtmWriteConstructorControls(tabId, 'mtm', inputs);
   renderMakeTiledMma(tabId);
 }
 
 function exportMTM(tabId) {
-  exportURL(`${tabId}-mtm-export`, 'make_tiled_mma',
-    document.getElementById(`${tabId}-mtm-op-input`).value,
-    document.getElementById(`${tabId}-mtm-ab-input`).value || 'na',
-    document.getElementById(`${tabId}-mtm-acc-input`).value || 'na',
-    document.getElementById(`${tabId}-mtm-k-input`).value,
-    document.getElementById(`${tabId}-mtm-atomlayout-input`).value,
-    document.getElementById(`${tabId}-mtm-perm-input`).value || 'na');
+  exportURL(`${tabId}-mtm-export`, 'make_tiled_mma', ...mtmReadConstructorControls(tabId, 'mtm'));
 }
 
-
-// Shared validation for TiledMMA constructor URLs imported by downstream tabs.
-function mtmDecodeConstructor(inputs) {
+// WGMMA is opt-in: existing partition/copy/fragment/GEMM consumers stay warp-only.
+function mtmDecodeConstructor(inputs, {warpgroup = false} = {}) {
   const [opKey, ab, acc, k, atomText, permText] = inputs;
-  const {atom} = mmaDecodeAtomInputs(inputs.slice(0,4));
+  const wg = !!MMA_WARPGROUP_OPS[opKey];
+  if (wg && !warpgroup) throw new Error('This consumer supports warp MMA constructors only.');
+  if (inputs.length !== (wg ? 11 : 6)) throw new Error('Incomplete or extra TiledMMA constructor parameters.');
+  const {atom} = mmaDecodeAtomInputs([...inputs.slice(0,4), ...inputs.slice(6)]);
   const atomLayout = mtmParseAtomLayout(atomText);
   const perm = mtmParsePerm(permText === 'na' ? '' : permText);
   const tiled = mtmComputeTiledMma(atom, atomLayout, perm);
   return {atom, atomLayout, perm, tiled, inputs: inputs.slice()};
+}
+
+function mtmImportConstructor(tabId, text) {
+  const parsed = parsePastedKeyParam(text);
+  if (!parsed || parsed.feature !== 'make_tiled_mma') throw new Error('Paste a make_tiled_mma URL or its query string.');
+  mtmWriteConstructorControls(tabId, 'mtm', parsed.inputs);
+  renderMakeTiledMma(tabId);
+}
+
+async function mtmDecodePasteboard(tabId) {
+  const text = await readPasteboardText('Paste the make_tiled_mma URL or its query string:');
+  if (text == null) return;
+  try { mtmImportConstructor(tabId, text); }
+  catch (e) { showErr(`${tabId}-mtm-error`, e.message); }
 }
 
 // Shared editable fallback for tabs that primarily import a TiledMMA URL.
@@ -976,23 +970,15 @@ function mtmManualConstructorMarkup({id, p, render, setOp, atomLayout = '(2,2,1)
 }
 
 function mtmWriteConstructorControls(tabId, p, inputs) {
-  mtmDecodeConstructor(inputs); // Reject invalid imports before changing fields.
-  const [op, ab, acc, k, atomLayout, perm] = inputs;
-  const write = (key, value) => { document.getElementById(`${tabId}-${p}-${key}-input`).value = value; };
-  write('op', op);
-  mmaSyncControls(tabId, op, p);
-  if (ab !== 'na') write('ab', ab);
-  if (acc !== 'na') write('acc', acc);
-  write('k', String(k));
-  write('atomlayout', atomLayout);
-  write('perm', perm === 'na' ? '' : perm);
+  mtmDecodeConstructor(inputs, {warpgroup: p === 'mtm'}); // Validate before changing fields.
+  mmaAssignAtomInputs(tabId, p, [...inputs.slice(0,4), ...inputs.slice(6)]);
+  document.getElementById(`${tabId}-${p}-atomlayout-input`).value = inputs[4];
+  document.getElementById(`${tabId}-${p}-perm-input`).value = inputs[5] === 'na' ? '' : inputs[5];
 }
 
 function mtmReadConstructorControls(tabId, p) {
   const read = key => document.getElementById(`${tabId}-${p}-${key}-input`).value;
-  const opKey = read('op'), op = MMA_WARP_OPS[opKey];
-  if (!op) throw new Error(`Unknown MMA Op "${opKey}".`);
-  mmaSyncControls(tabId, opKey, p);
-  return [opKey, op.ab ? read('ab') : 'na', op.acc ? read('acc') : 'na',
-    read('k'), read('atomlayout'), read('perm') || 'na'];
+  mmaSyncControls(tabId, read('op'), p);
+  const atomInputs = mmaReadAtomInputs(tabId, p);
+  return [...atomInputs.slice(0,4), read('atomlayout'), read('perm') || 'na', ...atomInputs.slice(4)];
 }

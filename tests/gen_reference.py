@@ -21,11 +21,18 @@ import json
 import os
 import re
 import sys
+import subprocess
+import tempfile
 from urllib.parse import parse_qs
+
+# WGMMA construction is architecture-gated. Trace its corpus in a fresh
+# process targeting SM90a; leave the other sections on their existing target.
+if '--warpgroup-only' in sys.argv:
+    os.environ['CUTE_DSL_ARCH'] = 'sm_90a'
 
 import cutlass
 import cutlass.cute as cute
-from cutlass.cute.nvgpu import common, cpasync, warp
+from cutlass.cute.nvgpu import common, cpasync, warp, warpgroup, OperandMajorMode
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CASES = os.path.join(HERE, "cases.json")
@@ -501,6 +508,48 @@ def run_mma_atom(c):
     }
 
 
+WGMMA_LAYOUT_RECORDS = {}
+
+
+def record_warpgroup_layout(layout, broadcast=False):
+    """Intern identical traits across dtype/source/major-mode cases. Keep
+    complete pointwise maps without repeating them hundreds of times in JSON.
+    """
+    key = canon(layout)
+    if key not in WGMMA_LAYOUT_RECORDS:
+        WGMMA_LAYOUT_RECORDS[key] = {
+            'str': key, 'size': int(cute.size(layout)), 'cosize': int(cute.cosize(layout)),
+            'eval': eval_all(layout, 128 if broadcast else int(cute.size(layout)))}
+    return key
+
+
+def make_warpgroup_mma_op(c):
+    source = getattr(warpgroup.OperandSource, c['a_src'])
+    am, bm = (getattr(OperandMajorMode, c[key]) for key in ['a_major', 'b_major'])
+    shape = (64, c['n'], c['k'])
+    if c['op'] == 'wg_f16bf16':
+        op = warpgroup.MmaF16BF16Op(DTYPES[c['ab_dtype']], DTYPES[c['acc_dtype']], shape, source, am, bm)
+    else:
+        cls = warpgroup.MmaF8Op if c['op'] == 'wg_fp8' else warpgroup.MmaI8Op
+        op = cls(DTYPES[c['ab_dtype']], DTYPES[c['b_dtype']], DTYPES[c['acc_dtype']], shape, source, am, bm)
+    return op
+
+
+def run_warpgroup_mma_atom(c):
+    atom = cute.make_mma_atom(make_warpgroup_mma_op(c))
+    out = {'thr_id': canon(atom.thr_id), 'shape_mnk': canon(atom.shape_mnk)}
+    for key in ['A', 'B', 'C']:
+        layout = getattr(atom, 'tv_layout_' + key)
+        smem = key == 'B' or (key == 'A' and c['a_src'] == 'SMEM')
+        # Check every thread in the broadcast mode, then every logical value.
+        # Avoid materializing 128 identical copies of a descriptor operand.
+        out[key] = record_warpgroup_layout(layout, broadcast=smem)
+        if smem:
+            values = cute.make_layout(layout.shape[1], stride=layout.stride[1])
+            out[key + '_values'] = record_warpgroup_layout(values)
+    return out
+
+
 def parse_tiled_mma_perm(spec):
     """permutation_mnk: None, or a 3-mode Tiler string. `_` is CuTe's no-op."""
     if spec is None:
@@ -533,7 +582,7 @@ def parse_tiled_mma_perm(spec):
                  else parse_layout(m) for m in modes)
 
 
-def _tiled_mma_frag(tmma, operand, tile):
+def _tiled_mma_frag(tmma, operand, tile, thread_step=1):
     """The (thread, value) -> tile map, read off partition_A/B/C.
 
     This is the oracle rather than `tv_layout_X_tiled` because it is what a
@@ -545,7 +594,7 @@ def _tiled_mma_frag(tmma, operand, tile):
     ident = cute.make_identity_tensor(tile)
     rows = tile[0]
     out = []
-    for thr in range(int(cute.size(tmma.thr_layout_vmnk))):
+    for thr in range(0, int(cute.size(tmma.thr_layout_vmnk)), thread_step):
         frag = getattr(tmma.get_slice(thr), "partition_" + operand)(ident)
         n = int(cute.size(frag.layout))
         out.append(",".join(str(frag[i][0] + rows * frag[i][1]) for i in range(n)))
@@ -569,6 +618,21 @@ def run_tiled_mma(c):
         "frag_B": _tiled_mma_frag(tmma, "B", (tile[1], tile[2])),
         "frag_C": _tiled_mma_frag(tmma, "C", (tile[0], tile[1])),
     }
+
+
+def run_warpgroup_tiled_mma(c):
+    tmma = cute.make_tiled_mma(make_warpgroup_mma_op(c), parse_layout(c['atom_layout']),
+                               parse_tiled_mma_perm(c['perm']))
+    tile = [int(tmma.get_tile_size(i)) for i in range(3)]
+    out = {'thr_layout_vmnk': canon(tmma.thr_layout_vmnk), 'tile_mnk': tile}
+    for key, dims in [('A',(tile[0],tile[2])), ('B',(tile[1],tile[2])), ('C',(tile[0],tile[1]))]:
+        tv = getattr(tmma, 'tv_layout_' + key + '_tiled')
+        smem = key == 'B' or (key == 'A' and c['a_src'] == 'SMEM')
+        out['tv_'+key] = canon(tv)
+        out['frag_'+key] = _tiled_mma_frag(tmma,key,dims,128 if smem else 1)
+        if smem:
+            out['threads_'+key] = record(cute.make_layout(tv.shape[0],stride=tv.stride[0]))
+    return out
 
 
 def run_make_tiled_copy_ab(c):
@@ -817,6 +881,8 @@ SECTIONS = [
     ("copy_atom", run_copy_atom),
     ("ldmatrix_atom", run_ldmatrix_atom),
     ("mma_atom", run_mma_atom),
+    ("warpgroup_mma_atom", run_warpgroup_mma_atom),
+    ("warpgroup_tiled_mma", run_warpgroup_tiled_mma),
     ("tiled_mma", run_tiled_mma),
     ("make_tiled_copy_ab", run_make_tiled_copy_ab),
     ("tma_atom", run_tma_atom),
@@ -858,10 +924,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--check", action="store_true",
                     help="regenerate and fail if it differs from the committed file")
+    ap.add_argument('--warpgroup-only', action='store_true', help=argparse.SUPPRESS)
+    ap.add_argument('--output', default=REFERENCE, help=argparse.SUPPRESS)
     args = ap.parse_args()
 
     with open(CASES) as f:
         cases = json.load(f)
+    cases = {name: rows for name, rows in cases.items()
+             if name.startswith('warpgroup_') == args.warpgroup_only}
 
     data, failures = {}, []
 
@@ -897,6 +967,18 @@ def main():
             print("  " + f, file=sys.stderr)
         return 1
 
+    if not args.warpgroup_only:
+        with tempfile.TemporaryDirectory() as directory:
+            target = os.path.join(directory, 'warpgroup.json')
+            subprocess.run([sys.executable, __file__, '--warpgroup-only', '--output', target], check=True)
+            with open(target) as f:
+                worker = json.load(f)
+                for name in worker:
+                    if name.startswith('warpgroup_'):
+                        data[name] = worker[name]
+    else:
+        data['warpgroup_mma_atom']['_layouts'] = WGMMA_LAYOUT_RECORDS
+
     text = json.dumps(
         {"_generated_by": "tests/gen_reference.py (CuTeDSL oracle) -- do not edit by hand",
          "_cutlass_version": getattr(cutlass, "__version__", "unknown"),
@@ -916,10 +998,10 @@ def main():
         print("reference.json is up to date")
         return 0
 
-    with open(REFERENCE, "w") as f:
+    with open(args.output, "w") as f:
         f.write(text)
     total = sum(len(v) for v in data.values())
-    print("wrote %s (%d cases across %d sections)" % (REFERENCE, total, len(data)))
+    print("wrote %s (%d cases across %d sections)" % (args.output, total, len(data)))
     return 0
 
 

@@ -20,17 +20,20 @@
 
 const fs = require('fs');
 const path = require('path');
+const { performance } = require('perf_hooks');
 const { loadVisualizer, parseExact, parseTiler, fmt, evalAll } = require('./harness');
 const { runUnitTests } = require('./unit');
 const { runDomSmoke } = require('./dom_smoke');
 
 (async () => {
+const runStarted = performance.now();
 const V = loadVisualizer();
 const CASES = JSON.parse(fs.readFileSync(path.join(__dirname, 'cases.json'), 'utf8'));
 const REF = JSON.parse(fs.readFileSync(path.join(__dirname, 'reference.json'), 'utf8'));
 
 const argv = process.argv.slice(2);
 const VERBOSE = argv.includes('--verbose') || argv.includes('-v');
+const TIMINGS = argv.includes('--timings');
 const FILTERS = argv.filter(a => !a.startsWith('-'));
 
 // ═══════════════════════════════════════════════════════
@@ -43,10 +46,20 @@ const C = process.stdout.isTTY
 
 const results = { pass: 0, fail: 0, skip: 0, failures: [] };
 let currentSection = '';
+let timedSection = null;
+
+function finishSectionTiming() {
+  if (TIMINGS && timedSection) {
+    console.log(`  time ${timedSection.name}: ${((performance.now() - timedSection.started) / 1000).toFixed(3)}s`);
+    timedSection = null;
+  }
+}
 
 function section(name) {
+  finishSectionTiming();
   currentSection = name;
   if (!FILTERS.length || FILTERS.some(f => name.includes(f))) {
+    if (TIMINGS) timedSection = {name, started: performance.now()};
     process.stdout.write(`\n${C.bold}${name}${C.off}\n`);
     return true;
   }
@@ -97,11 +110,11 @@ function refFor(sectionName, id) {
  *  its size/cosize, and its value at every point of the domain. The pointwise
  *  check is the one that matters — two different strings can describe the same
  *  map, but a divergent value is always a real bug. */
-function checkLayout(id, L, ref) {
+function checkLayout(id, L, ref, { points = true } = {}) {
   check(id, 'layout', fmt(V, L), ref.str);
   if (ref.size !== undefined) check(id, 'size', L.size(), ref.size);
   if (ref.cosize !== undefined) check(id, 'cosize', L.cosize(), ref.cosize);
-  if (ref.eval) {
+  if (points && ref.eval) {
     const got = evalAll(V, L, ref.eval.length);
     const bad = got.findIndex((x, i) => x !== ref.eval[i]);
     if (bad === -1 && got.length === ref.eval.length) {
@@ -342,6 +355,37 @@ if (section('ldmatrix_atom')) {
 //  4c. make_mma_atom(warp.Mma*Op(...))  (mmaWarpAtom)
 // ═══════════════════════════════════════════════════════
 
+if (section('warpgroup_mma_atom')) {
+  // Every constructor still runs and checks its traits. Evaluate an identical
+  // actual shape/stride against an identical interned oracle only once.
+  const evaluated = new Set();
+  const checkTrait = (id, part, refKey) => {
+    const signature = JSON.stringify([part.shape, part.stride, refKey]);
+    checkLayout(id, new V.Layout(part.shape, part.stride), REF.warpgroup_mma_atom._layouts[refKey],
+      {points: !evaluated.has(signature)});
+    evaluated.add(signature);
+  };
+  for (const c of CASES.warpgroup_mma_atom) {
+    const ref = refFor('warpgroup_mma_atom', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const a = V.mmaWarpgroupAtom(c.op,c.ab_dtype,c.acc_dtype,c.k,c.n,c.a_src,c.a_major,c.b_major,c.b_dtype);
+      check(c.id, 'thr_id', fmt(V, new V.Layout(a.thrId.shape,a.thrId.stride)), ref.thr_id);
+      check(c.id, 'shape_mnk', `(${a.shapeMNK.join(',')})`, ref.shape_mnk);
+      for (const name of ['A','B','C']) {
+        const part = a[name];
+        const layoutRef = REF.warpgroup_mma_atom._layouts[ref[name]];
+        checkTrait(`${c.id}/${name}`, part, ref[name]);
+        if (part.space === 'SMEM') {
+          checkTrait(`${c.id}/${name}/logical values`, {shape: part.shape[1], stride: part.stride[1]}, ref[name+'_values']);
+          check(c.id, `${name} broadcasts across threads`, part.stride[0], 0);
+        }
+        check(c.id, `${name} tile coverage`, part.tile.shape[0]*part.tile.shape[1], layoutRef.cosize);
+      }
+    });
+  }
+}
+
 if (section('mma_atom')) {
   const seen = new Map();   // layout triple -> the `op|K` that produced it
   for (const c of CASES.mma_atom) {
@@ -387,16 +431,40 @@ if (section('mma_atom')) {
  *  This is the whole content of the tab -- the grids are just this map drawn --
  *  so it is the thing worth diffing, rather than a printed layout string that
  *  two different maps could share. */
-function mtmFragString(opnd) {
+function mtmFragString(opnd, threadStep = 1) {
   const nT = V.product(opnd.thr.shape), nV = V.product(opnd.val.shape);
   const rows = [];
-  for (let t = 0; t < nT; t++) {
+  for (let t = 0; t < nT; t += threadStep) {
     const base = opnd.thr.call(t);
     const vals = [];
     for (let v = 0; v < nV; v++) vals.push(base + opnd.val.call(v));
     rows.push(vals.join(','));
   }
   return rows.join(';');
+}
+
+if (section('warpgroup_tiled_mma')) {
+  for (const c of CASES.warpgroup_tiled_mma) {
+    const ref = refFor('warpgroup_tiled_mma',c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const atom = V.mmaWarpgroupAtom(c.op,c.ab_dtype,c.acc_dtype,c.k,c.n,c.a_src,c.a_major,c.b_major,c.b_dtype);
+      const r = V.mtmComputeTiledMma(atom,V.mtmParseAtomLayout(c.atom_layout),V.mtmParsePerm(c.perm));
+      check(c.id,'thread layout',fmt(V,r.thrVmnk),ref.thr_layout_vmnk);
+      check(c.id,'tile MNK',r.tileMNK,ref.tile_mnk);
+      check(c.id,'threads per atom',r.atomThreads,128);
+      check(c.id,'physical warp count',r.warps,r.atomGroups*4);
+      for (const key of ['A','B','C']) {
+        const operand = r[key], smem = operand.space === 'SMEM';
+        if (key !== 'C' || r.atomLayoutMNK[1] === 1 || r.atomLayoutMNK[2] === 1)
+          check(c.id,key+' TV',fmt(V,operand.tv),ref['tv_'+key]);
+        check(c.id,key+' every partition value',mtmFragString(operand,smem ? 128 : 1),ref['frag_'+key]);
+        if (smem) checkLayout(c.id+'/'+key+'/broadcast threads',operand.thr,ref['threads_'+key]);
+        const grid = V.mtmOperandGrid(operand);
+        check(c.id,key+' all cells covered',grid.every(row=>row.every(cell=>cell.entries.length>0)),true);
+      }
+    });
+  }
 }
 
 if (section('tiled_mma')) {
@@ -801,9 +869,7 @@ if (section('swizzle')) {
 //  9. JS-only unit tests (no CuTeDSL analogue)
 // ═══════════════════════════════════════════════════════
 
-if (!FILTERS.length || FILTERS.some(f => 'unit'.includes(f))) {
-  currentSection = 'unit';
-  process.stdout.write(`\n${C.bold}unit${C.off}\n`);
+if (section('unit')) {
   runUnitTests(V, { check, guard, C, results, setSection: (n) => { currentSection = n; } });
 }
 
@@ -831,6 +897,8 @@ if (section('variables')) {
 // ═══════════════════════════════════════════════════════
 
 const total = results.pass + results.fail;
+finishSectionTiming();
+if (TIMINGS) console.log(`\nTotal test time: ${((performance.now() - runStarted) / 1000).toFixed(3)}s`);
 console.log(
   `\n${results.fail === 0 ? C.green + 'PASS' : C.red + 'FAIL'}${C.off} ` +
   `${results.pass}/${total} assertions` +

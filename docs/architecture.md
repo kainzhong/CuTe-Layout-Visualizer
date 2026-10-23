@@ -379,6 +379,7 @@ when a `cutlass.cute` call can produce it instead.
 ```
 npm test                      # node only; reference.json is committed
 node tests/run.js tma         # only sections matching a filter
+node tests/run.js --timings   # per-section and total elapsed time
 npm run reference             # regenerate reference.json (needs nvidia-cutlass-dsl)
 npm run reference:check       # fail if it drifted
 ```
@@ -406,6 +407,16 @@ For every layout-valued result the suite compares the printed layout, its `size`
 `cosize`, **and its value at every point of the domain**. The pointwise check is the one
 that matters: two different strings can describe the same map, but a divergent value is
 always a real bug.
+
+The math and DOM harnesses use `createBrowserContext` from `tests/harness.js`.
+It keeps browser globals isolated in a VM realm, using `DONT_CONTEXTIFY` when
+Node supports it. Ordinary VM globals avoid costly proxy lookups in recursive
+layout functions; older Node versions retain the contextified fallback.
+
+WGMMA retains every constructor case and its layout metadata checks. Pointwise
+checks are deduplicated only for an identical actual shape/stride paired with the
+same interned oracle record. Every distinct map is still evaluated without
+sampling, and a changed trait receives a new pointwise check.
 
 No GPU is needed to regenerate. Every layout in the corpus is static, so the generator
 runs entirely at **trace time** inside one `@cute.jit` function. It tolerates the MLIR
@@ -1369,8 +1380,9 @@ point. **C spans the full width below them** via `.comp-viz-span` (the general f
 `.comp-viz-complement` rule), because it is over a different pair of axes entirely and is what the
 epilogue has to deal with.
 
-All three are **bijections** — `size == cosize` — so every cell is owned by exactly one lane and there
-is no broadcast at the atom level. That is asserted for all 28 cases, and it is why the viz passes
+For the warp atoms, all three are **bijections** — `size == cosize` — so every cell is owned by
+exactly one lane and there is no broadcast at the atom level. WGMMA descriptor operands are
+broadcasts instead (see below). That is asserted for all 28 cases, and it is why the viz passes
 neither `dimTids` nor `cellIndex` to `buildTVSVG`: nothing is disabled, and these tiles are col-major
 in their own codomain, which is the builder's default. (Contrast the ldmatrix atom, which needs both.)
 
@@ -1381,7 +1393,7 @@ hardware fact rather than a computation: it is the PTX register signature transc
 `mma.sync.aligned.m16n8k16` takes `{d0..d3}, {a0..a3}, {b0,b1}, {c0..c3}`, and that *is* 8/8/4 elements
 per lane in f16. Do not try to derive `MMA_ATOM_TABLE`; extend it from CuTeDSL and add cases.
 
-**The layouts depend only on `(op family, K)`** — 16 valid parameter combinations collapse to 6 distinct
+**The warp layouts depend only on `(op family, K)`** — 16 valid parameter combinations collapse to 6 distinct
 triples. `ab_dtype` does not matter (half_t vs bfloat16_t, e4m3 vs e5m2 are identical) and neither does
 `acc_dtype` (an f16 accumulator packs the same four values into two registers instead of four — that
 changes the register count, not the map). The layouts are stated in units of ELEMENTS, and how many
@@ -1390,7 +1402,7 @@ elements pack into a 32-bit register is fixed by the family.
 identical layout strings. `MMA_C_LAYOUT` is a separate constant because C is invariant across
 *everything* here, K included.
 
-**Scope: `cute.nvgpu.warp`, and within it the three DENSE `WarpMmaOp` subclasses** — `MmaF16BF16Op`,
+**Warp scope: `cute.nvgpu.warp`, and within it the three DENSE `WarpMmaOp` subclasses** — `MmaF16BF16Op`,
 `MmaTF32Op`, `MmaFP8Op`. Two separate exclusions, for two different reasons:
 
 - `MmaF16BF16SparseOp` is the fourth `WarpMmaOp` subclass and traces perfectly well, but it is left out
@@ -1415,10 +1427,48 @@ identical layout strings. `MMA_C_LAYOUT` is a separate constant because C is inv
 The `WarpMmaOp` subclass check is the structural boundary; "can the three grids show what makes this
 Op different" is the editorial one. Both matter when deciding whether a new Op belongs here.
 
-Further out, Hopper `wgmma` and Blackwell `tcgen05` are a different shape of problem and do NOT belong
-in this tab: `wgmma` reads A/B from SMEM through descriptors (its Op takes an `OperandSource`), and
-`tcgen05` accumulates in TMEM, which is not thread-addressable. The "three register fragments" reading
-that makes this tab work stops holding for both.
+**Hopper WGMMA in the atom tab.** The standalone `make_mma_atom` editor also accepts
+`warpgroup.MmaF16BF16Op`, `MmaF8Op`, and `MmaI8Op`. Keep these in
+`MMA_WARPGROUP_OPS`, separate from `MMA_WARP_OPS`: the shared constructor editor is
+shared with the TiledMMA editor and warp-only partition, Copy and fragment consumers. The atom and standalone TiledMMA
+editors opt into WGMMA; `mmaAssignAtomInputs` rejects warpgroup atoms for other
+consumers before touching controls.
+
+`mmaWarpgroupAtom` is DOM-free. Its traits come from CuTeDSL / CUTLASS SM90 GMMA:
+ThrID is 128:1, M is 64, K is 16 (F16/BF16) or 32 (FP8/INT8). Floating-point
+N is an editable number input: 8..256 by 8; INT8 allows 8, 24, and multiples of 16 through 256.
+Control synchronization preserves typed N values, including invalid ones; constructor validation
+rejects illegal N with an error and clears the visualization instead of choosing a fallback.
+INT8 currently offers SMEM A only: CuTeDSL 4.8 rejects register A at `cute.gemm`
+verification (`expects si8/ui8, got i8`). FP16/BF16 and FP8 support both sources.
+The register A templates and C's repeated eight-column value mode are checked
+for every supported N. Dtype and supported major-mode variants are included
+in the oracle corpus. SMEM TV layouts have a zero thread stride, broadcasting
+the complete logical operand; do not count those values as per-lane registers.
+
+The A/B/C panes stay shared. RMEM uses `buildTVSVG`; SMEM uses
+`buildColoredLayoutSVG` with one color, no default cell labels, and optional logical offsets.
+Badges identify actual memory spaces, and thread highlighting affects RMEM only.
+There is no supplied SMEM tensor layout in this constructor, so this view does
+not claim to draw physical addresses or swizzling. Default display transposes
+M-major A or N-major B; Alternative View fixes A/B/C to MK/KN/MN.
+User-facing mode labels name the operand axis (M for A, N for B); constructor
+state and URLs retain CuTe's shared `MN` enum value. Both projections
+preserve the underlying TV codomain, including the value labels.
+
+The legacy four-field atom URL is preserved. WGMMA appends five fields:
+`N, a_src, a_major, b_major, b_dtype`. Validate the complete constructor before
+writing controls. Rebuild major-mode options after changing A source and before
+assigning an imported major mode. Rendering, export, clipboard decode and named
+variables use the same constructor computation.
+
+`tests/gen_reference.py` traces WGMMA in a separate SM90a process, because the
+DSL architecture gate rejects its construction on Blackwell. It checks broadcast
+threads and every logical value separately instead of storing 128 identical copies
+of every SMEM element. RMEM maps are compared pointwise over their entire domain.
+The execution gate is `python3 tests/gpu_check.py --warpgroup` on a Hopper node;
+`--compile-only` only checks lowering and does not satisfy that execution gate.
+Blackwell `tcgen05` remains outside this tab because its accumulator is in TMEM.
 
 **Per-Op `<select>`s must be repopulated before their value is assigned**, and `mmaSyncControls`'s
 `fill()` assigns the fallback EXPLICITLY (`sel.value = ok ? want : String(values[0])`) rather than
@@ -1447,9 +1497,45 @@ which address. The MMA atom is the fixed point.
 inputs rather than for a fixed list. `mtmComputeTiledMma(atom, atomLayout, perm)` is the DOM-free
 whole of it; `renderMakeTiledMma` only parses and draws.
 
+**WGMMA uses the same derivation with the atom's own ThrID.**
+`mtmComputeTiledMma` reads `atom.thrId` instead of hardcoding 32 threads. It reports
+`atomThreads` and `atomGroups`, while `warps` still counts physical 32-thread warps
+for existing callers. A WGMMA `(2,1,1)` tiles two 128-thread groups, eight warps and
+256 threads over `(2*M_atom,N_atom,K_atom)`.
+
+All three modes are available for WGMMA: Show TVs, Show Warps, and Show Warp Groups.
+The focus field follows the mode (thread, physical warp, or cooperative group).
+Register entries retain physical warp IDs; the group renderer derives WG IDs from
+thread indices and the atom width. A descriptor operand stays uniformly colored
+in every mode. `mtmOperandGrid` visits one representative thread per descriptor
+atom to avoid materializing 128 identical entries for every SMEM cell; its logical
+TV layout still retains the broadcast mode. The oracle checks every SMEM thread
+offset and every value of each group's descriptor partition. RMEM partitions are
+checked for all threads and values. Repetition boundaries share `mtmRestOverlay`;
+SMEM rendering uses `buildColoredLayoutSVG` with its overlay callback.
+
+A/B default orientation follows M-major A / N-major B. Matrix view fixes MK/KN/MN,
+including the codomain used for value labels. Badges follow actual operand space;
+B's dtype may differ from A for FP8 and INT8. K replication still represents partial
+accumulators, with no automatic reduction.
+
+The standalone tab decodes both MMAAtom URLs (section 1) and complete TiledMMA URLs
+(section 2). Both forms validate the prospective constructor before modifying
+controls. The complete WGMMA URL keeps the six legacy fields and appends
+`N, a_src, a_major, b_major, b_dtype`. Named variables accept and preview both
+scopes. `mtmDecodeConstructor` requires explicit `{warpgroup: true}` for WGMMA;
+Copy/partition/fragment/GEMM consumers remain warp-only. Dependent source/major
+options are rebuilt before assigning imported values.
+
+H100 execution checks cover representative group replication, explicit thread
+ordering, mixed dtypes, supported major modes and tile repetition. Fine-grained
+row permutation with canonical SMEM A hit a CuTeDSL 4.8 descriptor compiler error;
+the same nontrivial permutation executes correctly with RMEM A. The constructor's
+logical view does not validate a particular physical SMEM descriptor layout.
+
 **The two arguments do different things, which is why the tab draws two rows.**
-`atom_layout_mnk` says how many warps there are — the tile grows to `(16*aM, 8*aN, 16*aK)` and each
-warp covers one atom-sized area. `permutation_mnk` says what tile each mode is *really* over: bigger
+`atom_layout_mnk` counts atoms — warps for warp MMA, warp groups for WGMMA.
+The tile grows to `(M_atom*aM, N_atom*aN, K_atom*aK)` and each group covers one atom-sized area. `permutation_mnk` says what tile each mode is *really* over: bigger
 than the warps cover and the whole warp pattern **repeats**; a non-trivial layout and the rows the
 warps land on are **permuted**. The top row is the same derivation with `perm = (_, _, _)`, computed
 by the same function — showing it against a separately-written baseline would be a second

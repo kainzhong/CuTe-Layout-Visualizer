@@ -1795,9 +1795,9 @@ const FEATURE_SPEC = {
   tma_partition:       { inputs: 5 },  // values, dtype, swizzle, smem, rest
   partition_sd:        { inputs: 4, methods: ['url'], legacyInputs: 8 },  // url: side, encoded copy URL, thread, tensor; legacy constructor fields remain accepted
   swizzle:         { inputs: 2 },
-  make_mma_atom:   { inputs: 4 },  // op, ab_dtype, acc_dtype, K
+  make_mma_atom:   { inputs: 4, optional: 5 },  // warpgroup adds N, A source, A/B major modes, B dtype
   make_tiled_copy_ab: { inputs: 12, optional: 2 }, // operand, MMA op/ab/acc/K, atom layout, perm, copy Op/nm/trans/bits, view [, focus, compare]
-  make_tiled_mma:  { inputs: 6 },  // op, ab_dtype, acc_dtype, K, atom_layout_mnk, permutation_mnk
+  make_tiled_mma:  { inputs: 6, optional: 5 },  // legacy constructor; WGMMA appends N/source/major modes/B dtype
   retile: { inputs: 6 }, // tiled TV, tiler, atom values, dtype, RMEM input, thread
   partition_abc:   { inputs: 9, optional: 1 },  // operand, op, ab, acc, K, atom_layout_mnk, perm, thr, tensor [, fragment slice]
   make_fragment_abc: { inputs: 6, optional: 1 }, // operand, op, ab, acc, K, partitioned layout [, thread]
@@ -1974,13 +1974,7 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
       renderMakeCopyAtom(tabId);
       break;
     case 'make_mma_atom': {
-      const sel = document.getElementById(`${tabId}-mma-op-input`);
-      sel.value = inputs[0];
-      // Rebuild the per-Op options BEFORE assigning into them — see mmaSyncControls.
-      mmaSyncControls(tabId, inputs[0]);
-      if (inputs[1] !== 'na') document.getElementById(`${tabId}-mma-ab-input`).value  = inputs[1];
-      if (inputs[2] !== 'na') document.getElementById(`${tabId}-mma-acc-input`).value = inputs[2];
-      document.getElementById(`${tabId}-mma-k-input`).value = inputs[3];
+      mmaAssignAtomInputs(tabId, 'mma', inputs);
       switchInnerTab(tabId, 'make_mma_atom');
       renderMakeMmaAtom(tabId);
       break;
@@ -1994,16 +1988,7 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
       switchInnerTab(tabId, 'make_tiled_copy_ab');
       break;
     case 'make_tiled_mma': {
-      document.getElementById(`${tabId}-mtm-op-input`).value = inputs[0];
-      // Rebuild the per-Op options BEFORE assigning into them — see mmaSyncControls.
-      mmaSyncControls(tabId, inputs[0], 'mtm');
-      if (inputs[1] !== 'na') document.getElementById(`${tabId}-mtm-ab-input`).value  = inputs[1];
-      if (inputs[2] !== 'na') document.getElementById(`${tabId}-mtm-acc-input`).value = inputs[2];
-      document.getElementById(`${tabId}-mtm-k-input`).value = inputs[3];
-      document.getElementById(`${tabId}-mtm-atomlayout-input`).value = inputs[4];
-      // `na` is how exportMTM spells "no permutation" — the key is split on
-      // `-`, so an empty field cannot travel as an empty part.
-      document.getElementById(`${tabId}-mtm-perm-input`).value = inputs[5] === 'na' ? '' : inputs[5];
+      mtmWriteConstructorControls(tabId, 'mtm', inputs);
       switchInnerTab(tabId, 'make_tiled_mma');
       renderMakeTiledMma(tabId);
       break;

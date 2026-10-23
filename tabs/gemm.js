@@ -179,12 +179,13 @@ function generateGemmTabContent(id) {
 
 function gemmMmaSummary(mma) {
   const p = mma.inputs;
-  return `make_tiled_mma(${MMA_WARP_OPS[p[0]].label}, ${p[4]}, ${p[5]})\n` +
+  return `make_tiled_mma(${mma.atom.op.label}, ${p[4]}, ${p[5]})\n` +
     `Atom MNK = (${mma.atom.shapeMNK.join(',')})\n` +
-    `A/B dtype = ${p[1] === 'na' ? 'tfloat32_t' : p[1]}; C/D dtype = ${p[2] === 'na' ? 'float' : p[2]}\n` +
+    `${mma.atom.warpgroup ? `A dtype = ${p[1]}; B dtype = ${mma.atom.bDtype}` : `A/B dtype = ${p[1] === 'na' ? 'tfloat32_t' : p[1]}`}; C/D dtype = ${p[2] === 'na' ? 'float' : p[2]}\n` +
+    (mma.atom.warpgroup ? `A source = ${mma.atom.aSrc}; A = ${mmaMajorLabel('A',mma.atom.aMajor)}; B = ${mmaMajorLabel('B',mma.atom.bMajor)}\n` : '') +
     `Thr Layout VMNK = ${formatLayoutStr(mma.tiled.thrVmnk.shape, mma.tiled.thrVmnk.stride)}\n` +
-    `Base warp replication MNK = (${mma.atom.shapeMNK.map((x,i) => x * mma.tiled.atomLayoutMNK[i]).join(',')})\n` +
-    `Permutation tile MNK = (${mma.tiled.tileMNK.join(',')})\n${mma.tiled.warps} warps, ${mma.tiled.threads} threads`;
+    `Base ${mma.atom.warpgroup ? 'warpgroup' : 'warp'} replication MNK = (${mma.atom.shapeMNK.map((x,i) => x * mma.tiled.atomLayoutMNK[i]).join(',')})\n` +
+    `Permutation tile MNK = (${mma.tiled.tileMNK.join(',')})\n${mma.tiled.warps} warps, ${mma.tiled.threads} threads${mma.atom.warpgroup ? `; ${mma.tiled.atomGroups} warp groups` : ''}`;
 }
 
 function renderGemm(tabId) {

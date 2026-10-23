@@ -891,6 +891,7 @@ function addOuterTab() {
 
   switchOuterTab(id);
   renderAllTabs(id, 'layout');
+  scheduleTabSessionSave();
   return id;
 }
 
@@ -1062,6 +1063,7 @@ function switchOuterTab(id) {
   document.getElementById(`${id}-btn`).classList.add('active');
   document.getElementById(`${id}-panel`).classList.add('active');
   activeOuterTabId = id;
+  scheduleTabSessionSave();
 }
 
 function closeOuterTab(id) {
@@ -1080,6 +1082,7 @@ function closeOuterTab(id) {
 
   btn.remove();
   panel.remove();
+  scheduleTabSessionSave();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1106,6 +1109,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-scope-btn').forEach(b => {
     b.classList.toggle('active', b.getAttribute('data-scope') === scope);
   });
+  scheduleTabSessionSave();
 }
 
 function switchTabGroup(tabId, scope) {
@@ -1252,6 +1256,7 @@ function updateRankWarning(warnId, inputs) {
 function updateOuterTabLabel(tabId, text) {
   const label = document.getElementById(`${tabId}-label`);
   if (label && !label.dataset.customName) label.textContent = text;
+  scheduleTabSessionSave();
 }
 
 // A chosen name survives the automatic labels emitted by render functions.
@@ -1261,6 +1266,7 @@ function setOuterTabName(tabId, name) {
   if (!label || !value) return;
   label.dataset.customName=value;
   label.textContent=value;
+  scheduleTabSessionSave();
 }
 
 function renameOuterTab(tabId) {

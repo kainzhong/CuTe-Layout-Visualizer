@@ -33,7 +33,7 @@ function sourceFiles() {
     .filter(f => f.endsWith('.js'))
     .sort()
     .map(f => path.join('tabs', f));
-  return ['cute.js', 'layout.js', 'ui.js', ...tabs, 'variables.js'];
+  return ['cute.js', 'layout.js', 'ui.js', ...tabs, 'variables.js', 'session.js'];
 }
 
 /** A DOM stub big enough for the sources to LOAD. The tests only ever call

@@ -894,6 +894,12 @@ if (section('variables')) {
   for (const failure of r.failures) { results.failures.push(`variables/${failure}`); console.log(`  FAIL ${failure}`); }
 }
 
+if (section('session')) {
+  const r = await require('./session').runSessionTests();
+  results.pass += r.pass; results.fail += r.fail;
+  for (const failure of r.failures) { results.failures.push(`session/${failure}`); console.log(`  FAIL ${failure}`); }
+}
+
 // ═══════════════════════════════════════════════════════
 
 const total = results.pass + results.fail;

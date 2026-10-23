@@ -1698,7 +1698,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
   return results;
 }
 
-module.exports = { runDomSmoke };
+module.exports = { runDomSmoke, makeContext, makeEl };
 
 if (require.main === module) {
   const r = runDomSmoke({ verbose: process.argv.includes('-v') });

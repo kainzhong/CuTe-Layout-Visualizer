@@ -162,3 +162,9 @@ failed to construct a canonical SMEM descriptor for the tested row permutation.
 
 H100 PCIe execution validation: all 10 marked tiled WGMMA cases compiled and ran
 with exact NumPy agreement, including the nontrivial permutation with RMEM A.
+
+`node tests/run.js session` exercises tab persistence through real templates and renderers
+with fresh VM contexts to simulate hard refreshes. The DOM shim enforces select option
+membership and runs real change handlers, covering dependency order, WGMMA constructor
+restoration, tab order/names/active scope, closed-tab ID gaps, unrendered drafts, shared
+URLs, debounced and pagehide saves, and unavailable/corrupt storage. It runs in `npm test`.

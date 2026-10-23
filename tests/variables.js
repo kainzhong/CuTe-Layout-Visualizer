@@ -194,7 +194,7 @@ async function main() {
     storage.set(V.VARIABLES_STORAGE_KEY,'{broken');V.variablesRestore();check('corrupt storage does not crash',V.variablesState.storageWarning.length>0);
   });
   check('header says Show Variable Table',html.includes('>Show Variable Table <span'));
-  check('header integration initializes library before creating tabs',html.includes('src="variables.js"')&&html.indexOf('initializeVariables();')<html.indexOf('const firstTabId = addOuterTab();'));
+  check('header integration initializes library before restoring tabs',html.includes('src="variables.js"')&&html.includes('src="session.js"')&&html.indexOf('initializeVariables();')<html.indexOf('initializeTabSession();'));
   const css=fs.readFileSync(path.join(ROOT,'style.css'),'utf8');check('right drawer respects hidden and mobile sizing',css.includes('.variables-panel[hidden]')&&css.includes('width: min(560px, 100vw)'));
   return results;
 }

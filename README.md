@@ -8,6 +8,12 @@ An interactive browser-based tool for visualizing [CUTLASS CuTe](https://github.
 Know which address you are reading and tell if the load is vectorized / coalseced instantly!
 <img width="1477" height="851" alt="image" src="https://github.com/user-attachments/assets/cd6693d3-5fe9-4351-a82c-3737ae8dc36f" />
 
+Open visualization tabs are saved automatically in browser storage, including their order,
+custom names, active tool, inputs and constructor/view choices. They restore after a hard
+refresh, including unfinished edits. Opening a shared URL adds its visualization alongside
+your saved tabs; refreshing that URL preserves subsequent edits. Variables remain stored
+separately.
+
 ## Why not just `print_latex`?
 
 CUTLASS ships `cute::print_latex(...)`, which dumps a LaTeX snippet you then have to paste into a `.tex` file, compile with `pdflatex`, and open in a PDF viewer every time you want to look at a layout. And all it ever shows you is *one static layout*.

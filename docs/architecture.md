@@ -289,6 +289,35 @@ Visualize creates a normal app tab and uses `applyKeyParam(tabId, parsed)` witho
 
 The make_tiled_copy_tv TV Layout decoder fills its folded manual controls. Method 2 URLs preserve their original thread/value layouts. For primitive TV maps, candidate compact 2D factorizations are accepted only after checking every thread/value point; unsupported factorizations fail before changing controls. The primitive make_tiled_copy tab remains the general constructor for arbitrary TV maps.
 
+### session.js — persistent open tabs
+
+Loads after feature scripts and `variables.js`. `initializeTabSession()` replaces the
+one-default-tab bootstrap, after `initializeVariables()` has restored named objects.
+A versioned `cute-layout-visualizer.tabs.v1` localStorage entry records outer-tab
+order, custom names, selected inner tabs, raw input/select/textarea values, disclosure
+state and an allowlisted subset of constructor/view preferences. It never stores
+rendered HTML/SVG, computed Layout instances or clipboard data. Names restore through
+textContent; select values must belong to the current supported options.
+
+Restore builds ordinary tabs, seeds constructor preferences, then drives real select
+change handlers in DOM order. Parents rebuild dependent options before saved child
+values are assigned. Text is reapplied around renders so unfinished/invalid edits
+survive. Feature computation remains in existing render functions. IDs are saved as
+suffixes and rebound to newly allocated tab IDs, so closing a middle tab does not
+corrupt subsequent tabs.
+
+Input/change/click/toggle events debounce writes; lifecycle methods also schedule
+saves for programmatic edits and library Visualize actions. Pagehide and backgrounding
+flush synchronously, including edits made immediately before a hard refresh. Storage
+errors remain nonfatal and use a separate key from the Variables library.
+
+A saved launch key distinguishes reloads from a new shared URL. Reload restores the
+current edits instead of reapplying the original URL; explicit navigation opens the
+requested visualization alongside the existing workspace. A new browser context is
+used by `tests/session.js` to test actual templates/renderers, strict select option
+semantics, multiple tabs, renumbered IDs, dirty edits, active scope, names, close,
+shared URLs and blocked/corrupt storage.
+
 ### tabs/*.js — one file per tab
 Each tab file holds everything specific to that feature:
 - `index.js`: BASICS tensor-view indexing; exact sliced layout, base offset, and offset grid.

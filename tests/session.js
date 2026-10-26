@@ -152,6 +152,18 @@ async function runSessionTests() {
     check('reload does not duplicate shared tab',reload.nodes.get('outer-tab-buttons').children.length===2);
     check('reload does not overwrite edits with launch URL',reload.nodes.get('ot2-layout-input').value==='(32,4):(4,1)');
   });
+  await test('UTILITY collection and stage survive hard reload',()=>{
+    const memory=new Map(), b=browser(memory), id=b.V.initializeTabSession();
+    b.V.setSml(id,'epi','hopper','COL_MAJOR','(32,16)','half_t','2','(32,16,3)','(2,1,0)');
+    b.nodes.get(id+'-sml-epi-stage-view').value='2';b.V.renderSmemLayout(id,'epi');
+    b.V.toggleSmlMode(id,'epi','coord');b.V.toggleSmlMode(id,'epi','value');
+    b.V.switchInnerTab(id,'make_smem_layout_epi');b.fire('pagehide');
+    const restored=browser(memory);restored.V.initializeTabSession();
+    check('UTILITY scope restored',restored.nodes.get('ot1-panel').nav.getAttribute('data-scope')==='utility');
+    check('utility overrides and stage restored',restored.nodes.get('ot1-sml-epi-target-input').value==='(32,16,3)'&&restored.nodes.get('ot1-sml-epi-stage-view').value==='2');
+    check('utility renders after reload',restored.nodes.get('ot1-sml-epi-dst-svg').innerHTML.includes('<svg')&&!restored.nodes.get('ot1-sml-epi-error').textContent);
+    check('utility label toggles restored',restored.V.smlState.epi.ot1.mode.size===1&&restored.V.smlState.epi.ot1.mode.has('coord'));
+  });
   await test('blocked and corrupt storage remain usable',()=>{
     const bad=new Map([['cute-layout-visualizer.tabs.v1','{broken']]);const broken=browser(bad);broken.V.initializeTabSession();
     check('corrupt storage starts with one tab',broken.nodes.get('outer-tab-buttons').children.length===1);

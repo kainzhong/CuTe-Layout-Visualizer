@@ -1028,6 +1028,22 @@ function runUnitTests(V, T) {
     check('reject-selection/' + raw, 'diagnostic', pattern.test(error), true);
   });
 
+  setSection('unit/smem-layout');
+  for (const [label,args,pattern] of [
+    ['blackwell',['a','blackwell','ROW_MAJOR','(16,16,16)','half_t',1],/Blackwell/],
+    ['enum',['a','hopper','bad','(16,16,16)','half_t',1],/LayoutEnum/],
+    ['rank',['a','hopper','ROW_MAJOR','(16,16)','half_t',1],/three modes/],
+    ['dtype',['a','hopper','ROW_MAJOR','(16,16,16)','bad',1],/dtype/],
+    ['zero-stages',['a','hopper','ROW_MAJOR','(16,16,16)','half_t',0],/positive integer/],
+    ['fraction-stages',['a','hopper','ROW_MAJOR','(16,16,16)','half_t',1.5],/positive integer/],
+    ['major',['a','hopper','ROW_MAJOR','(16,16,12)','half_t',1],/divisible by 8/],
+    ['malformed-shape',['a','hopper','ROW_MAJOR','(16,16,16)99','half_t',1],/integer tuple/],
+    ['order',['epi','hopper','ROW_MAJOR','(16,16)','half_t',1,'(16,16,2)','(0,0,2)'],/permutation/],
+  ]) guard(label,()=>{
+    let error='';try{V.smlCompute(...args);}catch(e){error=e.message;}
+    check(label,'diagnostic',pattern.test(error),true);
+  });
+
   // ── The load-order hazard docs/architecture.md warns about ────────────────
   setSection('unit/load-order');
   guard('layout-js-wins', () => {

@@ -283,7 +283,7 @@ Atom-construction time. `ldmatrix` likewise has exactly one, SMEM→RMEM: the so
 
 Loaded after the feature scripts, this global controller owns the **Show Variable Table** drawer and versioned localStorage snapshots. Records contain only id, name, inferred type, and clipboard payload. Names and previews use textContent. Stored records are revalidated through the same constructor helpers on restore; storage failures keep the current session usable.
 
-Layout/tensor results normalize to **Layout** with raw layout text, never an encoding URL. Compound objects preserve encoding URLs: MMAAtom, CopyAtom (including TMA), TiledMMA, TiledCopy, **TV Layout**, and **Swizzle**. GEMM has return type **None**: its URL can be saved and reopened as an invocation, but its C/D layout is not a returned variable. Its preview explains that gemm writes into D. TV Layout retains its tile and source thread/value constructor when present. Ambiguous multi-output URLs require choosing a result before registration. Layout extraction invokes the existing pure computations and is checked against the committed CuTeDSL oracle.
+Layout/tensor results normalize to **Layout** with raw layout text, never an encoding URL. Composed storage layouts normalize to **Swizzled Layout**, copying raw `Sw<B,M,S> o shape:stride` text, including identity swizzles; old saved composed Layout records migrate on restore. Compound objects preserve encoding URLs: MMAAtom, CopyAtom (including TMA), TiledMMA, TiledCopy, **TV Layout**, and **Swizzle**. GEMM has return type **None**: its URL can be saved and reopened as an invocation, but its C/D layout is not a returned variable. Its preview explains that gemm writes into D. TV Layout retains its tile and source thread/value constructor when present. Ambiguous multi-output URLs require choosing a result before registration. Layout extraction invokes the existing pure computations and is checked against the committed CuTeDSL oracle.
 
 Visualize creates a normal app tab and uses `applyKeyParam(tabId, parsed)` without modifying location.search. `setOuterTabName` assigns a persistent custom label, also used by double-click tab renaming. Automatic render labels leave custom names intact. Preview appears under its row button and formats the same constructor/layout results without rendering a second visualization.
 
@@ -629,6 +629,7 @@ Then wire it into the shell:
 
 The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. Each scope is a named bucket; only one scope's tabs are visible at a time. Current scopes:
 
+- `utility` — Hopper `make_smem_layout_a`, `make_smem_layout_b`, and `make_smem_layout_epi`. Accent color: cyan (`#06b6d4`).
 - `basics` — Layout, TV Layout, Swizzle, Index. Accent color: blue (`#3b82f6`).
 - `operations` — the CuTe layout-algebra tabs (composition, complement, divide/product variants, `local_tile`). Accent color: purple (`#a855f7`).
 
@@ -2128,3 +2129,17 @@ preset/default and shareable URL tests continue to exercise the unchanged fields
 `tma_partition` accepts `atom: CopyAtom` in CuTeDSL. Its first input section is
 therefore titled `1. CopyAtom (TMA)`; the current partition math uses only the atom
 element count and dtype. The TMA qualifier identifies the atom specialization.
+
+## SMEM layout utilities (UTILITY)
+
+`tabs/make_smem_layout.js` shares one parameterized template and DOM-free `smlCompute` between three tabs. The constructor follows the installed CuTeDSL `utils.hopper_helpers` API: A/B take layout enum, MMA tiler `(M,N,K)`, dtype and stage count; epilogue takes dtype, layout enum, `(M,N)` tile and epilogue stage count, with optional target shape and order. A/B static shape tuples may contain nested modes; Hopper epi tiles use scalar M/N extents. These are storage layouts, not TV ownership maps, allocations or transfers.
+
+Selection chooses the largest 128B/64B/32B atom whose contiguous bit count divides the major dimension's bit count, falling back to the interleaved atom. The returned swizzle uses exactly the element-offset parameters returned by CuTeDSL. `tile_to_shape` is implemented with an appended atom and an ordered `blocked_product`; the CuTeDSL implementation rounds partial atoms up. The full composed layout and its base layout are printed separately. Inputs exceeding the visualization limits receive a diagnostic.
+
+The stage control slices every outer mode after the first two at the chosen flattened remaining-mode index, adds the slice origin, then swizzles the full element offset. Stage shifts therefore cannot accidentally reset the swizzle phase. No returned modes are discarded: the complete layout is printed and higher modes are explicitly selectable, so the standard rank warning runs only on the displayed rank-two slice. A padded target gets a visible explanation. The shared value/index/coord label controls can be combined, with at least one selected, matching BASICS Layout. Value uses the full swizzled element offset including the stage origin; index is the column-major linear index of the displayed plane, and coord is its logical `(m,n)`. `smlState` keeps each helper’s label selection separate, and session snapshots restore the mode Sets through the shared preference validation.
+
+Helper URLs encode `[architecture, LayoutEnum, tiler, dtype, stages]`, with optional `[smem_trg_shape, smem_order]` for epi. URL imports validate before assigning fields. Variables resolve these URLs through the same computation and store the composed result as **Swizzled Layout**; previews and clipboard copies retain both components. Session persistence captures all ordinary controls, including the selected stage.
+
+Blackwell stays disabled, with computation and imports rejecting it. Its API is not interchangeable: A/B take a TiledMMA, derive partition shapes and major modes, and use `tile_to_mma_shape`; its epi helper lacks Hopper's target/order overrides. SM100 also has a special 128B atom for 32-bit M-major A / N-major B (`Swizzle<2,5,2>`). Enabling it will require distinct constructor controls and validation.
+
+The `smem_layout` differential section checks shape/stride, size/cosize, swizzle parameters, and every physical domain offset against actual Hopper helper calls. DOM tests cover defaults, every preset, stage changes, disabled Blackwell, invalid-input cleanup, and URL round trips. Variable tests cover constructor-to-result extraction, raw composed text, types, previews, and visualization.

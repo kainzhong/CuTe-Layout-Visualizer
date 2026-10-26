@@ -220,6 +220,17 @@ if (section('gemm')) {
   }
 }
 
+if (section('smem_layout')) {
+  for (const c of CASES.smem_layout) guard(c.id,()=>{
+    const ref=refFor('smem_layout',c.id); if (!ref) return;
+    const r=V.smlCompute(c.kind,c.arch,c.layout_enum,c.tiler,c.dtype,c.stages,c.target || '',c.order || '');
+    checkLayout(c.id,r.layout,ref.layout);
+    check(c.id,'swizzle',`S<${r.sw.B},${r.sw.M},${r.sw.S}>`,ref.swizzle);
+    const got=evalAll(V,r.layout,r.layout.size()).map(x=>String(V.applySwizzleOffset(Number(x),r.sw)));
+    check(c.id,'all physical offsets',got.join(','),ref.eval.join(','));
+  });
+}
+
 if (section('index')) {
   for (const c of CASES.index) {
     const ref = refFor('index', c.id);

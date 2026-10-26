@@ -54,6 +54,18 @@ async function main() {
       same(`local_tile/${c.id}`,V.variablesClipboardChoices(key('local_tile',c.a,c.tiler,c.coord,c.proj||''))[0].value,(refs.local_tile[c.id].layout || refs.local_tile[c.id]).str);
     }
   });
+  await test('SMEM utility results preserve composed layout and Swizzled Layout type',()=>{
+    for(const c of cases.smem_layout) {
+      const row=V.variablesClipboardChoices(key(`make_smem_layout_${c.kind}`,c.arch,c.layout_enum,c.tiler,c.dtype,c.stages,...(c.kind==='epi'?[c.target||'',c.order||'']:[])))[0];
+      check('utility return type is Swizzled Layout',row.type==='Swizzled Layout');
+      const sw=refs.smem_layout[c.id].swizzle.replace(/^S</,'Sw<');
+      same('utility copied result matches CuTeDSL',row.value,`${sw} o ${refs.smem_layout[c.id].layout.str}`);
+      const again=V.variablesClipboardChoices(row.value)[0];
+      check('raw composed text retains type',again.type==='Swizzled Layout'&&again.value===row.value);
+      check('composed variable can visualize',V.variablesVisualization(row).feature==='swizzle');
+      check('composed preview preserves layout and swizzle',V.variablesPreviewText(row)===row.value);
+    }
+  });
   await test('multiple results have explicit choices',()=>{
     const z=V.variablesClipboardChoices(key('zipped_divide','(8,8):(1,8)','(2,2)'));
     check('zipped variants are separate Layout choices',z.length===3&&z.every(x=>x.type==='Layout'));
@@ -63,7 +75,7 @@ async function main() {
     for (const c of cases.tma_partition.slice(0,3)) {
       const r=refs.tma_partition[c.id];
       const out=V.variablesClipboardChoices(key('tma_partition',r.num_val,c.dtype,c.swizzle,r.smem_grouped.replace(/^S</,'Sw<').replace(/o/g,' o '),r.gmem_grouped));
-      check('both TMA partition outputs are Layout',out.length===2&&out.every(x=>x.type==='Layout'));
+      check('TMA partitions preserve memory layout types',out.length===2&&['Layout','Swizzled Layout'].includes(out[0].type)&&out[1].type==='Layout');
       same('TMA GMEM partition matches CuTeDSL',out[1].value,r.tAgA);
     }
   });

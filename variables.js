@@ -37,12 +37,15 @@ function variablesRawLayoutChoice(raw, label='Layout') {
 
 function variablesSwizzledChoice(layoutText, sw, label) {
   const choice = variablesRawLayoutChoice(layoutText,label);
-  if (sw && sw.B) choice.value = `Sw<${sw.B},${sw.M},${sw.S}> o ${choice.value}`;
+  if (sw) {
+    choice.type = 'Swizzled Layout';
+    choice.value = `Sw<${sw.B},${sw.M},${sw.S}> o ${choice.value}`;
+  }
   return choice;
 }
 
 // DOM-free: classify constructors and resolve layout-valued results through the
-// same pure helpers as their tabs. Layout values never contain an encoding URL.
+// same pure helpers as their tabs. Layout and Swizzled Layout values contain raw text.
 function variablesClipboardChoices(raw) {
   const text = String(raw || '').trim();
   if (!text) throw new Error('The pasteboard is empty.');
@@ -69,6 +72,10 @@ function variablesClipboardChoices(raw) {
   if (feature === 'make_tiled_mma') { mtmDecodeConstructor(a, {warpgroup: true}); return object('TiledMMA'); }
   if (['make_tiled_copy','make_tiled_copy_tv','make_tiled_copy_ab'].includes(feature)) {
     mtcDecodedSummary(mtcDecodeURL(parsed)); return object('TiledCopy');
+  }
+  if (/^make_smem_layout_(a|b|epi)$/.test(feature)) {
+    const r = smlCompute(feature.slice('make_smem_layout_'.length),...a);
+    return [variablesSwizzledChoice(r.layoutText,r.sw,'Swizzled Layout')];
   }
   if (feature === 'layout') return [variablesRawLayoutChoice(a[0])];
   if (feature === 'index') return [variablesLayoutChoice(idxComputeIndex(a[0],a[1]).layout)];
@@ -151,7 +158,8 @@ function variablesRestore() {
     for (const row of saved.records) {
       if (!Number.isSafeInteger(row.id) || row.id < 1 || ids.has(row.id) || typeof row.name !== 'string' || !row.name.trim() || row.name.length > 128 || names.has(row.name) || typeof row.value !== 'string') throw new Error('Invalid saved variable');
       // Re-infer types instead of trusting stored HTML or type labels.
-      const valid=variablesClipboardChoices(row.value).find(x=>x.type === row.type && x.value === row.value);
+      const valid=variablesClipboardChoices(row.value).find(x=>(x.type === row.type || (row.type === 'Layout' && x.type === 'Swizzled Layout')) && x.value === row.value);
+      if (valid) row.type=valid.type;
       if (!valid) throw new Error('Invalid saved object');
       ids.add(row.id); names.add(row.name);
       variablesState.records.push({id:row.id,name:row.name,type:valid.type,value:valid.value});
@@ -209,12 +217,12 @@ function variablesAddSelected() {
 async function variablesCopy(id) {
   const row=variablesState.records.find(x=>x.id === id);
   if (!row) return;
-  try { await navigator.clipboard.writeText(row.value); variablesMessage(`Copied ${row.name}${row.type === 'Layout' ? ' layout' : ''}.`); }
-  catch (_) { prompt(row.type === 'Layout' ? 'Copy this layout:' : 'Copy this encoding URL:',row.value); }
+  try { await navigator.clipboard.writeText(row.value); variablesMessage(`Copied ${row.name}${['Layout','Swizzled Layout'].includes(row.type) ? ' layout' : ''}.`); }
+  catch (_) { prompt(['Layout','Swizzled Layout'].includes(row.type) ? 'Copy this layout:' : 'Copy this encoding URL:',row.value); }
 }
 
 function variablesVisualization(row) {
-  if (row.type !== 'Layout') return parsePastedKeyParam(row.value);
+  if (!['Layout','Swizzled Layout'].includes(row.type)) return parsePastedKeyParam(row.value);
   if (/^Sw</.test(row.value)) {
     const sm=tmaParseSmemField(row.value);
     return {feature:'swizzle',inputs:[sm.layoutStr,`${sm.sw.B},${sm.sw.M},${sm.sw.S}`]};
@@ -236,7 +244,7 @@ function variablesVisualize(id) {
 // Summaries use the same constructor computations and result names as the tabs.
 // All text is assigned with textContent, including saved names and layout strings.
 function variablesPreviewText(row) {
-  if (row.type === 'Layout') return row.value;
+  if (['Layout','Swizzled Layout'].includes(row.type)) return row.value;
   const parsed=parsePastedKeyParam(row.value), a=parsed.inputs;
   const fmt=L=>formatLayoutStr(L.shape,L.stride);
   if (row.type === 'None' && parsed.feature === 'gemm')

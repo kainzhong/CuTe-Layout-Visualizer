@@ -8,7 +8,9 @@ const TAB_SESSION_PREFERENCES = new Set([
 ]);
 
 function tabSessionStores() {
-  return {tv: tvState, make_mma_atom: mmaState, make_tiled_mma: mtmState,
+  return {make_smem_layout_a: smlState.a, make_smem_layout_b: smlState.b,
+    make_smem_layout_epi: smlState.epi,
+    tv: tvState, make_mma_atom: mmaState, make_tiled_mma: mtmState,
     make_copy_atom: mcaState, make_tiled_copy: mtcState, make_tiled_copy_tv: mtvState,
     make_tiled_copy_ab: mcabState, make_tiled_tma_atom: tmaState, tma_partition: tpState,
     partition_sd: psdState, partition_abc: pabcState, make_fragment_abc: mfragState, gemm: gemmState};

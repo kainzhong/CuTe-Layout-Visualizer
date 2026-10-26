@@ -28,6 +28,7 @@ reason. Regenerating it needs the `nvidia-cutlass-dsl` wheel:
 
 ```bash
 npm run reference          # rewrite reference.json
+npm run reference -- --section smem_layout # regenerate only this section
 npm run reference:check    # regenerate and fail if it drifted (CI)
 ```
 
@@ -53,6 +54,7 @@ global function calls; older Node versions use the original contextified fallbac
 | Section | Under test | Oracle |
 |---|---|---|
 | `gemm` | dispatch [4]/[5] and actual rank-one rejection, M/N/K coverage, every invocation’s A/B/C/D offsets, and imported TiledMMA traits | real `cute.gemm` trace plus `cute.slice_and_offset` / tensor indexing for every operand slice |
+| `smem_layout` | Hopper A/B/epilogue base layouts, swizzles, all physical offsets, stages, major modes, dtypes and epilogue overrides | `cutlass.utils.hopper_helpers.make_smem_layout_a/b/epi` |
 | `index` | `idxComputeIndex`: nested and linear indices, wildcard retention, returned layout, every domain point, and base offset | `cute.slice_and_offset` |
 | `layout_ops` | `coalesce`, `filter`, `composition`, `complement`, the inverses, the whole divide / product family, `blocked_product`, `raked_product`, `slice_and_offset`, `size`/`cosize`, `crd2idx`/`idx2crd`, `shape_div`, `product_each` | the same call in `cutlass.cute` |
 | `basis_ops` | the same ops over **coordinate (scaled-basis) layouts** — only the ones CuTe defines for them (see the table in [`docs/architecture.md`](../docs/architecture.md)) | ditto |

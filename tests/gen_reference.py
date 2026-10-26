@@ -871,7 +871,28 @@ def run_gemm(c):
             "layouts": {x: record(l) for x,l in layouts.items()}}
 
 
+def run_smem_layout(c):
+    from cutlass.utils import hopper_helpers
+    from cutlass.tensor_utils import LayoutEnum
+    kind = c['kind']
+    enum = getattr(LayoutEnum, c['layout_enum'])
+    tile = _parse_value(c['tiler'])
+    dtype = DTYPES[c['dtype']]
+    if kind == 'epi':
+        layout = hopper_helpers.make_smem_layout_epi(
+            dtype, enum, tile, c['stages'],
+            _parse_value(c['target']) if c.get('target') else None,
+            _parse_value(c['order']) if c.get('order') else None)
+    else:
+        layout = getattr(hopper_helpers, 'make_smem_layout_' + kind)(enum, tile, dtype, c['stages'])
+    base = layout.outer
+    sw = canon(layout.inner)
+    return {'layout': record(base), 'swizzle': sw,
+            'eval': [canon(cute.crd2idx(i,layout)) for i in range(int(cute.size(base)))]}
+
+
 SECTIONS = [
+    ("smem_layout", run_smem_layout),
     ("gemm", run_gemm),
     ("index", run_index),
     ("layout_ops", lambda c: run_layout_op(c, allow_basis=False)),
@@ -922,6 +943,8 @@ def missing_cases(cases, out, failures):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--section", action="append", choices=[name for name, _ in SECTIONS],
+                    help="regenerate only selected sections, preserving the other oracle sections")
     ap.add_argument("--check", action="store_true",
                     help="regenerate and fail if it differs from the committed file")
     ap.add_argument('--warpgroup-only', action='store_true', help=argparse.SUPPRESS)
@@ -930,6 +953,8 @@ def main():
 
     with open(CASES) as f:
         cases = json.load(f)
+    if args.section:
+        cases = {name: rows for name, rows in cases.items() if name in args.section}
     cases = {name: rows for name, rows in cases.items()
              if name.startswith('warpgroup_') == args.warpgroup_only}
 
@@ -967,7 +992,7 @@ def main():
             print("  " + f, file=sys.stderr)
         return 1
 
-    if not args.warpgroup_only:
+    if not args.warpgroup_only and (not args.section or any(name.startswith("warpgroup_") for name in args.section)):
         with tempfile.TemporaryDirectory() as directory:
             target = os.path.join(directory, 'warpgroup.json')
             subprocess.run([sys.executable, __file__, '--warpgroup-only', '--output', target], check=True)
@@ -976,8 +1001,14 @@ def main():
                 for name in worker:
                     if name.startswith('warpgroup_'):
                         data[name] = worker[name]
-    else:
+    elif args.warpgroup_only:
         data['warpgroup_mma_atom']['_layouts'] = WGMMA_LAYOUT_RECORDS
+
+    if args.section and not args.warpgroup_only:
+        with open(args.output) as f:
+            existing = json.load(f)
+        data = {**{k:v for k,v in existing.items() if not k.startswith('_')},
+                **{k:v for k,v in data.items() if k in args.section}}
 
     text = json.dumps(
         {"_generated_by": "tests/gen_reference.py (CuTeDSL oracle) -- do not edit by hand",

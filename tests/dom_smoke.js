@@ -320,7 +320,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     const hit = /^\s*(set[A-Z][A-Za-z]*)\('tab1'\s*,/.exec(src);
     if (!hit || typeof ctx[hit[1]] !== 'function') continue;
     const fnName = hit[1];
-    const pfx = { setGemm: 'gemm', setIdx: 'idx', setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm', setMCAB: 'mcab', setRT: 'rt',
+    const pfx = { setSml: 'sml', setGemm: 'gemm', setIdx: 'idx', setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm', setMCAB: 'mcab', setRT: 'rt',
                   setPSD: 'psd', setPSDURL: 'psd', setPsdSide: 'psd', setPsdMode: 'psd',
                   setPABC: 'pabc', setPabcOperand: 'pabc', setPabcMode: 'pabc',
                   setMfrag: 'mfrag', setMfragOperand: 'mfrag' }[fnName];
@@ -1618,6 +1618,64 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     if(els.get(`${TAB}-tv-error`).textContent) throw new Error(els.get(`${TAB}-tv-error`).textContent);
     } finally {ctx.switchInnerTab=realSwitch;}
   });
+  step('UTILITY helpers: defaults, architecture picker, stage view, invalid inputs, and URL round trips', () => {
+    if (!html.includes('data-scope="utility"')) throw new Error('Missing UTILITY collection');
+    const realSwitch=ctx.switchInnerTab, realExport=ctx.exportURL;
+    try {
+      ctx.switchInnerTab=()=>{};
+      for (const kind of ['a','b','epi']) {
+        const p=`${TAB}-sml-${kind}`, markup=ctx.generateSmemLayoutTabContent(TAB,kind);
+        if (!/<option value="blackwell" disabled>/.test(markup)) throw new Error('Blackwell must be disabled');
+        let exported;
+        ctx.exportURL=(btn,feature,...inputs)=>{exported=[feature,...inputs];};
+        ctx.setSml(TAB,kind,'hopper','ROW_MAJOR',kind==='epi'?'(16,32)':'(16,16,32)','half_t','2',...(kind==='epi'?['(32,32,3)','(2,1,0)']:[]));
+        const result=els.get(`${p}-result`).textContent;
+        if (!result.includes('Sw<2,4,3>') || !result.includes('64B swizzle')) throw new Error('Missing layout / swizzle');
+        const before=els.get(`${p}-dst-svg`).innerHTML;
+        els.get(`${p}-stage-view`).value='1';ctx.renderSmemLayout(TAB,kind);
+        if (els.get(`${p}-dst-svg`).innerHTML===before) throw new Error('Stage selection did not change offsets');
+        ctx.exportSmemLayout(TAB,kind);
+        ctx.setSml(TAB,kind,'hopper','COL_MAJOR',kind==='epi'?'(16,16)':'(16,16,16)','float','1','','');
+        ctx.location.search=`?key=${encodeURIComponent(exported.join('-'))}`;
+        ctx.applyKeyParam(TAB);
+        if (els.get(`${p}-enum`).value!=='ROW_MAJOR' || els.get(`${p}-stages`).value!=='2' || els.get(`${p}-result`).textContent!==result) throw new Error('Utility URL lost controls');
+        const old=ctx.smlRead(TAB,kind).join('|');
+        try {ctx.setSml(TAB,kind,'blackwell','ROW_MAJOR','(16,16,16)','half_t','1');} catch (_) {}
+        if (ctx.smlRead(TAB,kind).join('|')!==old) throw new Error('Failed import changed inputs');
+      }
+    } finally {ctx.switchInnerTab=realSwitch;ctx.exportURL=realExport;}
+  },paneIds.filter(id=>id.includes('-sml-')));
+  step('UTILITY invalid stages clear stale output',()=>{
+    els.get(`${TAB}-sml-a-stage-view`).value='99';ctx.renderSmemLayout(TAB,'a');
+    if (els.get(`${TAB}-sml-a-dst-svg`).innerHTML) throw new Error('Invalid stage left stale SVG');
+  },[],{expectError:/index must be/});
+  step('UTILITY valid render recovers',()=>ctx.setSml(TAB,'a','hopper','ROW_MAJOR','(16,16,16)','half_t','1','',''),[`${TAB}-sml-a-dst-svg`]);
+  step('UTILITY value/index/coord toggles combine labels and preserve stage offsets',()=>{
+    for (const kind of ['a','b','epi']) {
+      const p=`${TAB}-sml-${kind}`;
+      ctx.setSml(TAB,kind,'hopper','ROW_MAJOR',kind==='epi'?'(16,16)':'(16,16,16)','half_t','2','','');
+      els.get(`${p}-stage-view`).value='1';ctx.renderSmemLayout(TAB,kind);
+      const original=els.get(`${p}-dst-svg`).innerHTML;
+      const colors=svg=>[...svg.matchAll(/<rect\b[^>]*fill="([^"]+)"/g)].map(m=>m[1]).join(',');
+      for (const mode of ['value','index','coord']) {
+        if (!html.includes(`onclick="toggleSmlMode('${TAB}','${kind}','${mode}')"`)) throw new Error('Missing mode control');
+      }
+      ctx.toggleSmlMode(TAB,kind,'index');ctx.toggleSmlMode(TAB,kind,'coord');
+      const combined=els.get(`${p}-dst-svg`).innerHTML;
+      if (!combined.includes('val=') || !combined.includes('idx=17') || !combined.includes('(1,1)')) throw new Error('Combined labels missing');
+      if (colors(combined)!==colors(original)) throw new Error('Label toggle changed physical address colors');
+      ctx.toggleSmlMode(TAB,kind,'value');ctx.toggleSmlMode(TAB,kind,'index');
+      const coord=els.get(`${p}-dst-svg`).innerHTML;
+      if (!coord.includes('(1,1)') || coord.includes('val=') || coord.includes('idx=')) throw new Error('Coord-only view is wrong');
+      ctx.toggleSmlMode(TAB,kind,'coord');
+      if (!ctx.smlState[kind][TAB].mode.has('coord')) throw new Error('Disabled the last mode');
+      ctx.toggleSmlMode(TAB,kind,'index');ctx.toggleSmlMode(TAB,kind,'coord');
+      const index=els.get(`${p}-dst-svg`).innerHTML;
+      if (!/>17<\/text>/.test(index) || index.includes('(1,1)')) throw new Error('Index-only view is wrong');
+      ctx.toggleSmlMode(TAB,kind,'value');ctx.toggleSmlMode(TAB,kind,'index');
+      if (els.get(`${p}-dst-svg`).innerHTML!==original) throw new Error('Value view lost swizzle or stage offset');
+    }
+  },paneIds.filter(id=>id.includes('-sml-')));
   step('Index: oracle results, complete grid, and URL round trip', () => {
     const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'reference.json'), 'utf8')).index;
     for (const c of JSON.parse(fs.readFileSync(path.join(__dirname, 'cases.json'), 'utf8')).index) {

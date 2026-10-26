@@ -26,7 +26,7 @@ This tool runs in your browser and lets you:
 - **Share a URL** to a specific visualization and have a colleague open it in one click.
 - **Decode or edit inputs.** Every pasteboard decode input has a folded **Manual construction** section. Decoding fills its editable fields; Render and Export URL use your current adjustments. **MMAAtom** and **CopyAtom** sections accept `make_mma_atom` and `make_copy_atom` URLs, including atom inputs nested inside TiledMMA/TiledCopy construction.
 - **Open multiple tabs** so you can compare layouts or operations side by side. Double-click a tab label to rename it; your name survives rendering.
-- **Show Variable Table** opens a persistent right-side library of named objects loaded from the pasteboard. Layout/tensor results copy as plain `shape:stride` text; MMAAtom, CopyAtom, TiledMMA, TiledCopy, TV Layout, and Swizzle copy their encoding URLs. **Preview** shows result text below its button; **Visualize** opens a new tab named after the variable. URLs with several outputs let you choose which result to save. GEMM has type **None**, because it writes into D rather than returning an object.
+- **Show Variable Table** opens a persistent right-side library of named objects loaded from the pasteboard. Layout/tensor results copy as plain `shape:stride` text; Swizzled Layout results copy composed `Sw<B,M,S> o shape:stride` text; MMAAtom, CopyAtom, TiledMMA, TiledCopy, TV Layout, and Swizzle copy their encoding URLs. **Preview** shows result text below its button; **Visualize** opens a new tab named after the variable. URLs with several outputs let you choose which result to save. GEMM has type **None**, because it writes into D rather than returning an object.
 - **Reuse TV Layouts** in `make_tiled_copy_tv` with Decode from Pasteboard. URLs exported from thread/value inputs preserve those inputs exactly. Direct TV maps are accepted when a supported thread/value factorization matches every point; other maps belong in primitive `make_tiled_copy`.
 
 | Live editing, link sharing, multi-tab support | Illustrative display, more than just `print_latex` |
@@ -36,6 +36,10 @@ This tool runs in your browser and lets you:
 
 
 ## Features
+
+### UTILITY
+
+- **make_smem_layout_a / b / epi** — Hopper CuTeDSL shared-memory layout helpers. Choose a `LayoutEnum`, static tile shape, dtype, and stage count; inspect the returned base layout, composed layout, and selected swizzle. The epilogue helper also exposes optional `smem_trg_shape` and `smem_order`. The grid offers combinable **value**, **index**, and **coord** toggles, matching BASICS → Layout. Value shows the swizzled physical element offset; index and coord describe the selected stage’s logical grid. Copy the result or register its exported URL in the Variable Table to save a **Swizzled Layout**, preserving the base layout and swizzle together, including the identity swizzle. Hopper is enabled; the Blackwell architecture option is disabled pending SM100 validation.
 
 ### Layouts
 

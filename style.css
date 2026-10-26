@@ -898,3 +898,10 @@ textarea:focus { outline: none; border-color: #3b82f6; }
 .variables-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.75rem; max-height: 45vh; overflow: auto; margin: 0 0 10px; }
 
 .gemm-k-control[hidden] { display: none; }
+
+/* Utility collection */
+.tab-nav[data-scope="utility"]::before { background: #06b6d4; }
+.tab-scope-btn[data-scope="utility"].active { background: #164e63; color: #67e8f9; border-color: #06b6d4; }
+.tab-scope-btn[data-scope="utility"].active .tab-scope-count { background: #155e75; }
+.tab-bar[data-scope="utility"] .tab:not([data-scope="utility"]) { display: none; }
+.tab[data-scope="utility"].active { background: #164e63; color: #67e8f9; border-color: #06b6d4; }

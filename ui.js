@@ -699,6 +699,9 @@ function buildTiledLayoutSVG(shape, stride, mode, tileIdxFn, selection) {
  *  attribute on each `.tab` div is the key, so adding a tab means adding one
  *  entry here as well as to `modeIndex` in switchInnerTab. */
 const TAB_RENDER_FN = {
+  make_smem_layout_a: 'renderSmemLayoutA',
+  make_smem_layout_b: 'renderSmemLayoutB',
+  make_smem_layout_epi: 'renderSmemLayoutEpi',
   layout:             'renderLayout',
   index:              'renderIndex',
   tv:                 'renderTV',
@@ -807,7 +810,8 @@ function generateTabContent(id) {
           <span class="tab-scope-icon">\u2B21</span>MMA
           <span class="tab-scope-count">5</span>
         </div>
-      </div>
+        <div class="tab-scope-btn" data-scope="utility" onclick="switchTabGroup('${id}', 'utility')"><span class="tab-scope-icon">⚙</span>UTILITY<span class="tab-scope-count">3</span></div>
+    </div>
     <div class="tab-bar" data-scope="basics">
       <div data-tab="layout" class="tab active" data-scope="basics" onclick="switchInnerTab('${id}', 'layout')">Layout</div>
       <div data-tab="tv" class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'tv')">TV Layout</div>
@@ -835,8 +839,14 @@ function generateTabContent(id) {
       <div data-tab="partition_abc" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'partition_abc')">partition_A / B / C</div>
       <div data-tab="make_fragment_abc" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_fragment_abc')">make_fragment_A / B / C</div>
       <div data-tab="gemm" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'gemm')">gemm</div>
+      <div data-tab="make_smem_layout_a" class="tab" data-scope="utility" onclick="switchInnerTab('${id}', 'make_smem_layout_a')">make_smem_layout_a</div>
+      <div data-tab="make_smem_layout_b" class="tab" data-scope="utility" onclick="switchInnerTab('${id}', 'make_smem_layout_b')">make_smem_layout_b</div>
+      <div data-tab="make_smem_layout_epi" class="tab" data-scope="utility" onclick="switchInnerTab('${id}', 'make_smem_layout_epi')">make_smem_layout_epi</div>
     </div>
     </div>
+    ${generateSmemLayoutATabContent(id)}
+    ${generateSmemLayoutBTabContent(id)}
+    ${generateSmemLayoutEpiTabContent(id)}
     ${generateLayoutTabContent(id)}
     ${generateTVTabContent(id)}
     ${generateSwizzleTabContent(id)}
@@ -1094,7 +1104,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, index: 3, composition: 4, complement: 5, divide: 6, zipped: 7, local_tile: 8, product: 9, zipped_product: 10, blocked_product: 11, raked_product: 12, make_copy_atom: 13, make_tiled_copy: 14, make_tiled_copy_tv: 15, make_tiled_copy_ab: 16, retile: 17, make_tiled_tma_atom: 18, tma_partition: 19, partition_sd: 20, make_mma_atom: 21, make_tiled_mma: 22, partition_abc: 23, make_fragment_abc: 24, gemm: 25 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, index: 3, composition: 4, complement: 5, divide: 6, zipped: 7, local_tile: 8, product: 9, zipped_product: 10, blocked_product: 11, raked_product: 12, make_copy_atom: 13, make_tiled_copy: 14, make_tiled_copy_tv: 15, make_tiled_copy_ab: 16, retile: 17, make_tiled_tma_atom: 18, tma_partition: 19, partition_sd: 20, make_mma_atom: 21, make_tiled_mma: 22, partition_abc: 23, make_fragment_abc: 24, gemm: 25, make_smem_layout_a: 26, make_smem_layout_b: 27, make_smem_layout_epi: 28 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1781,6 +1791,9 @@ function downloadSVG(hostId, filename) {
 // feature -> { expectedInputs, methods? }
 // If `methods` is set, the key must be "<feature>-<method>-<inputs...>".
 const FEATURE_SPEC = {
+  make_smem_layout_a: {inputs: 5},
+  make_smem_layout_b: {inputs: 5},
+  make_smem_layout_epi: {inputs: 5, optional: 2},
   gemm: { inputs: 11, optional: 1 }, // MMA constructor (6), A/B/C/D, selected K [, view]
   index:          { inputs: 2 },
   layout:         { inputs: 1 },
@@ -1877,6 +1890,12 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
   if (!parsed) return;
   const { feature, method, inputs } = parsed;
   switch (feature) {
+    case 'make_smem_layout_a':
+    case 'make_smem_layout_b':
+    case 'make_smem_layout_epi':
+      setSml(tabId,feature.slice('make_smem_layout_'.length),...inputs);
+      switchInnerTab(tabId,feature);
+      break;
     case 'layout':
       document.getElementById(`${tabId}-layout-input`).value = inputs[0];
       switchInnerTab(tabId, 'layout');

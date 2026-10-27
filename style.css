@@ -873,6 +873,7 @@ textarea:focus { outline: none; border-color: #3b82f6; }
 .variables-help { color: #9ca3af; font-size: 0.82rem; line-height: 1.5; }
 .variables-panel label { display: block; margin-bottom: 6px; font-size: 0.82rem; }
 .variables-panel input, .variables-panel select { width: 100%; }
+.variables-share-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .variables-status { min-height: 1.3em; color: #93c5fd; font-size: 0.82rem; }
 .variables-status.is-error { color: #f87171; }
 .variables-list { overflow: auto; flex: 1; min-height: 0; }

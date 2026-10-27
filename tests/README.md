@@ -170,3 +170,5 @@ with fresh VM contexts to simulate hard refreshes. The DOM shim enforces select 
 membership and runs real change handlers, covering dependency order, WGMMA constructor
 restoration, tab order/names/active scope, closed-tab ID gaps, unrendered drafts, shared
 URLs, debounced and pagehide saves, and unavailable/corrupt storage. It runs in `npm test`.
+
+Variable Table tests also exercise native gzip/base64url table sharing: all-type and Unicode round trips, corruption and size limits, atomic imports, conflict renaming, duplicate skipping, persistence, and clipboard fallback.

@@ -27,6 +27,10 @@
 <aside id="variables-panel" class="variables-panel" aria-labelledby="variables-title" hidden>
   <div class="variables-panel-header"><h2 id="variables-title">Variables</h2><button class="btn" id="variables-close" type="button" aria-label="Close Variables">Close ×</button></div>
   <p class="variables-help">Track named objects and reuse them across tabs. Layouts copy as plain layout text; other objects copy their encoding URL.</p>
+  <div class="variables-share-actions">
+    <button class="btn" id="variables-export-table" type="button">Export table</button>
+    <button class="btn" id="variables-import-table" type="button">Import table from Pasteboard</button>
+  </div>
   <form id="variables-form">
     <label for="variables-name">Variable name</label>
     <input id="variables-name" type="text" maxlength="128" placeholder="e.g. tiled_mma or tCrA" autocomplete="off" required>

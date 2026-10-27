@@ -14,6 +14,36 @@ const key=(feature,...inputs)=>`?key=${encodeURIComponent([feature,...inputs].jo
 const same=(label,actual,expected)=>check(label,String(actual).replace(/\s+/g,'')===String(expected).replace(/\s+/g,''));
 
 async function main() {
+  Object.assign(V,{TextEncoder,TextDecoder,CompressionStream,DecompressionStream,Blob,atob,btoa});
+  await test('compressed table round trip preserves all object types and Unicode names',async()=>{
+    const tma=cases.tma_atom[0], gemm=cases.gemm[0];
+    const inputs=[
+      '(16,16):(1,16)','Sw<2,4,3> o (16,16):(16,1)',
+      key('make_mma_atom','wg_f16bf16','half_t','float',16,24,'SMEM','K','K','half_t'),
+      key('make_copy_atom','universal',32,'half_t'),
+      key('make_tiled_mma',...V.GEMM_DEFAULT_MMA),
+      key('make_tiled_copy','universal',32,'half_t','(4,2):(1,4)','(4,2)'),
+      key('tv','2','(4,8):(8,1)','(2,2):(1,2)'),key('swizzle','(8,8):(1,8)','3,3,3'),
+      key('make_tiled_tma_atom',tma.dtype,tma.gmem,tma.swizzle,tma.smem,tma.tiler),
+      key('gemm',...gemm.mma,gemm.a,gemm.b,gemm.c,'same',0),
+    ];
+    const rows=inputs.map((input,i)=>({id:100+i,name:`变量 ${i} 🧮`,...V.variablesClipboardChoices(input)[0]}));
+    const encoded=await V.variablesEncodeTable(rows), decoded=await V.variablesDecodeTable(encoded);
+    check('share string is versioned and URL-safe',/^CVT1\.[A-Za-z0-9_-]+$/.test(encoded));
+    same('all names, types and payloads round trip',JSON.stringify(decoded.map(({name,type,value})=>({name,type,value}))),JSON.stringify(rows.map(({name,type,value})=>({name,type,value}))));
+    same('line-wrapped strings can be imported',JSON.stringify(await V.variablesDecodeTable(encoded.match(/.{1,40}/g).join('\n'))),JSON.stringify(decoded));
+    same('empty table round trips',(await V.variablesDecodeTable(await V.variablesEncodeTable([]))).length,0);
+    check('repeated table data benefits from compression',encoded.length<JSON.stringify(rows).length);
+    const invalidPayload=raw=>'CVT1.'+require('zlib').gzipSync(Buffer.from(raw)).toString('base64url');
+    for(const raw of ['bad','CVT2.abc',encoded.slice(0,encoded.length>>1),invalidPayload('null'),
+      invalidPayload(JSON.stringify([['x','Layout','invalid']])),
+      invalidPayload(JSON.stringify([['x','Layout','4:1'],['x','Layout','4:1']])),
+      invalidPayload(' '.repeat(V.VARIABLES_SHARE_MAX_BYTES+1)),
+    ]) {
+      let rejected=false;try{await V.variablesDecodeTable(raw);}catch(_){rejected=true;}
+      check('invalid/corrupt/oversized tables reject',rejected);
+    }
+  });
   await test('raw layouts and compound types',()=>{
     for (const text of ['(4,8):(1,4)','((2,2,2)):((1,2,4))','(4,5):(1@0,1@1)','():()']) {
       const [r]=V.variablesClipboardChoices(text);
@@ -204,6 +234,28 @@ async function main() {
     quota=true;await load('session_only','(4,4):(1,4)');quota=false;
     check('storage denial keeps the variable in memory',V.variablesState.records.some(x=>x.name==='session_only')&&node('variables-status').textContent.includes('session'));
     storage.set(V.VARIABLES_STORAGE_KEY,'{broken');V.variablesRestore();check('corrupt storage does not crash',V.variablesState.storageWarning.length>0);
+  });
+  await test('table export/import uses clipboard, merges conflicts and leaves invalid imports untouched',async()=>{
+    V.variablesState.records=[];
+    await load('shared_layout','(4,4):(1,4)');
+    await V.variablesExportTable();
+    const exported=copied, original=JSON.stringify(V.variablesState.records);
+    check('export reports actual encoded character count',node('variables-status').textContent.includes(exported.length.toLocaleString()+' characters'));
+    clipboard=exported;await V.variablesImportTable();
+    check('reimport skips identical variables',JSON.stringify(V.variablesState.records)===original&&node('variables-status').textContent.includes('already present'));
+    V.variablesState.records=[];
+    await load('shared_layout','(8,8):(1,8)');
+    clipboard=exported;await V.variablesImportTable();
+    check('name conflicts preserve both variables',V.variablesState.records.length===2&&V.variablesState.records[1].name==='shared_layout (2)'&&V.variablesState.records[1].value==='(4,4):(1,4)');
+    const merged=JSON.stringify(V.variablesState.records);
+    clipboard=exported;await V.variablesImportTable();
+    check('reimport also skips previously renamed conflicts',JSON.stringify(V.variablesState.records)===merged);
+    V.variablesRestore();check('imported table is persisted',JSON.stringify(V.variablesState.records)===merged);
+    clipboard=exported.slice(0,20);await V.variablesImportTable();
+    check('failed import is atomic',JSON.stringify(V.variablesState.records)===merged&&node('variables-status').classList.contains('is-error'));
+    denied=true;await V.variablesExportTable();denied=false;
+    check('export clipboard denial offers a copyable string',String(promptValue).startsWith('CVT1.'));
+    check('table action buttons recover after completion',!node('variables-export-table').disabled&&!node('variables-import-table').disabled);
   });
   check('header says Show Variable Table',html.includes('>Show Variable Table <span'));
   check('header integration initializes library before restoring tabs',html.includes('src="variables.js"')&&html.includes('src="session.js"')&&html.indexOf('initializeVariables();')<html.indexOf('initializeTabSession();'));

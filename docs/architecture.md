@@ -291,6 +291,10 @@ Visualize creates a normal app tab and uses `applyKeyParam(tabId, parsed)` witho
 
 The make_tiled_copy_tv TV Layout decoder fills its folded manual controls. Method 2 URLs preserve their original thread/value layouts. For primitive TV maps, candidate compact 2D factorizations are accepted only after checking every thread/value point; unsupported factorizations fail before changing controls. The primitive make_tiled_copy tab remains the general constructor for arbitrary TV maps.
 
+Variable Table sharing uses `CVT1.` plus unpadded base64url of gzip-compressed UTF-8 JSON tuples `[name,type,value]`. Row IDs and UI state are omitted. `variablesEncodeTable` / `variablesDecodeTable` are DOM-free async helpers using native CompressionStream/DecompressionStream; the codec version is independent of localStorage. Both compressed and expanded data are bounded to 4 MiB; decompression reads incrementally and aborts at the bound. Every decoded entry is revalidated through `variablesClipboardChoices`, including type and canonical payload, before any table mutation. Empty tables and Unicode names round-trip. No remote calls or code evaluation occur.
+
+Import merges atomically with current rows: identical name/type/value entries are skipped, conflicting names get bounded numeric suffixes, and IDs are allocated locally. Reimport also recognizes previously suffixed identical entries. Export snapshots current rows before compression, copies the share string with a prompt fallback, and reports its actual character count. Tests cover every variable type, corrupted streams, malformed entries, duplicate names, decompression bounds, failed-import preservation, conflict merges, persistence, and clipboard fallback.
+
 ### session.js — persistent open tabs
 
 Loads after feature scripts and `variables.js`. `initializeTabSession()` replaces the

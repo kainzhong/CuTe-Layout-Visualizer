@@ -1,6 +1,115 @@
 // Global named snapshots shared by every visualization tab in this browser.
 const VARIABLES_STORAGE_KEY = 'cute-layout-visualizer.variables.v1';
 const variablesState = {records: [], pending: [], editingId: null, previewId: null, initialized: false, storageWarning: ''};
+const VARIABLES_SHARE_PREFIX = 'CVT1.';
+const VARIABLES_SHARE_MAX_BYTES = 4 * 1024 * 1024;
+
+// Portable table snapshots: gzip UTF-8 tuples, then URL-safe base64.
+// Store user-visible data only; local row IDs are regenerated on import.
+async function variablesShareBytes(bytes, decompress=false) {
+  const Codec=decompress ? globalThis.DecompressionStream : globalThis.CompressionStream;
+  if (!Codec) throw new Error('This browser does not support compressed table sharing.');
+  const reader=new Blob([bytes]).stream().pipeThrough(new Codec('gzip')).getReader();
+  const chunks=[];
+  let length=0;
+  try {
+    while (true) {
+      const {value,done}=await reader.read();
+      if (done) break;
+      length+=value.length;
+      if (length>VARIABLES_SHARE_MAX_BYTES) throw new Error('The variable table exceeds the 4 MiB sharing limit.');
+      chunks.push(value);
+    }
+  } catch(e) { await reader.cancel().catch(()=>{}); throw e; }
+  const result=new Uint8Array(length);
+  let offset=0;
+  for (const chunk of chunks) {result.set(chunk,offset);offset+=chunk.length;}
+  return result;
+}
+
+async function variablesEncodeTable(records) {
+  const bytes=new TextEncoder().encode(JSON.stringify(records.map(row=>[row.name,row.type,row.value])));
+  if (bytes.length>VARIABLES_SHARE_MAX_BYTES) throw new Error('The variable table exceeds the 4 MiB sharing limit.');
+  const compressed=await variablesShareBytes(bytes);
+  let binary='';
+  for (let i=0;i<compressed.length;i+=4096) binary+=String.fromCharCode(...compressed.subarray(i,i+4096));
+  return VARIABLES_SHARE_PREFIX+btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+async function variablesDecodeTable(raw) {
+  const text=String(raw || '').replace(/\s/g,'');
+  if (!text.startsWith(VARIABLES_SHARE_PREFIX) || !/^[A-Za-z0-9_-]+$/.test(text.slice(VARIABLES_SHARE_PREFIX.length)))
+    throw new Error('Paste a compressed variable table beginning with CVT1.');
+  if (text.length>Math.ceil(VARIABLES_SHARE_MAX_BYTES*4/3)+VARIABLES_SHARE_PREFIX.length)
+    throw new Error('The variable table exceeds the 4 MiB sharing limit.');
+  let rows;
+  try {
+    const binary=atob(text.slice(VARIABLES_SHARE_PREFIX.length).replace(/-/g,'+').replace(/_/g,'/'));
+    const bytes=await variablesShareBytes(Uint8Array.from(binary,c=>c.charCodeAt(0)),true);
+    rows=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
+  } catch (_) { throw new Error('Could not decode this variable table. The string may be incomplete or corrupted.'); }
+  if (!Array.isArray(rows)) throw new Error('Invalid variable table.');
+  const names=new Set();
+  return rows.map((row,i)=>{
+    if (!Array.isArray(row) || row.length!==3 || row.some(x=>typeof x!=='string')) throw new Error('Invalid variable table entry.');
+    const [name,type,value]=row;
+    if (!name.trim() || name!==name.trim() || name.length>128 || names.has(name)) throw new Error('Invalid or duplicate variable name in table.');
+    const choice=variablesClipboardChoices(value).find(x=>x.type===type && x.value===value);
+    if (!choice) throw new Error(`Invalid variable: ${name}.`);
+    names.add(name);
+    return {id:i+1,name,type:choice.type,value:choice.value};
+  });
+}
+
+function variablesMergeTable(incoming) {
+  const merged=variablesState.records.slice(), byName=new Map(merged.map(row=>[row.name,row]));
+  let nextId=merged.reduce((n,row)=>Math.max(n,row.id),0), added=0, skipped=0, renamed=0;
+  for (const row of incoming) {
+    let name=row.name, suffix=2;
+    while (byName.has(name)) {
+      const existing=byName.get(name);
+      if (existing.type===row.type && existing.value===row.value) break;
+      const tail=` (${suffix++})`;
+      name=row.name.slice(0,128-tail.length)+tail;
+    }
+    if (byName.has(name)) {skipped++;continue;}
+    if (name!==row.name) renamed++;
+    const addedRow={id:++nextId,name,type:row.type,value:row.value};
+    byName.set(name,addedRow);merged.push(addedRow);added++;
+  }
+  variablesState.records=merged;
+  variablesState.pending=[];variablesState.editingId=null;variablesState.previewId=null;
+  document.getElementById('variables-output-group').hidden=true;
+  variablesPersist();variablesRender();
+  return {added,skipped,renamed};
+}
+
+async function variablesExportTable() {
+  const button=document.getElementById('variables-export-table');
+  if (button.disabled) return;
+  button.disabled=true;
+  try {
+    const snapshot=variablesState.records.slice(), text=await variablesEncodeTable(snapshot);
+    try {await navigator.clipboard.writeText(text);}
+    catch (_) {prompt('Copy this compressed variable table:',text);}
+    variablesMessage(`Exported ${snapshot.length} variables · ${text.length.toLocaleString()} characters.`);
+  } catch(e) {variablesMessage(e.message,true);}
+  finally {button.disabled=false;}
+}
+
+async function variablesImportTable() {
+  const button=document.getElementById('variables-import-table');
+  if (button.disabled) return;
+  button.disabled=true;
+  try {
+    const raw=await readPasteboardText('Paste a compressed variable table (CVT1.…):');
+    if (raw===null || raw===undefined) return;
+    const incoming=await variablesDecodeTable(raw);
+    const {added,skipped,renamed}=variablesMergeTable(incoming);
+    variablesMessage(`Imported ${added} variables${skipped?`; ${skipped} already present`:''}${renamed?`; ${renamed} renamed to avoid conflicts`:''}.`);
+  } catch(e) {variablesMessage(e.message,true);}
+  finally {button.disabled=false;}
+}
 
 function variablesParseLayout(raw) {
   let text = String(raw).trim();
@@ -351,5 +460,7 @@ function initializeVariables() {
   document.getElementById('variables-close').addEventListener('click',()=>toggleVariablesPanel(false));
   document.getElementById('variables-form').addEventListener('submit',e=>{e.preventDefault();variablesLoadPasteboard();});
   document.getElementById('variables-add-output').addEventListener('click',variablesAddSelected);
+  document.getElementById('variables-export-table').addEventListener('click',variablesExportTable);
+  document.getElementById('variables-import-table').addEventListener('click',variablesImportTable);
   document.addEventListener('keydown',e=>{if(e.key === 'Escape' && !document.getElementById('variables-panel').hidden) toggleVariablesPanel(false);});
 }

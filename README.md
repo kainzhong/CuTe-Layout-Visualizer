@@ -40,7 +40,7 @@ This tool runs in your browser and lets you:
 
 ### UTILITY
 
-- **make_smem_layout_a / b / epi** — Hopper CuTeDSL shared-memory layout helpers. Choose a `LayoutEnum`, static tile shape, dtype, and stage count; inspect the returned base layout, composed layout, and selected swizzle. The epilogue helper also exposes optional `smem_trg_shape` and `smem_order`. The grid offers combinable **value**, **index**, and **coord** toggles, matching BASICS → Layout. Value shows the swizzled physical element offset; index and coord describe the selected stage’s logical grid. Copy the result or register its exported URL in the Variable Table to save a **Swizzled Layout**, preserving the base layout and swizzle together, including the identity swizzle. Hopper is enabled; the Blackwell architecture option is disabled pending SM100 validation.
+- **make_smem_layout_a / b / epi** — Hopper CuTeDSL shared-memory layout helpers. Choose a `LayoutEnum`, static tile shape, dtype, and stage count; inspect the returned composed layout, which includes its swizzle and base shape/strides. The epilogue helper also exposes optional `smem_trg_shape` and `smem_order`. The grid offers combinable **value**, **index**, and **coord** toggles, matching BASICS → Layout. Value shows the swizzled physical element offset; index and coord describe the selected stage’s logical grid. Register its exported URL in the Variable Table to save a **Swizzled Layout**, preserving the base layout and swizzle together, including the identity swizzle. Hopper is enabled; the Blackwell architecture option is disabled pending SM100 validation.
 
 ### Layouts
 

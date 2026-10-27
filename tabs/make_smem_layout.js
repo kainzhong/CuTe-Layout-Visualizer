@@ -72,13 +72,12 @@ function generateSmemLayoutTabContent(id, kind) {
     <div id="${id}-${p}-result" class="comp-result-box" style="white-space:pre-wrap"></div>
     <button class="btn btn-render" onclick="renderSmemLayout('${id}','${kind}')">Render</button>
     <button class="btn btn-render" id="${id}-${p}-export" onclick="exportSmemLayout('${id}','${kind}')">Export URL</button>
-    <button class="btn btn-render" onclick="smlCopyResult('${id}','${kind}')">Copy Swizzled Layout</button>
     <div class="presets"><h3>Presets</h3><div class="preset-list">
       <button class="preset-btn" onclick="setSml('${id}','${kind}','hopper','ROW_MAJOR','${epi ? '(16,64)' : '(16,16,64)'}','half_t','2','','')">FP16 · 128B swizzle · 2 stages</button>
       <button class="preset-btn" onclick="setSml('${id}','${kind}','hopper','COL_MAJOR','${epi ? '(32,16)' : '(32,32,16)'}','half_t','1','','')">${kind === 'b' ? 'N' : 'M'}-major · 64B swizzle</button>
       <button class="preset-btn" onclick="setSml('${id}','${kind}','hopper','ROW_MAJOR','${epi ? '(16,8)' : '(16,16,8)'}','half_t','1','','')">FP16 · no swizzle</button>
     </div></div>
-    <div class="hint">Returns the Hopper helper's composed layout in element offsets. Copy Swizzled Layout preserves both the swizzle and base layout. This helper describes storage; it does not allocate or move data.</div>
+    <div class="hint">Returns the Hopper helper's composed layout in element offsets. Use Export URL to register the result in the Variable Table as a Swizzled Layout. This helper describes storage; it does not allocate or move data.</div>
   </div><div class="comp-results" style="grid-template-columns:1fr">
     ${layoutVisualization({hostId:`${id}-${p}-dst-svg`,modeGroupId:`${id}-${p}-mode-btns`,
       title:'SMEM layout — physical element offsets',onMode:mode=>`toggleSmlMode('${id}','${kind}','${mode}')`,
@@ -109,7 +108,7 @@ function renderSmemLayout(id,kind) {
     if (plane.size()>MAX_CELLS) throw new Error(`The displayed stage exceeds ${MAX_CELLS.toLocaleString()} cells. Choose a smaller tile.`);
     updateRankWarning(`${p}-warning`,[['Displayed stage',formatLayoutStr(plane.shape,plane.stride)]]);
     if (r.extents.some((x,i)=>x!==r.requestedExtents[i])) showErr(`${p}-warning`,'CuTeDSL rounds the target up to whole SMEM layout atoms. The returned layout includes padding.');
-    result.textContent=`Returned layout = ${r.composedText}\nBase layout = ${r.layoutText}\nSwizzle<${r.sw.B},${r.sw.M},${r.sw.S}> — ${r.swBytes ? r.swBytes+'B swizzle' : 'no swizzle'}\n${r.major}-major · ${r.layout.size()} elements`;
+    result.textContent=`Returned layout = ${r.composedText}\n${r.major}-major · ${r.layout.size()} elements`;
     result.classList.add('visible');
     renderLayoutVisualization({hostId:`${p}-dst-svg`,modeGroupId:`${p}-mode-btns`,
       shape:plane.shape,stride:plane.stride,modes:state.mode,offset,swizzle:r.sw});
@@ -130,11 +129,3 @@ function setSml(id,kind,...inputs) {
   renderSmemLayout(id,kind);
 }
 function exportSmemLayout(id,kind) { exportURL(`${id}-sml-${kind}-export`,`make_smem_layout_${kind}`,...smlRead(id,kind)); }
-async function smlCopyResult(id,kind) {
-  try {
-    const r=smlCompute(kind,...smlRead(id,kind));
-    try { await navigator.clipboard.writeText(r.composedText); }
-    catch (_) { prompt('Copy this Swizzled Layout:',r.composedText); }
-  }
-  catch(e) { showErr(`${id}-sml-${kind}-error`,e.message); }
-}

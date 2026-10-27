@@ -1630,7 +1630,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
         ctx.exportURL=(btn,feature,...inputs)=>{exported=[feature,...inputs];};
         ctx.setSml(TAB,kind,'hopper','ROW_MAJOR',kind==='epi'?'(16,32)':'(16,16,32)','half_t','2',...(kind==='epi'?['(32,32,3)','(2,1,0)']:[]));
         const result=els.get(`${p}-result`).textContent;
-        if (!result.includes('Sw<2,4,3>') || !result.includes('64B swizzle')) throw new Error('Missing layout / swizzle');
+        if (!result.includes('Returned layout = Sw<2,4,3> o ') || result.includes('Base layout =') || result.includes('Swizzle<')) throw new Error('Expected one composed layout without duplicate components');
         const before=els.get(`${p}-dst-svg`).innerHTML;
         els.get(`${p}-stage-view`).value='1';ctx.renderSmemLayout(TAB,kind);
         if (els.get(`${p}-dst-svg`).innerHTML===before) throw new Error('Stage selection did not change offsets');

@@ -59,48 +59,9 @@ function generateZippedDivideTabContent(id) {
       </div>
 
       <div class="comp-results" style="grid-template-columns:1fr">
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-zd-a-title">A</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-zd-a-mode-btns">
-                <button class="mode-btn active" onclick="setZdMode('${id}','a','value')">value</button>
-                <button class="mode-btn" onclick="setZdMode('${id}','a','index')">index</button>
-                <button class="mode-btn" onclick="setZdMode('${id}','a','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-zd-a-svg-zoom" onclick="toggleZoom('${id}-zd-a-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-zd-a-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-zd-tiler-title">Tiler</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-zd-tiler-mode-btns">
-                <button class="mode-btn active" onclick="setZdMode('${id}','tiler','value')">value</button>
-                <button class="mode-btn" onclick="setZdMode('${id}','tiler','index')">index</button>
-                <button class="mode-btn" onclick="setZdMode('${id}','tiler','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-zd-tiler-svg-zoom" onclick="toggleZoom('${id}-zd-tiler-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-zd-tiler-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-zd-result-title">Result = zipped_divide(A, Tiler)</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-zd-result-mode-btns">
-                <button class="mode-btn active" onclick="setZdMode('${id}','result','value')">value</button>
-                <button class="mode-btn" onclick="setZdMode('${id}','result','index')">index</button>
-                <button class="mode-btn" onclick="setZdMode('${id}','result','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-zd-result-svg-zoom" onclick="toggleZoom('${id}-zd-result-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-zd-result-svg"></div></div>
-        </div>
+        ${layoutVisualization({hostId:`${id}-zd-a-svg`,modeGroupId:`${id}-zd-a-mode-btns`,onMode:mode=>`setZdMode('${id}','a','${mode}')`,title:`A`,titleId:`${id}-zd-a-title`})}
+        ${layoutVisualization({hostId:`${id}-zd-tiler-svg`,modeGroupId:`${id}-zd-tiler-mode-btns`,onMode:mode=>`setZdMode('${id}','tiler','${mode}')`,title:`Tiler`,titleId:`${id}-zd-tiler-title`})}
+        ${layoutVisualization({hostId:`${id}-zd-result-svg`,modeGroupId:`${id}-zd-result-mode-btns`,onMode:mode=>`setZdMode('${id}','result','${mode}')`,title:`Result = zipped_divide(A, Tiler)`,titleId:`${id}-zd-result-title`})}
       </div>
     </div>`;
 }
@@ -325,11 +286,7 @@ function setZdMode(tabId, which, mode) {
   const s = zdState[tabId];
   if (!s) return;
   const modes = s.modes[which];
-  if (modes.has(mode)) {
-    if (modes.size > 1) modes.delete(mode);
-  } else {
-    modes.add(mode);
-  }
+  toggleLayoutVisualizationMode(modes,mode);
   renderZdGrid(tabId, which);
 }
 

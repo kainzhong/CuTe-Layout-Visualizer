@@ -47,48 +47,9 @@ function generateRakedProductTabContent(id) {
       </div>
 
       <div class="comp-results" style="grid-template-columns:1fr">
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-rp-a-title">A</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-rp-a-mode-btns">
-                <button class="mode-btn active" onclick="setRpMode('${id}','a','value')">value</button>
-                <button class="mode-btn" onclick="setRpMode('${id}','a','index')">index</button>
-                <button class="mode-btn" onclick="setRpMode('${id}','a','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-rp-a-svg-zoom" onclick="toggleZoom('${id}-rp-a-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-rp-a-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-rp-tiler-title">Tiler</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-rp-tiler-mode-btns">
-                <button class="mode-btn active" onclick="setRpMode('${id}','tiler','value')">value</button>
-                <button class="mode-btn" onclick="setRpMode('${id}','tiler','index')">index</button>
-                <button class="mode-btn" onclick="setRpMode('${id}','tiler','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-rp-tiler-svg-zoom" onclick="toggleZoom('${id}-rp-tiler-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-rp-tiler-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-rp-result-title">Result = raked_product(A, Tiler)</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-rp-result-mode-btns">
-                <button class="mode-btn active" onclick="setRpMode('${id}','result','value')">value</button>
-                <button class="mode-btn" onclick="setRpMode('${id}','result','index')">index</button>
-                <button class="mode-btn" onclick="setRpMode('${id}','result','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-rp-result-svg-zoom" onclick="toggleZoom('${id}-rp-result-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-rp-result-svg"></div></div>
-        </div>
+        ${layoutVisualization({hostId:`${id}-rp-a-svg`,modeGroupId:`${id}-rp-a-mode-btns`,onMode:mode=>`setRpMode('${id}','a','${mode}')`,title:`A`,titleId:`${id}-rp-a-title`})}
+        ${layoutVisualization({hostId:`${id}-rp-tiler-svg`,modeGroupId:`${id}-rp-tiler-mode-btns`,onMode:mode=>`setRpMode('${id}','tiler','${mode}')`,title:`Tiler`,titleId:`${id}-rp-tiler-title`})}
+        ${layoutVisualization({hostId:`${id}-rp-result-svg`,modeGroupId:`${id}-rp-result-mode-btns`,onMode:mode=>`setRpMode('${id}','result','${mode}')`,title:`Result = raked_product(A, Tiler)`,titleId:`${id}-rp-result-title`})}
       </div>
     </div>`;
 }
@@ -206,21 +167,14 @@ function renderRpGrid(tabId, which) {
       svg = buildTiledLayoutSVG(s.rParsed.shape, s.rParsed.stride, modes, s.rTileIdxFn);
       break;
   }
-  host.innerHTML = svg;
-
-  applyZoomState(`${tabId}-rp-${which}-svg`);
-  updateModeBtns(`${tabId}-rp-${which}-mode-btns`, modes);
+  renderLayoutVisualization({hostId:`${tabId}-rp-${which}-svg`,modeGroupId:`${tabId}-rp-${which}-mode-btns`,modes,svg});
 }
 
 function setRpMode(tabId, which, mode) {
   const s = rpState[tabId];
   if (!s) return;
   const modes = s.modes[which];
-  if (modes.has(mode)) {
-    if (modes.size > 1) modes.delete(mode);
-  } else {
-    modes.add(mode);
-  }
+  toggleLayoutVisualizationMode(modes,mode);
   renderRpGrid(tabId, which);
 }
 

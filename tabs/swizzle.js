@@ -52,20 +52,10 @@ function generateSwizzleTabContent(id) {
       </div>
 
       <div class="comp-results" style="grid-template-columns:1fr">
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-sw-base-title">Base layout</span>
-            <button class="mode-btn" id="${id}-sw-base-svg-zoom" onclick="toggleZoom('${id}-sw-base-svg')">Zoom in</button>
-          </div>
-          <div class="viz-box"><div id="${id}-sw-base-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-sw-swizzled-title">Swizzled layout</span>
-            <button class="mode-btn" id="${id}-sw-swizzled-svg-zoom" onclick="toggleZoom('${id}-sw-swizzled-svg')">Zoom in</button>
-          </div>
-          <div class="viz-box"><div id="${id}-sw-swizzled-svg"></div></div>
-        </div>
+        ${layoutVisualization({hostId:`${id}-sw-base-svg`,title:'Base layout',titleId:`${id}-sw-base-title`,
+          onMode:mode=>`toggleSwizzleMode('${id}','${mode}')`})}
+        ${layoutVisualization({hostId:`${id}-sw-swizzled-svg`,title:'Swizzled layout',titleId:`${id}-sw-swizzled-title`,
+          onMode:mode=>`toggleSwizzleMode('${id}','${mode}')`})}
       </div>
     </div>`;
 }
@@ -108,31 +98,22 @@ function renderSwizzle(tabId) {
     }
 
     const parsed = parseLayout(layoutStr);
-    swState[tabId] = { parsed, sw, layoutStr };
+    const state=swState[tabId] = { parsed, sw, layoutStr, mode:swState[tabId]?.mode || new Set(['value']) };
 
     const resultEl = document.getElementById(`${tabId}-sw-result`);
     resultEl.textContent = `Swizzle<${sw.B}, ${sw.M}, ${sw.S}> applied to ${layoutStr.trim()}`;
     resultEl.classList.add('visible');
 
     // Top: plain base layout. Cell colour = colorBW(logical offset).
-    document.getElementById(`${tabId}-sw-base-svg`).innerHTML =
-      buildLayoutSVG(parsed.shape, parsed.stride, 'value');
-    applyZoomState(`${tabId}-sw-base-svg`);
+    renderLayoutVisualization({hostId:`${tabId}-sw-base-svg`,shape:parsed.shape,stride:parsed.stride,modes:state.mode});
     document.getElementById(`${tabId}-sw-base-title`).textContent =
       `Base layout: ${layoutStr.trim()}`;
 
     // Bottom: same grid, cell text "a → b". Colour keyed by b so cells that
     // land at the same swizzled offset mod-8 share a hue — makes the permutation
     // structure pop without being the same as the top grid.
-    document.getElementById(`${tabId}-sw-swizzled-svg`).innerHTML =
-      buildColoredLayoutSVG(parsed.shape, parsed.stride, 'value', (m, n, offset) => {
-        const b = swApply(offset, sw);
-        return {
-          bg: colorBW(b),
-          text: [`${offset} → ${b}`],
-        };
-      });
-    applyZoomState(`${tabId}-sw-swizzled-svg`);
+    renderLayoutVisualization({hostId:`${tabId}-sw-swizzled-svg`,shape:parsed.shape,stride:parsed.stride,
+      modes:state.mode,swizzle:sw,valueLabel:(value,physical)=>`${value} → ${physical}`});
     document.getElementById(`${tabId}-sw-swizzled-title`).textContent =
       `Swizzled: Swizzle<${sw.B}, ${sw.M}, ${sw.S}>  (cells show  a → b = swizzle(a))`;
 
@@ -146,6 +127,12 @@ function renderSwizzle(tabId) {
       if (el) el.innerHTML = '';
     });
   }
+}
+
+function toggleSwizzleMode(tabId,mode) {
+  const state=swState[tabId] ||= {mode:new Set(['value'])};
+  toggleLayoutVisualizationMode(state.mode,mode);
+  renderSwizzle(tabId);
 }
 
 function setSW(tabId, layout, swizzle) {

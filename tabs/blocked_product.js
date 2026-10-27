@@ -46,48 +46,9 @@ function generateBlockedProductTabContent(id) {
       </div>
 
       <div class="comp-results" style="grid-template-columns:1fr">
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-bp-a-title">A</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-bp-a-mode-btns">
-                <button class="mode-btn active" onclick="setBpMode('${id}','a','value')">value</button>
-                <button class="mode-btn" onclick="setBpMode('${id}','a','index')">index</button>
-                <button class="mode-btn" onclick="setBpMode('${id}','a','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-bp-a-svg-zoom" onclick="toggleZoom('${id}-bp-a-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-bp-a-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-bp-tiler-title">Tiler</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-bp-tiler-mode-btns">
-                <button class="mode-btn active" onclick="setBpMode('${id}','tiler','value')">value</button>
-                <button class="mode-btn" onclick="setBpMode('${id}','tiler','index')">index</button>
-                <button class="mode-btn" onclick="setBpMode('${id}','tiler','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-bp-tiler-svg-zoom" onclick="toggleZoom('${id}-bp-tiler-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-bp-tiler-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-bp-result-title">Result = blocked_product(A, Tiler)</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-bp-result-mode-btns">
-                <button class="mode-btn active" onclick="setBpMode('${id}','result','value')">value</button>
-                <button class="mode-btn" onclick="setBpMode('${id}','result','index')">index</button>
-                <button class="mode-btn" onclick="setBpMode('${id}','result','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-bp-result-svg-zoom" onclick="toggleZoom('${id}-bp-result-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-bp-result-svg"></div></div>
-        </div>
+        ${layoutVisualization({hostId:`${id}-bp-a-svg`,modeGroupId:`${id}-bp-a-mode-btns`,onMode:mode=>`setBpMode('${id}','a','${mode}')`,title:`A`,titleId:`${id}-bp-a-title`})}
+        ${layoutVisualization({hostId:`${id}-bp-tiler-svg`,modeGroupId:`${id}-bp-tiler-mode-btns`,onMode:mode=>`setBpMode('${id}','tiler','${mode}')`,title:`Tiler`,titleId:`${id}-bp-tiler-title`})}
+        ${layoutVisualization({hostId:`${id}-bp-result-svg`,modeGroupId:`${id}-bp-result-mode-btns`,onMode:mode=>`setBpMode('${id}','result','${mode}')`,title:`Result = blocked_product(A, Tiler)`,titleId:`${id}-bp-result-title`})}
       </div>
     </div>`;
 }
@@ -200,21 +161,14 @@ function renderBpGrid(tabId, which) {
       svg = buildTiledLayoutSVG(s.rParsed.shape, s.rParsed.stride, modes, s.rTileIdxFn);
       break;
   }
-  host.innerHTML = svg;
-
-  applyZoomState(`${tabId}-bp-${which}-svg`);
-  updateModeBtns(`${tabId}-bp-${which}-mode-btns`, modes);
+  renderLayoutVisualization({hostId:`${tabId}-bp-${which}-svg`,modeGroupId:`${tabId}-bp-${which}-mode-btns`,modes,svg});
 }
 
 function setBpMode(tabId, which, mode) {
   const s = bpState[tabId];
   if (!s) return;
   const modes = s.modes[which];
-  if (modes.has(mode)) {
-    if (modes.size > 1) modes.delete(mode);
-  } else {
-    modes.add(mode);
-  }
+  toggleLayoutVisualizationMode(modes,mode);
   renderBpGrid(tabId, which);
 }
 

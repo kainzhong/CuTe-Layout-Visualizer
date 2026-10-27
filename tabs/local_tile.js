@@ -171,15 +171,9 @@ function generateLocalTileTabContent(id) {
         <div class="comp-viz-item">
           <div class="comp-viz-header">
             <span class="comp-viz-label" id="${id}-lt-a-title">A &mdash; selected tile(s) highlighted</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-lt-a-mode-btns">
-                <button class="mode-btn active" onclick="setLtMode('${id}','a','value')">value</button>
-                <button class="mode-btn" onclick="setLtMode('${id}','a','index')">index</button>
-                <button class="mode-btn" onclick="setLtMode('${id}','a','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-lt-a-svg-zoom" onclick="toggleZoom('${id}-lt-a-svg')">Zoom in</button>
-              <button class="mode-btn" onclick="downloadSVG('${id}-lt-a-svg', 'local_tile.svg')">Download SVG</button>
-            </span>
+            ${layoutVisualizationControls({hostId:`${id}-lt-a-svg`,modeGroupId:`${id}-lt-a-mode-btns`,
+              onMode:mode=>`setLtMode('${id}','a','${mode}')`,
+              extraControls:`<button class="mode-btn" onclick="downloadSVG('${id}-lt-a-svg', 'local_tile.svg')">Download SVG</button>`})}
           </div>
           <div class="cuo-viz-desc">
             All of A. Only what the coord selected is coloured &mdash; everything
@@ -195,14 +189,7 @@ function generateLocalTileTabContent(id) {
         <div class="comp-viz-item">
           <div class="comp-viz-header">
             <span class="comp-viz-label" id="${id}-lt-tile-title">The tile</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-lt-tile-mode-btns">
-                <button class="mode-btn active" onclick="setLtMode('${id}','tile','value')">value</button>
-                <button class="mode-btn" onclick="setLtMode('${id}','tile','index')">index</button>
-                <button class="mode-btn" onclick="setLtMode('${id}','tile','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-lt-tile-svg-zoom" onclick="toggleZoom('${id}-lt-tile-svg')">Zoom in</button>
-            </span>
+            ${layoutVisualizationControls({hostId:`${id}-lt-tile-svg`,modeGroupId:`${id}-lt-tile-mode-btns`,onMode:mode=>`setLtMode('${id}','tile','${mode}')`})}
           </div>
           <div class="cuo-viz-desc">
             One tile on its own, in tile-local coordinates. <code>value</code> is

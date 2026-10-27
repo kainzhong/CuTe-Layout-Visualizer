@@ -1650,6 +1650,30 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     if (els.get(`${TAB}-sml-a-dst-svg`).innerHTML) throw new Error('Invalid stage left stale SVG');
   },[],{expectError:/index must be/});
   step('UTILITY valid render recovers',()=>ctx.setSml(TAB,'a','hopper','ROW_MAJOR','(16,16,16)','half_t','1','',''),[`${TAB}-sml-a-dst-svg`]);
+  step('UTILITY standalone zoom buttons toggle and survive rerendering',()=>{
+    for (const kind of ['a','b','epi']) {
+      const hostId=`${TAB}-sml-${kind}-dst-svg`, host=els.get(hostId), button=els.get(`${hostId}-zoom`);
+      const markup=ctx.generateSmemLayoutTabContent(TAB,kind);
+      const group=markup.match(/<span class="mode-btn-group"[^>]*>([\s\S]*?)<\/span>/);
+      if (!group || group[1].includes('toggleZoom(') || !markup.includes(`id="${hostId}-zoom" onclick="toggleZoom('${hostId}')">Zoom in</button>`))
+        throw new Error('Missing standalone zoom button');
+      const query=host.querySelector;
+      const dataset=host.dataset;
+      // Native DOMStringMap coerces assignments to strings; the basic shim does not.
+      host.dataset=new Proxy({...dataset},{set:(target,key,value)=>{target[key]=String(value);return true;}});
+      let style='';
+      const svg={getAttribute:()=> '0 0 100 200',setAttribute:(key,value)=>{if(key==='style')style=value;}};
+      host.querySelector=selector=>selector==='svg'?svg:null;
+      try {
+        ctx.toggleZoom(hostId);
+        if (String(host.dataset.zoom)!=='true' || button.textContent!=='Zoom out' || style!=='width:100%;height:auto') throw new Error('Zoom in did not apply');
+        style='';ctx.renderSmemLayout(TAB,kind);
+        if (style!=='width:100%;height:auto' || button.textContent!=='Zoom out') throw new Error('Rerender lost zoom');
+        ctx.toggleZoom(hostId);
+        if (host.dataset.zoom!=='false' || button.textContent!=='Zoom in' || !style.includes('max-height:70vh')) throw new Error('Zoom out did not restore fit');
+      } finally {host.querySelector=query;host.dataset=dataset;}
+    }
+  },paneIds.filter(id=>id.includes('-sml-')));
   step('UTILITY value/index/coord toggles combine labels and preserve stage offsets',()=>{
     for (const kind of ['a','b','epi']) {
       const p=`${TAB}-sml-${kind}`;
@@ -1676,6 +1700,22 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
       if (els.get(`${p}-dst-svg`).innerHTML!==original) throw new Error('Value view lost swizzle or stage offset');
     }
   },paneIds.filter(id=>id.includes('-sml-')));
+  step('Shared layout views: Index and Swizzle use combinable labels with physical values',()=>{
+    ctx.setIdx(TAB,'(4,8):(8,1)','(_,_)');
+    ctx.toggleIndexMode(TAB,'index');ctx.toggleIndexMode(TAB,'coord');
+    const indexed=els.get(`${TAB}-idx-dst-svg`).innerHTML;
+    if (!indexed.includes('val=9') || !indexed.includes('idx=5') || !indexed.includes('(1,1)')) throw new Error('Index lost layout labels');
+    if (!html.includes(`id="${TAB}-idx-dst-svg-zoom"`)) throw new Error('Index lost standalone zoom');
+    ctx.toggleIndexMode(TAB,'index');ctx.toggleIndexMode(TAB,'coord');
+    ctx.setSW(TAB,'(8,8):(8,1)','3,0,3');
+    ctx.toggleSwizzleMode(TAB,'index');ctx.toggleSwizzleMode(TAB,'coord');
+    for (const side of ['base','swizzled']) {
+      const svg=els.get(`${TAB}-sw-${side}-svg`).innerHTML;
+      if (!svg.includes('idx=9') || !svg.includes('(1,1)')) throw new Error('Swizzle lost logical labels');
+    }
+    if (!els.get(`${TAB}-sw-swizzled-svg`).innerHTML.includes('val=9 → 8')) throw new Error('Swizzle lost before/after values');
+    ctx.toggleSwizzleMode(TAB,'index');ctx.toggleSwizzleMode(TAB,'coord');
+  });
   step('Index: oracle results, complete grid, and URL round trip', () => {
     const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'reference.json'), 'utf8')).index;
     for (const c of JSON.parse(fs.readFileSync(path.join(__dirname, 'cases.json'), 'utf8')).index) {

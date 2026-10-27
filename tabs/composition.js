@@ -46,73 +46,14 @@ function generateCompositionTabContent(id) {
       </div>
 
       <div class="comp-results">
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-comp-a-title">A</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-comp-a-mode-btns">
-                <button class="mode-btn active" onclick="setCompMode('${id}','a','value')">value</button>
-                <button class="mode-btn" onclick="setCompMode('${id}','a','index')">index</button>
-                <button class="mode-btn" onclick="setCompMode('${id}','a','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-comp-a-svg-zoom" onclick="toggleZoom('${id}-comp-a-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-comp-a-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-comp-b-title">B</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-comp-b-mode-btns">
-                <button class="mode-btn active" onclick="setCompMode('${id}','b','value')">value</button>
-                <button class="mode-btn" onclick="setCompMode('${id}','b','index')">index</button>
-                <button class="mode-btn" onclick="setCompMode('${id}','b','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-comp-b-svg-zoom" onclick="toggleZoom('${id}-comp-b-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-comp-b-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label">A highlighted by B</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-comp-highlight-mode-btns">
-                <button class="mode-btn active" onclick="setCompMode('${id}','highlight','value')">value</button>
-                <button class="mode-btn" onclick="setCompMode('${id}','highlight','index')">index</button>
-                <button class="mode-btn" onclick="setCompMode('${id}','highlight','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-comp-highlight-svg-zoom" onclick="toggleZoom('${id}-comp-highlight-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-comp-highlight-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-comp-r-title">R = A(B)</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-comp-r-mode-btns">
-                <button class="mode-btn active" onclick="setCompMode('${id}','r','value')">value</button>
-                <button class="mode-btn" onclick="setCompMode('${id}','r','index')">index</button>
-                <button class="mode-btn" onclick="setCompMode('${id}','r','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-comp-r-svg-zoom" onclick="toggleZoom('${id}-comp-r-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-comp-r-svg"></div></div>
-        </div>
+        ${layoutVisualization({hostId:`${id}-comp-a-svg`,modeGroupId:`${id}-comp-a-mode-btns`,onMode:mode=>`setCompMode('${id}','a','${mode}')`,title:`A`,titleId:`${id}-comp-a-title`})}
+        ${layoutVisualization({hostId:`${id}-comp-b-svg`,modeGroupId:`${id}-comp-b-mode-btns`,onMode:mode=>`setCompMode('${id}','b','${mode}')`,title:`B`,titleId:`${id}-comp-b-title`})}
+        ${layoutVisualization({hostId:`${id}-comp-highlight-svg`,modeGroupId:`${id}-comp-highlight-mode-btns`,onMode:mode=>`setCompMode('${id}','highlight','${mode}')`,title:`A highlighted by B`})}
+        ${layoutVisualization({hostId:`${id}-comp-r-svg`,modeGroupId:`${id}-comp-r-mode-btns`,onMode:mode=>`setCompMode('${id}','r','${mode}')`,title:`R = A(B)`,titleId:`${id}-comp-r-title`})}
         <div id="${id}-comp-complement-section" class="comp-viz-item comp-viz-complement" style="display:none">
           <div class="comp-viz-header">
             <span class="comp-viz-label">Complement layout &mdash; tiles R over A to cover the full coordinate space</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-comp-complement-mode-btns">
-                <button class="mode-btn active" onclick="setCompMode('${id}','complement','value')">value</button>
-                <button class="mode-btn" onclick="setCompMode('${id}','complement','index')">index</button>
-                <button class="mode-btn" onclick="setCompMode('${id}','complement','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-comp-complement-svg-zoom" onclick="toggleZoom('${id}-comp-complement-svg')">Zoom in</button>
-            </span>
+            ${layoutVisualizationControls({hostId:`${id}-comp-complement-svg`,modeGroupId:`${id}-comp-complement-mode-btns`,onMode:mode=>`setCompMode('${id}','complement','${mode}')`})}
           </div>
           <div class="viz-box"><div id="${id}-comp-complement-svg"></div></div>
         </div>
@@ -357,11 +298,7 @@ function setCompMode(tabId, which, mode) {
   const s = compState[tabId];
   if (!s) return;
   const modes = s.modes[which];
-  if (modes.has(mode)) {
-    if (modes.size > 1) modes.delete(mode);
-  } else {
-    modes.add(mode);
-  }
+  toggleLayoutVisualizationMode(modes,mode);
   renderCompGrid(tabId, which);
 }
 

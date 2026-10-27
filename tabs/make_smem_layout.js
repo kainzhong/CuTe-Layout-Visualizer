@@ -79,17 +79,11 @@ function generateSmemLayoutTabContent(id, kind) {
       <button class="preset-btn" onclick="setSml('${id}','${kind}','hopper','ROW_MAJOR','${epi ? '(16,8)' : '(16,16,8)'}','half_t','1','','')">FP16 · no swizzle</button>
     </div></div>
     <div class="hint">Returns the Hopper helper's composed layout in element offsets. Copy Swizzled Layout preserves both the swizzle and base layout. This helper describes storage; it does not allocate or move data.</div>
-  </div><div class="comp-results" style="grid-template-columns:1fr"><div class="comp-viz-item">
-    <div class="comp-viz-header"><span class="comp-viz-label">SMEM layout — physical element offsets</span>
-      <span class="mode-btn-group" id="${id}-${p}-mode-btns">
-        <button class="mode-btn active" onclick="toggleSmlMode('${id}','${kind}','value')">value</button>
-        <button class="mode-btn" onclick="toggleSmlMode('${id}','${kind}','index')">index</button>
-        <button class="mode-btn" onclick="toggleSmlMode('${id}','${kind}','coord')">coord</button>
-      </span>
-    </div>
-    <div class="form-group"><label>Stage / flattened remaining-mode index</label><input id="${id}-${p}-stage-view" type="number" min="0" value="0" onchange="renderSmemLayout('${id}','${kind}')"></div>
-    <div class="viz-box"><div id="${id}-${p}-dst-svg"></div></div>
-  </div></div></div>`;
+  </div><div class="comp-results" style="grid-template-columns:1fr">
+    ${layoutVisualization({hostId:`${id}-${p}-dst-svg`,modeGroupId:`${id}-${p}-mode-btns`,
+      title:'SMEM layout — physical element offsets',onMode:mode=>`toggleSmlMode('${id}','${kind}','${mode}')`,
+      beforeGrid:`<div class="form-group"><label>Stage / flattened remaining-mode index</label><input id="${id}-${p}-stage-view" type="number" min="0" value="0" onchange="renderSmemLayout('${id}','${kind}')"></div>`})}
+  </div></div>`;
 }
 function generateSmemLayoutATabContent(id) { return generateSmemLayoutTabContent(id,'a'); }
 function generateSmemLayoutBTabContent(id) { return generateSmemLayoutTabContent(id,'b'); }
@@ -103,7 +97,6 @@ function smlRead(id,kind) {
 function renderSmemLayout(id,kind) {
   const p=`${id}-sml-${kind}`, host=document.getElementById(`${p}-dst-svg`), result=document.getElementById(`${p}-result`);
   const state=smlState[kind][id] ||= {mode: new Set(['value'])};
-  updateModeBtns(`${p}-mode-btns`,state.mode);
   showErr(`${p}-error`,'');
   showErr(`${p}-warning`,'');
   try {
@@ -118,20 +111,15 @@ function renderSmemLayout(id,kind) {
     if (r.extents.some((x,i)=>x!==r.requestedExtents[i])) showErr(`${p}-warning`,'CuTeDSL rounds the target up to whole SMEM layout atoms. The returned layout includes padding.');
     result.textContent=`Returned layout = ${r.composedText}\nBase layout = ${r.layoutText}\nSwizzle<${r.sw.B},${r.sw.M},${r.sw.S}> — ${r.swBytes ? r.swBytes+'B swizzle' : 'no swizzle'}\n${r.major}-major · ${r.layout.size()} elements`;
     result.classList.add('visible');
-    host.innerHTML=buildColoredLayoutSVG(plane.shape,plane.stride,state.mode,(m,n,value,index)=>{
-      const physical=applySwizzleOffset(value+offset,r.sw);
-      return {bg:colorBW(physical),text:buildCellLines(state.mode,physical,index,`(${m},${n})`)};
-    });
-    applyZoomState(`${p}-dst-svg`);
+    renderLayoutVisualization({hostId:`${p}-dst-svg`,modeGroupId:`${p}-mode-btns`,
+      shape:plane.shape,stride:plane.stride,modes:state.mode,offset,swizzle:r.sw});
     updateOuterTabLabel(id,`make_smem_layout_${kind}`);
   } catch(e) { showErr(`${p}-error`,e.message); result.classList.remove('visible'); host.innerHTML=''; }
 }
 function toggleSmlMode(id,kind,mode) {
   if (!['value','index','coord'].includes(mode)) return;
   const state=smlState[kind][id] ||= {mode: new Set(['value'])};
-  if (state.mode.has(mode)) {
-    if (state.mode.size>1) state.mode.delete(mode);
-  } else state.mode.add(mode);
+  toggleLayoutVisualizationMode(state.mode,mode);
   renderSmemLayout(id,kind);
 }
 function setSml(id,kind,...inputs) {

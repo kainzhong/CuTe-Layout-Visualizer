@@ -61,48 +61,9 @@ function generateZippedProductTabContent(id) {
       </div>
 
       <div class="comp-results" style="grid-template-columns:1fr">
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-zp-a-title">A</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-zp-a-mode-btns">
-                <button class="mode-btn active" onclick="setZpMode('${id}','a','value')">value</button>
-                <button class="mode-btn" onclick="setZpMode('${id}','a','index')">index</button>
-                <button class="mode-btn" onclick="setZpMode('${id}','a','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-zp-a-svg-zoom" onclick="toggleZoom('${id}-zp-a-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-zp-a-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-zp-tiler-title">Tiler</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-zp-tiler-mode-btns">
-                <button class="mode-btn active" onclick="setZpMode('${id}','tiler','value')">value</button>
-                <button class="mode-btn" onclick="setZpMode('${id}','tiler','index')">index</button>
-                <button class="mode-btn" onclick="setZpMode('${id}','tiler','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-zp-tiler-svg-zoom" onclick="toggleZoom('${id}-zp-tiler-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-zp-tiler-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-zp-result-title">Result</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-zp-result-mode-btns">
-                <button class="mode-btn active" onclick="setZpMode('${id}','result','value')">value</button>
-                <button class="mode-btn" onclick="setZpMode('${id}','result','index')">index</button>
-                <button class="mode-btn" onclick="setZpMode('${id}','result','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-zp-result-svg-zoom" onclick="toggleZoom('${id}-zp-result-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-zp-result-svg"></div></div>
-        </div>
+        ${layoutVisualization({hostId:`${id}-zp-a-svg`,modeGroupId:`${id}-zp-a-mode-btns`,onMode:mode=>`setZpMode('${id}','a','${mode}')`,title:`A`,titleId:`${id}-zp-a-title`})}
+        ${layoutVisualization({hostId:`${id}-zp-tiler-svg`,modeGroupId:`${id}-zp-tiler-mode-btns`,onMode:mode=>`setZpMode('${id}','tiler','${mode}')`,title:`Tiler`,titleId:`${id}-zp-tiler-title`})}
+        ${layoutVisualization({hostId:`${id}-zp-result-svg`,modeGroupId:`${id}-zp-result-mode-btns`,onMode:mode=>`setZpMode('${id}','result','${mode}')`,title:`Result`,titleId:`${id}-zp-result-title`})}
       </div>
     </div>`;
 }
@@ -230,21 +191,14 @@ function renderZpGrid(tabId, which) {
       svg = buildTiledLayoutSVG(s.rParsed.shape, s.rParsed.stride, modes, s.rTileIdxFn);
       break;
   }
-  host.innerHTML = svg;
-
-  applyZoomState(`${tabId}-zp-${which}-svg`);
-  updateModeBtns(`${tabId}-zp-${which}-mode-btns`, modes);
+  renderLayoutVisualization({hostId:`${tabId}-zp-${which}-svg`,modeGroupId:`${tabId}-zp-${which}-mode-btns`,modes,svg});
 }
 
 function setZpMode(tabId, which, mode) {
   const s = zpState[tabId];
   if (!s) return;
   const modes = s.modes[which];
-  if (modes.has(mode)) {
-    if (modes.size > 1) modes.delete(mode);
-  } else {
-    modes.add(mode);
-  }
+  toggleLayoutVisualizationMode(modes,mode);
   renderZpGrid(tabId, which);
 }
 

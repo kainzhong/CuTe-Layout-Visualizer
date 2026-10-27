@@ -45,48 +45,9 @@ function generateLogicalProductTabContent(id) {
       </div>
 
       <div class="comp-results" style="grid-template-columns:1fr">
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-lp-a-title">A</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-lp-a-mode-btns">
-                <button class="mode-btn active" onclick="setLpMode('${id}','a','value')">value</button>
-                <button class="mode-btn" onclick="setLpMode('${id}','a','index')">index</button>
-                <button class="mode-btn" onclick="setLpMode('${id}','a','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-lp-a-svg-zoom" onclick="toggleZoom('${id}-lp-a-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-lp-a-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-lp-tiler-title">Tiler</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-lp-tiler-mode-btns">
-                <button class="mode-btn active" onclick="setLpMode('${id}','tiler','value')">value</button>
-                <button class="mode-btn" onclick="setLpMode('${id}','tiler','index')">index</button>
-                <button class="mode-btn" onclick="setLpMode('${id}','tiler','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-lp-tiler-svg-zoom" onclick="toggleZoom('${id}-lp-tiler-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-lp-tiler-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-lp-result-title">Result = logical_product(A, Tiler)</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-lp-result-mode-btns">
-                <button class="mode-btn active" onclick="setLpMode('${id}','result','value')">value</button>
-                <button class="mode-btn" onclick="setLpMode('${id}','result','index')">index</button>
-                <button class="mode-btn" onclick="setLpMode('${id}','result','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-lp-result-svg-zoom" onclick="toggleZoom('${id}-lp-result-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-lp-result-svg"></div></div>
-        </div>
+        ${layoutVisualization({hostId:`${id}-lp-a-svg`,modeGroupId:`${id}-lp-a-mode-btns`,onMode:mode=>`setLpMode('${id}','a','${mode}')`,title:`A`,titleId:`${id}-lp-a-title`})}
+        ${layoutVisualization({hostId:`${id}-lp-tiler-svg`,modeGroupId:`${id}-lp-tiler-mode-btns`,onMode:mode=>`setLpMode('${id}','tiler','${mode}')`,title:`Tiler`,titleId:`${id}-lp-tiler-title`})}
+        ${layoutVisualization({hostId:`${id}-lp-result-svg`,modeGroupId:`${id}-lp-result-mode-btns`,onMode:mode=>`setLpMode('${id}','result','${mode}')`,title:`Result = logical_product(A, Tiler)`,titleId:`${id}-lp-result-title`})}
       </div>
     </div>`;
 }
@@ -248,11 +209,7 @@ function setLpMode(tabId, which, mode) {
   const s = lpState[tabId];
   if (!s) return;
   const modes = s.modes[which];
-  if (modes.has(mode)) {
-    if (modes.size > 1) modes.delete(mode);
-  } else {
-    modes.add(mode);
-  }
+  toggleLayoutVisualizationMode(modes,mode);
   renderLpGrid(tabId, which);
 }
 

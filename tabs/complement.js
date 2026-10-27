@@ -36,48 +36,9 @@ function generateComplementTabContent(id) {
       </div>
 
       <div class="comp-results" style="grid-template-columns:1fr">
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label">Cotarget with L tiled by complement</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-cpl-main-mode-btns">
-                <button class="mode-btn active" onclick="setCplMode('${id}','main','value')">value</button>
-                <button class="mode-btn" onclick="setCplMode('${id}','main','index')">index</button>
-                <button class="mode-btn" onclick="setCplMode('${id}','main','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-cpl-main-svg-zoom" onclick="toggleZoom('${id}-cpl-main-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-cpl-main-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-cpl-layout-title">L</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-cpl-layout-mode-btns">
-                <button class="mode-btn active" onclick="setCplMode('${id}','layout','value')">value</button>
-                <button class="mode-btn" onclick="setCplMode('${id}','layout','index')">index</button>
-                <button class="mode-btn" onclick="setCplMode('${id}','layout','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-cpl-layout-svg-zoom" onclick="toggleZoom('${id}-cpl-layout-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-cpl-layout-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-cpl-complement-title">Complement layout</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-cpl-complement-mode-btns">
-                <button class="mode-btn active" onclick="setCplMode('${id}','complement','value')">value</button>
-                <button class="mode-btn" onclick="setCplMode('${id}','complement','index')">index</button>
-                <button class="mode-btn" onclick="setCplMode('${id}','complement','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-cpl-complement-svg-zoom" onclick="toggleZoom('${id}-cpl-complement-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-cpl-complement-svg"></div></div>
-        </div>
+        ${layoutVisualization({hostId:`${id}-cpl-main-svg`,modeGroupId:`${id}-cpl-main-mode-btns`,onMode:mode=>`setCplMode('${id}','main','${mode}')`,title:`Cotarget with L tiled by complement`})}
+        ${layoutVisualization({hostId:`${id}-cpl-layout-svg`,modeGroupId:`${id}-cpl-layout-mode-btns`,onMode:mode=>`setCplMode('${id}','layout','${mode}')`,title:`L`,titleId:`${id}-cpl-layout-title`})}
+        ${layoutVisualization({hostId:`${id}-cpl-complement-svg`,modeGroupId:`${id}-cpl-complement-mode-btns`,onMode:mode=>`setCplMode('${id}','complement','${mode}')`,title:`Complement layout`,titleId:`${id}-cpl-complement-title`})}
       </div>
     </div>`;
 }
@@ -203,20 +164,14 @@ function renderCplGrid(tabId, which) {
       svg = buildLayoutSVG(s.complementShape, s.complementStride, modes);
       break;
   }
-  host.innerHTML = svg;
-  applyZoomState(`${tabId}-cpl-${which}-svg`);
-  updateModeBtns(`${tabId}-cpl-${which}-mode-btns`, modes);
+  renderLayoutVisualization({hostId:`${tabId}-cpl-${which}-svg`,modeGroupId:`${tabId}-cpl-${which}-mode-btns`,modes,svg});
 }
 
 function setCplMode(tabId, which, mode) {
   const s = cplState[tabId];
   if (!s) return;
   const modes = s.modes[which];
-  if (modes.has(mode)) {
-    if (modes.size > 1) modes.delete(mode);
-  } else {
-    modes.add(mode);
-  }
+  toggleLayoutVisualizationMode(modes,mode);
   renderCplGrid(tabId, which);
 }
 

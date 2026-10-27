@@ -43,22 +43,8 @@ function generateLayoutTabContent(id) {
         </div>
       </div>
 
-      <div class="visualization">
-        <div class="viz-header">
-          <span class="viz-title" id="${id}-layout-title">&mdash;</span>
-          <span style="display:flex;align-items:center;gap:4px">
-            <span class="mode-btn-group" id="${id}-layout-mode-btns">
-              <button class="mode-btn active" onclick="setLayoutMode('${id}','value')">value</button>
-              <button class="mode-btn" onclick="setLayoutMode('${id}','index')">index</button>
-              <button class="mode-btn" onclick="setLayoutMode('${id}','coord')">coord</button>
-            </span>
-            <button class="mode-btn" id="${id}-layout-svg-host-zoom" onclick="toggleZoom('${id}-layout-svg-host')">Zoom in</button>
-          </span>
-        </div>
-        <div class="viz-box">
-          <div id="${id}-layout-svg-host"></div>
-        </div>
-      </div>
+      ${layoutVisualization({hostId:`${id}-layout-svg-host`,title:'&mdash;',titleId:`${id}-layout-title`,
+        modeGroupId:`${id}-layout-mode-btns`,variant:'basics',onMode:mode=>`setLayoutMode('${id}','${mode}')`})}
     </div>`;
 }
 
@@ -99,7 +85,6 @@ function renderLayout(tabId) {
     };
 
     renderLayoutSVG(tabId);
-    updateModeBtns(`${tabId}-layout-mode-btns`, layoutState[tabId].modes);
     updateOuterTabLabel(tabId, `Layout:${inputVal.trim()}`);
 
     // Show/hide the "Render Inverse" button; reset its label
@@ -130,10 +115,6 @@ function renderLayout(tabId) {
   } catch (e) {
     showErr(`${tabId}-layout-error`, e.message);
     document.getElementById(`${tabId}-layout-svg-host`).innerHTML = '';
-    const invBtn = document.getElementById(`${tabId}-layout-inverse-btn`);
-    if (invBtn) invBtn.style.display = 'none';
-    const infoEl = document.getElementById(`${tabId}-layout-inverse-info`);
-    if (infoEl) infoEl.classList.remove('visible');
   }
 }
 
@@ -157,11 +138,8 @@ function renderLayoutSVG(tabId) {
       ? `shape=${shapeStr}  basis strides  \u2014  ${M}\u00d7${N} grid, cells are ${s.ndim}-D coordinates` +
         (s.origin ? `, origin (${s.origin.join(',')})` : '')
       : title;
-  document.getElementById(`${tabId}-layout-svg-host`).innerHTML =
-    (s.basis && !useInverse)
-      ? buildBasisLayoutSVG(shape, stride, s.ndim, s.origin, s.modes)
-      : buildLayoutSVG(shape, stride, s.modes);
-  applyZoomState(`${tabId}-layout-svg-host`);
+  renderLayoutVisualization({hostId:`${tabId}-layout-svg-host`,modeGroupId:`${tabId}-layout-mode-btns`,
+    shape,stride,modes:s.modes,basis:s.basis && !useInverse,ndim:s.ndim,origin:s.origin});
 }
 
 function toggleLayoutInverse(tabId) {
@@ -181,13 +159,8 @@ function toggleLayoutInverse(tabId) {
 function setLayoutMode(tabId, mode) {
   const s = layoutState[tabId];
   if (!s) return;
-  if (s.modes.has(mode)) {
-    if (s.modes.size > 1) s.modes.delete(mode);
-  } else {
-    s.modes.add(mode);
-  }
+  toggleLayoutVisualizationMode(s.modes,mode);
   renderLayoutSVG(tabId);
-  updateModeBtns(`${tabId}-layout-mode-btns`, s.modes);
 }
 
 function setL(tabId, val) {

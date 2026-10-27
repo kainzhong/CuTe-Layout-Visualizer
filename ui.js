@@ -132,6 +132,54 @@ function toModeSet(mode) {
   return new Set([mode || 'value']);
 }
 
+// Shared layout view: controls, frame, label behavior and SVG/zoom lifecycle.
+// Tabs retain constructor/state ownership and supply their mode-change callback.
+function layoutVisualizationControls({hostId, modeGroupId=`${hostId}-mode-btns`, onMode, extraControls=''}) {
+  return `<span style="display:flex;align-items:center;gap:4px">
+    <span class="mode-btn-group" id="${modeGroupId}">
+      ${['value','index','coord'].map(mode=>`<button class="mode-btn${mode==='value'?' active':''}" onclick="${onMode(mode)}">${mode}</button>`).join('\n')}
+    </span>
+    <button class="mode-btn" id="${hostId}-zoom" onclick="toggleZoom('${hostId}')">Zoom in</button>
+    ${extraControls}
+  </span>`;
+}
+
+function layoutVisualization({hostId, title='', titleId='', modeGroupId, onMode, variant='comp', beforeGrid=''}) {
+  const basics=variant==='basics';
+  return `<div class="${basics?'visualization':'comp-viz-item'}">
+    <div class="${basics?'viz-header':'comp-viz-header'}">
+      <span class="${basics?'viz-title':'comp-viz-label'}"${titleId?` id="${titleId}"`:''}>${title}</span>
+      ${layoutVisualizationControls({hostId,modeGroupId,onMode})}
+    </div>
+    ${beforeGrid}
+    <div class="viz-box"><div id="${hostId}"></div></div>
+  </div>`;
+}
+
+function toggleLayoutVisualizationMode(modes, mode) {
+  if (!['value','index','coord'].includes(mode)) return;
+  if (modes.has(mode)) {
+    if (modes.size>1) modes.delete(mode);
+  } else modes.add(mode);
+}
+
+function renderLayoutVisualization({hostId, modeGroupId=`${hostId}-mode-btns`, modes,
+    shape, stride, basis=false, ndim, origin, offset=0, swizzle=null, colorFn=null, valueLabel=null, svg}) {
+  modes=toModeSet(modes);
+  const host=document.getElementById(hostId);
+  if (!host) return;
+  if (svg !== undefined) host.innerHTML=svg;
+  else if (basis) host.innerHTML=buildBasisLayoutSVG(shape,stride,ndim,origin,modes);
+  else if (!offset && !swizzle && !colorFn && !valueLabel) host.innerHTML=buildLayoutSVG(shape,stride,modes);
+  else host.innerHTML=buildColoredLayoutSVG(shape,stride,modes,(m,n,value,index)=>{
+    const physical=applySwizzleOffset(value+offset,swizzle);
+    return {bg:colorFn?colorFn(physical):colorBW(physical),
+      text:buildCellLines(modes,valueLabel?valueLabel(value,physical):physical,index,`(${m},${n})`)};
+  });
+  updateModeBtns(modeGroupId,modes);
+  applyZoomState(hostId);
+}
+
 /** Build axis-label and grid SVG for a regular layout.
  *  mode: 'value' (default) shows layout output, 'index' shows 1-D coordinate,
  *  'coord' shows (m,n).

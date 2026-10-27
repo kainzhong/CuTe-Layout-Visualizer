@@ -21,12 +21,14 @@ function generateIndexTabContent(id) {
       The returned layout contains relative offsets; the base offset is added to obtain offsets in the original tensor.
       Indexing every mode returns one element (an empty layout).</div>
     </div>
-    <div class="comp-results"><div class="comp-viz-item">
-      <div class="comp-viz-header"><span class="comp-viz-label">Indexed view — original tensor offsets</span></div>
-      <div class="viz-box"><div id="${id}-idx-dst-svg"></div></div>
-    </div></div>
+    <div class="comp-results" style="grid-template-columns:1fr">
+      ${layoutVisualization({hostId:`${id}-idx-dst-svg`,modeGroupId:`${id}-idx-mode-btns`,
+        title:'Indexed view — original tensor offsets',onMode:mode=>`toggleIndexMode('${id}','${mode}')`})}
+    </div>
   </div>`;
 }
+
+const idxState = {};
 
 // DOM-free entry point shared by rendering and differential tests.
 function idxComputeIndex(layoutText, indexText) {
@@ -57,6 +59,7 @@ function idxComputeIndex(layoutText, indexText) {
 
 function renderIndex(tabId) {
   const prefix = `${tabId}-idx`;
+  const state=idxState[tabId] ||= {mode:new Set(['value'])};
   const result = document.getElementById(`${prefix}-result`);
   const host = document.getElementById(`${prefix}-dst-svg`);
   showErr(`${prefix}-error`, '');
@@ -77,15 +80,20 @@ function renderIndex(tabId) {
         ? {shape: [Array.isArray(shape) ? shape[0] : shape, 1],
            stride: [Array.isArray(stride) ? stride[0] : stride, 0]}
         : {shape: [1, 1], stride: [0, 0]};
-    host.innerHTML = buildColoredLayoutSVG(display.shape, display.stride, new Set(['value']),
-      (m, n, value) => ({bg: colorHighlight(value + offset), text: [String(value + offset)]}));
-    applyZoomState(`${prefix}-dst-svg`);
+    renderLayoutVisualization({hostId:`${prefix}-dst-svg`,modeGroupId:`${prefix}-mode-btns`,
+      shape:display.shape,stride:display.stride,modes:state.mode,offset,colorFn:colorHighlight});
     updateOuterTabLabel(tabId, `Index:${index.trim()}`);
   } catch (e) {
     showErr(`${prefix}-error`, e.message);
     result.classList.remove('visible');
     host.innerHTML = '';
   }
+}
+
+function toggleIndexMode(tabId,mode) {
+  const state=idxState[tabId] ||= {mode:new Set(['value'])};
+  toggleLayoutVisualizationMode(state.mode,mode);
+  renderIndex(tabId);
 }
 
 function setIdx(tabId, layout, coord) {

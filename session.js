@@ -8,7 +8,7 @@ const TAB_SESSION_PREFERENCES = new Set([
 ]);
 
 function tabSessionStores() {
-  return {make_smem_layout_a: smlState.a, make_smem_layout_b: smlState.b,
+  return {index: idxState, swizzle: swState, make_smem_layout_a: smlState.a, make_smem_layout_b: smlState.b,
     make_smem_layout_epi: smlState.epi,
     tv: tvState, make_mma_atom: mmaState, make_tiled_mma: mtmState,
     make_copy_atom: mcaState, make_tiled_copy: mtcState, make_tiled_copy_tv: mtvState,

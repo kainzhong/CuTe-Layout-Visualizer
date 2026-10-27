@@ -201,6 +201,8 @@ produce hierarchical coordinates this 2-D grid cannot draw.
   parallel to `lines`, which is what lets one cell mix live and disabled entries.
 - **Drawing ACROSS cells**: `buildColoredLayoutSVG`'s `opts.overlay(geom)` returns raw SVG appended after the cells, with `geom = { cs, margin, W, H, M, N }`. A tile boundary is a *line*, not a property of the cells beside it — faking one with per-cell strokes gives a doubled, fuzzy edge. `tma_partition` uses it for its red tile outlines.
 - **SVG helpers**: `cellSize`, `svgFitStyle`, `cellTextSVG`, `buildCellLines`, `toModeSet`
+- **Layout visualization component**: `layoutVisualization(...)` owns the frame, title, nested SVG host, combinable label buttons, and standalone zoom button. `layoutVisualizationControls(...)` is the same control strip for specialized frames. Tabs supply stable host/group/title IDs, a mode-change handler, optional content before the grid, and their existing state. BASICS Layout, Index, Swizzle, SMEM utilities, and ordinary algebra panes reuse it.
+- **Layout view rendering**: `renderLayoutVisualization(...)` selects ordinary or scaled-basis rendering, supports slice offsets, swizzles, colors and value-label transforms, synchronizes buttons, and reapplies zoom. Specialized overlays can supply an already-built SVG while sharing the same lifecycle. `toggleLayoutVisualizationMode(...)` owns the at-least-one-label rule. Constructor math and tab/session state stay outside this component.
 - **Zoom**: `applyZoomState`, `toggleZoom`
 - **A `.viz-box` MUST wrap its SVG host in an inner `div[id]`** — `<div class="viz-box"><div
   id="${id}-x-svg"></div></div>`, never `<div class="viz-box" id="${id}-x-svg">`. This is
@@ -345,6 +347,8 @@ and shrinking them to `A / B / C` would drop the word the control is actually na
 uses it; `partition_sd`'s two-way S/D switch does not need it.
 
 ## Display modes
+
+Every layout-type visualization must expose the BASICS Layout controls: combinable value/index/coord modes and a separate Zoom in / Zoom out button outside the mode group. Fullscreen does not replace zoom. The zoom button uses `${hostId}-zoom`, calls shared `toggleZoom(hostId)`, and rendering calls `applyZoomState(hostId)` to retain zoom across label, stage, and input changes. This includes the layouts returned by the UTILITY helpers.
 
 Each SVG grid supports 3 cell-label modes via the value/index/coord button group:
 - **value**: `layout(i)` — the mapped output value

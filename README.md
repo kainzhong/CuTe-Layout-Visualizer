@@ -22,6 +22,7 @@ This tool runs in your browser and lets you:
 
 - **Visualize operations, not just layouts.** `composition`, `complement`, `logical_divide`, `zipped_divide`, `logical_product`, and `zipped_product` each get their own tab that renders the inputs **and** the result side-by-side, with coloring that makes the relationship between them obvious.
 - **Edit inputs live.** Change a shape or a stride and hit Render — no rebuild, no LaTeX toolchain, no PDF reader.
+- Layout views share one visualization component, including the **value / index / coord** buttons and standalone **Zoom in / Zoom out** control.
 - **Toggle display modes per cell** between value (`layout(i)`), index (1D flat coord), and coord (`(m,n)`) to match whatever mental model you're working in.
 - **Share a URL** to a specific visualization and have a colleague open it in one click.
 - **Decode or edit inputs.** Every pasteboard decode input has a folded **Manual construction** section. Decoding fills its editable fields; Render and Export URL use your current adjustments. **MMAAtom** and **CopyAtom** sections accept `make_mma_atom` and `make_copy_atom` URLs, including atom inputs nested inside TiledMMA/TiledCopy construction.

@@ -40,48 +40,9 @@ function generateDivideTabContent(id) {
       </div>
 
       <div class="comp-results" style="grid-template-columns:1fr">
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-ld-a-title">A</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-ld-a-mode-btns">
-                <button class="mode-btn active" onclick="setLdMode('${id}','a','value')">value</button>
-                <button class="mode-btn" onclick="setLdMode('${id}','a','index')">index</button>
-                <button class="mode-btn" onclick="setLdMode('${id}','a','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-ld-a-svg-zoom" onclick="toggleZoom('${id}-ld-a-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-ld-a-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-ld-tiler-title">Tiler</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-ld-tiler-mode-btns">
-                <button class="mode-btn active" onclick="setLdMode('${id}','tiler','value')">value</button>
-                <button class="mode-btn" onclick="setLdMode('${id}','tiler','index')">index</button>
-                <button class="mode-btn" onclick="setLdMode('${id}','tiler','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-ld-tiler-svg-zoom" onclick="toggleZoom('${id}-ld-tiler-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-ld-tiler-svg"></div></div>
-        </div>
-        <div class="comp-viz-item">
-          <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-ld-result-title">Result = logical_divide(A, Tiler)</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span class="mode-btn-group" id="${id}-ld-result-mode-btns">
-                <button class="mode-btn active" onclick="setLdMode('${id}','result','value')">value</button>
-                <button class="mode-btn" onclick="setLdMode('${id}','result','index')">index</button>
-                <button class="mode-btn" onclick="setLdMode('${id}','result','coord')">coord</button>
-              </span>
-              <button class="mode-btn" id="${id}-ld-result-svg-zoom" onclick="toggleZoom('${id}-ld-result-svg')">Zoom in</button>
-            </span>
-          </div>
-          <div class="viz-box"><div id="${id}-ld-result-svg"></div></div>
-        </div>
+        ${layoutVisualization({hostId:`${id}-ld-a-svg`,modeGroupId:`${id}-ld-a-mode-btns`,onMode:mode=>`setLdMode('${id}','a','${mode}')`,title:`A`,titleId:`${id}-ld-a-title`})}
+        ${layoutVisualization({hostId:`${id}-ld-tiler-svg`,modeGroupId:`${id}-ld-tiler-mode-btns`,onMode:mode=>`setLdMode('${id}','tiler','${mode}')`,title:`Tiler`,titleId:`${id}-ld-tiler-title`})}
+        ${layoutVisualization({hostId:`${id}-ld-result-svg`,modeGroupId:`${id}-ld-result-mode-btns`,onMode:mode=>`setLdMode('${id}','result','${mode}')`,title:`Result = logical_divide(A, Tiler)`,titleId:`${id}-ld-result-title`})}
       </div>
     </div>`;
 }
@@ -296,11 +257,7 @@ function setLdMode(tabId, which, mode) {
   const s = ldState[tabId];
   if (!s) return;
   const modes = s.modes[which];
-  if (modes.has(mode)) {
-    if (modes.size > 1) modes.delete(mode);
-  } else {
-    modes.add(mode);
-  }
+  toggleLayoutVisualizationMode(modes,mode);
   renderLdGrid(tabId, which);
 }
 

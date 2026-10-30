@@ -96,6 +96,20 @@ async function main() {
       check('composed preview preserves layout and swizzle',V.variablesPreviewText(row)===row.value);
     }
   });
+  await test('domain_offset variables retain shifted tensor iterators',()=>{
+    for(const c of cases.domain_offset) {
+      const url=V.encodeKeyParam('domain_offset',c.tensor,c.coord), row=V.variablesClipboardChoices(url)[0];
+      const r=V.domainOffsetCompute(c.tensor,c.coord);
+      check('domain_offset result keeps Layout type',row.type==='Layout');
+      same('shifted tensor copies layout and iterator',row.value,r.tensorText);
+      const raw=V.variablesClipboardChoices(row.value)[0];
+      same('raw tensor import preserves iterator',raw.value,row.value);
+      const decoded=V.variablesVisualization(row);
+      check('tensor variable reopens domain_offset',decoded.feature==='domain_offset');
+      const reopened=V.domainOffsetCompute(...decoded.inputs);
+      same('reopened tensor preserves iterator',JSON.stringify(reopened.shifted),JSON.stringify(refs.domain_offset[c.id].shifted));
+    }
+  });
   await test('multiple results have explicit choices',()=>{
     const z=V.variablesClipboardChoices(key('zipped_divide','(8,8):(1,8)','(2,2)'));
     check('zipped variants are separate Layout choices',z.length===3&&z.every(x=>x.type==='Layout'));

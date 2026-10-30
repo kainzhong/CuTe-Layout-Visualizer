@@ -363,7 +363,9 @@ class Layout {
 
   // cosize(layout)   Size of the codomain
   cosize() {
-    return this.call(this.size() - 1) + 1;
+    // CuTe's coshape uses absolute strides, including for reversed modes.
+    const strides=flatten(this.stride);
+    return flatten(this.shape).reduce((n,s,i)=>n+(s-1)*Math.abs(strides[i]),1);
   }
 
   // print and str
@@ -945,19 +947,19 @@ function isBijective(layout) {
 
 
 // Parse integer layout syntax without the visualization parser's rank padding.
-function parseExactLayoutInput(raw) {
+function parseExactLayoutInput(raw, {basis=false}={}) {
   const text = String(raw).trim();
-  if (!/^[\d\s(),:+-]+$/.test(text)) throw new Error('Use an integer-strided layout with whole-number shapes and strides.');
+  if (!(basis ? /^[\d\s(),:+@-]+$/ : /^[\d\s(),:+-]+$/).test(text)) throw new Error('Use an integer-strided layout with whole-number shapes and strides.');
   // Validate with the standard parser, then preserve rank (the grid parser pads rank 1).
-  parseLayout(text);
+  parseLayout(text,{basis});
   const colon = topLevelColon(text);
   const shape = parseValue(colon < 0 ? text : text.slice(0, colon));
-  const input = new Layout(shape, colon < 0 ? prefix_product(shape) : parseValue(text.slice(colon + 1)));
+  const input = new Layout(shape, colon < 0 ? prefix_product(shape) : parseValue(text.slice(colon + 1),basis));
   function validateLayout(s, d) {
     if (Array.isArray(s)) {
       if (!Array.isArray(d) || s.length !== d.length) throw new Error('Shape and stride must have the same mode structure.');
       s.forEach((v, i) => validateLayout(v, d[i]));
-    } else if (!Number.isSafeInteger(s) || s <= 0 || !Number.isSafeInteger(d)) {
+    } else if (!Number.isSafeInteger(s) || s <= 0 || !(Number.isSafeInteger(d) || (basis && isBasis(d)))) {
       throw new Error('Use positive whole-number shapes and whole-number strides with matching modes.');
     }
   }

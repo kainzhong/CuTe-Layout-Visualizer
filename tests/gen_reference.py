@@ -808,6 +808,46 @@ def run_swizzle(c):
     }
 
 
+def run_domain_offset(c):
+    parts = c['tensor'].split(' o ', 1)
+    layout = parse_layout(parts[-1], allow_basis=True)
+    basis = has_basis(layout)
+    if len(parts) == 2:
+        origin = _parse_value(parts[0])
+    elif basis:
+        ndim = max(int(x) for x in re.findall(r'@(\d+)', parts[-1])) + 1
+        origin = tuple(0 for _ in range(ndim))
+    else:
+        origin = 0
+    coord = _parse_value(c['coord'])
+    if not isinstance(layout.shape, tuple) and isinstance(coord, tuple) and len(coord) == 1:
+        coord = coord[0]
+    tensor = cute.make_tensor(origin, layout)
+    result = cute.domain_offset(coord, tensor)
+    def iterator_value(x):
+        return [int(v) for v in x] if isinstance(x, tuple) else int(x)
+    def values(t):
+        return ['|'.join(str(int(v)) for v in _leaves(t[i])) if basis else str(int(t[i]))
+                for i in range(int(cute.size(t.layout)))]
+    identity = cute.make_identity_tensor(layout.shape)
+    normalized = cute.domain_offset(coord, identity).iterator
+    def in_domain(crd, shape):
+        if isinstance(shape, tuple):
+            return all(in_domain(c, s) for c, s in zip(crd, shape))
+        return 0 <= int(crd) < int(shape)
+    if isinstance(layout.shape, tuple) and len(layout.shape) > 1:
+        row_crd, row_shape = normalized[0], layout.shape[0]
+        col_crd, col_shape = normalized[1:], layout.shape[1:]
+    else:
+        row_crd, row_shape = normalized, layout.shape
+        col_crd, col_shape = 0, 1
+    selected_grid = [int(cute.crd2idx(c, cute.make_layout(s))) if in_domain(c, s) else None
+                     for c, s in [(row_crd, row_shape), (col_crd, col_shape)]]
+    return {'layout': record(result.layout), 'delta': iterator_value(cute.crd2idx(coord,layout)),
+            'initial': iterator_value(tensor.iterator), 'shifted': iterator_value(result.iterator),
+            'before': values(tensor), 'after': values(result), 'selected_grid': selected_grid}
+
+
 def run_index(c):
     crd = to_crd(c["crd"])
     # Rank-one tuple coordinates are accepted by the UI for scalar-shaped layouts.
@@ -892,6 +932,7 @@ def run_smem_layout(c):
 
 
 SECTIONS = [
+    ("domain_offset", run_domain_offset),
     ("smem_layout", run_smem_layout),
     ("gemm", run_gemm),
     ("index", run_index),

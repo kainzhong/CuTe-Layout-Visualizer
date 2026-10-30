@@ -21,6 +21,27 @@ const { parseExact, fmt } = require('./harness');
 function runUnitTests(V, T) {
   const { check, guard, setSection } = T;
 
+  setSection('unit/domain-offset-input');
+  for (const [id,tensor,coord] of [
+    ['slice-not-offset','(3,4):(4,1)','(_,2)'],
+    ['fraction','(3,4):(4,1)','(1.5,2)'],
+    ['bad-rank','(3,4):(4,1)','(1,2,3)'],
+    ['bad-nesting','(3,4):(4,1)','((1,2),2)'],
+    ['unsafe','(3,4):(4,1)','(9007199254740992,2)'],
+    ['overflow','(3,4):(4,1)','(9007199254740991,2)'],
+    ['blank','(3,4):(4,1)',''],
+    ['trailing-garbage','(3,4):(4,1)','(1,2)garbage'],
+    ['bad-layout','(3,4):(4,1)garbage','(1,2)'],
+    ['origin-rank','(0,) o (3,4):(1@0,1@1)','(1,2)'],
+    ['scalar-origin-on-basis','1 o (3,4):(1@0,1@1)','(1,2)'],
+    ['tuple-origin-on-scalar','(0,0) o (3,4):(4,1)','(1,2)'],
+    ['mixed-basis','(2,3):(2,1@1)','(1,2)'],
+    ['swizzle','Sw<1,4,3> o (3,4):(4,1)','(1,2)'],
+  ]) guard(id,()=>{
+    let threw=false;try{V.domainOffsetCompute(tensor,coord);}catch(_){threw=true;}
+    check(id,'rejects unsupported input',threw,true);
+  });
+
   setSection('unit/index-input');
   for (const [id, coord] of [
     ['negative', '(-1,_)'], ['out-of-bounds', '(4,_)'], ['fraction', '(1.5,_)'],

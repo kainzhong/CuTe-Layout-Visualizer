@@ -320,7 +320,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     const hit = /^\s*(set[A-Z][A-Za-z]*)\('tab1'\s*,/.exec(src);
     if (!hit || typeof ctx[hit[1]] !== 'function') continue;
     const fnName = hit[1];
-    const pfx = { setSml: 'sml', setGemm: 'gemm', setIdx: 'idx', setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm', setMCAB: 'mcab', setRT: 'rt',
+    const pfx = { setDomainOffset: 'dof', setSml: 'sml', setGemm: 'gemm', setIdx: 'idx', setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm', setMCAB: 'mcab', setRT: 'rt',
                   setPSD: 'psd', setPSDURL: 'psd', setPsdSide: 'psd', setPsdMode: 'psd',
                   setPABC: 'pabc', setPabcOperand: 'pabc', setPabcMode: 'pabc',
                   setMfrag: 'mfrag', setMfragOperand: 'mfrag' }[fnName];
@@ -1716,6 +1716,65 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     if (!els.get(`${TAB}-sw-swizzled-svg`).innerHTML.includes('val=9 → 8')) throw new Error('Swizzle lost before/after values');
     ctx.toggleSwizzleMode(TAB,'index');ctx.toggleSwizzleMode(TAB,'coord');
   });
+  step('domain_offset: oracle tensors, complete grids, signed URL round trips and labels',()=>{
+    const corpus=JSON.parse(fs.readFileSync(path.join(__dirname,'cases.json'),'utf8')).domain_offset;
+    const oracle=JSON.parse(fs.readFileSync(path.join(__dirname,'reference.json'),'utf8')).domain_offset;
+    const realSwitch=ctx.switchInnerTab, realExport=ctx.exportURL;
+    try {
+      ctx.switchInnerTab=()=>{};
+      for (const c of corpus) {
+        ctx.setDomainOffset(TAB,c.tensor,c.coord);
+        const ref=oracle[c.id], result=els.get(`${TAB}-dof-result`).textContent;
+        const fmt=x=>Array.isArray(x)?`(${x.join(',')})`:String(x);
+        if (!result.includes(`Iterator: ${fmt(ref.initial)} + ${fmt(ref.delta)} = ${fmt(ref.shifted)}`) || !result.includes(ref.layout.str)) throw new Error('Wrong iterator summary: '+c.id);
+        for (const side of ['src','dst']) {
+          const svg=els.get(`${TAB}-dof-${side}-svg`).innerHTML;
+          if ((svg.match(/<rect\b/g)||[]).length!==ref.layout.size+1) throw new Error('View was cropped: '+c.id);
+          const selected=side==='src'?ref.selected_grid:[0,0];
+          for (const [axis,color] of [[0,ctx.LD_ROW_COLOR],[1,ctx.LD_COL_COLOR]]) {
+            const labels=[...svg.matchAll(/<text\b[^>]*>[\s\S]*?<\/text>/g)].map(m=>m[0]).filter(text=>text.includes(`fill="${color}"`));
+            if (labels.length!==(selected[axis]===null?0:1) || labels.some(text=>!text.includes('font-weight="bold"') || !text.endsWith(`>${selected[axis]}</text>`))) throw new Error('Selected axis color/index is wrong: '+c.id+'/'+side);
+          }
+          const markers=[...svg.matchAll(/<path\b[^>]*class="layout-selection"[^>]*>/g)].map(m=>m[0]);
+          if (markers.length!==(selected.includes(null)?0:1) || markers.some(path=>!path.includes(`data-row="${selected[0]}"`) || !path.includes(`data-col="${selected[1]}"`))) throw new Error('Selected iterator cell is wrong: '+c.id+'/'+side);
+
+        }
+        const display=ctx.domainOffsetCompute(c.tensor,c.coord).display;
+        const [M,N]=ctx.productEach(display.shape);
+        const fills=side=>[...els.get(`${TAB}-dof-${side}-svg`).innerHTML.matchAll(/<rect\b[^>]*fill="([^"]+)"/g)].slice(1).map(m=>m[1]);
+        const outputColors=new Map();
+        fills('dst').forEach((color,i)=>{
+          const key=ref.after[Math.floor(i/N)+(i%N)*M];
+          if (!ctx.HIGHLIGHT_COLORS.includes(color)) throw new Error('Output cell is not colored: '+c.id);
+          if (outputColors.has(key) && outputColors.get(key)!==color) throw new Error('Aliased output cells have different colors: '+c.id);
+          outputColors.set(key,color);
+        });
+        fills('src').forEach((color,i)=>{
+          const key=ref.before[Math.floor(i/N)+(i%N)*M];
+          if (color!==(outputColors.get(key) || '#e5e7eb')) throw new Error('Input/output correspondence color is wrong: '+c.id);
+        });
+        let exported;ctx.exportURL=(button,feature,...inputs)=>{exported=[feature,...inputs];};
+        ctx.exportDomainOffset(TAB);
+        const query=ctx.encodeKeyParam(...exported);
+        const parsed=ctx.parseKeyParam(query);
+        if (!parsed || parsed.inputs[0]!==c.tensor || parsed.inputs[1]!==c.coord) throw new Error('Signed URL lost inputs: '+c.id);
+        ctx.applyKeyParam(TAB,parsed);
+      }
+      ctx.setDomainOffset(TAB,'(3,4):(4,1)','(1,2)');
+      ctx.toggleDomainOffsetMode(TAB,'dst','index');ctx.toggleDomainOffsetMode(TAB,'dst','coord');
+      const svg=els.get(`${TAB}-dof-dst-svg`).innerHTML;
+      if (!svg.includes('val=11') || !svg.includes('idx=4') || !svg.includes('(1,1)') || !svg.includes('class="layout-selection"')) throw new Error('Shared controls lost labels or iterator highlight');
+      if (ctx.domainOffsetState[TAB].srcMode.size!==1) throw new Error('Pane modes are not independent');
+      const raw=els.get(`${TAB}-dof-layout-input`).value;
+      try {ctx.setDomainOffset(TAB,'invalid','(0,0)');}catch(_){}
+      if (els.get(`${TAB}-dof-layout-input`).value!==raw) throw new Error('Failed import modified controls');
+    } finally {ctx.switchInnerTab=realSwitch;ctx.exportURL=realExport;}
+  },[`${TAB}-dof-src-svg`,`${TAB}-dof-dst-svg`]);
+  step('domain_offset rejects slices and clears stale grids',()=>{
+    els.get(`${TAB}-dof-coord-input`).value='(_,1)';ctx.renderDomainOffset(TAB);
+    if (els.get(`${TAB}-dof-src-svg`).innerHTML || els.get(`${TAB}-dof-dst-svg`).innerHTML) throw new Error('Invalid input left a stale view');
+  },[],{expectError:/whole numbers/});
+  step('domain_offset recovers after invalid input',()=>ctx.setDomainOffset(TAB,'(3,4):(4,1)','(1,2)'),[`${TAB}-dof-src-svg`,`${TAB}-dof-dst-svg`]);
   step('Index: oracle results, complete grid, and URL round trip', () => {
     const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'reference.json'), 'utf8')).index;
     for (const c of JSON.parse(fs.readFileSync(path.join(__dirname, 'cases.json'), 'utf8')).index) {

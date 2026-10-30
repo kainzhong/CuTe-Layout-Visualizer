@@ -123,6 +123,7 @@ Pointwise agreement is the decisive layout check. Two printed layouts can differ
 
 ## Scope boundaries
 
+- `domain_offset`: rebases a tensor iterator using its layout; preserves shape/strides, performs no slicing or allocation-bounds check, and retains the iterator in tensor variable results.
 - `make_copy_atom`: what one instruction moves. No tensor layout, partition, coalescing, or bank analysis.
 - `make_tiled_copy`: primitive `(layout_tv, Tiler_MN)` construction and tile coverage.
 - `make_tiled_copy_tv`: derives those primitive arguments from thread/value layouts.

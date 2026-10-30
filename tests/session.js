@@ -164,6 +164,17 @@ async function runSessionTests() {
     check('utility renders after reload',restored.nodes.get('ot1-sml-epi-dst-svg').innerHTML.includes('<svg')&&!restored.nodes.get('ot1-sml-epi-error').textContent);
     check('utility label toggles restored',restored.V.smlState.epi.ot1.mode.size===1&&restored.V.smlState.epi.ot1.mode.has('coord'));
   });
+  await test('domain_offset inputs, scope and label modes survive reload',()=>{
+    const memory=new Map(), b=browser(memory), id=b.V.initializeTabSession();
+    b.V.setDomainOffset(id,'20 o (3,4):(4,1)','(-1,2)');
+    b.V.toggleDomainOffsetMode(id,'dst','coord');
+    b.V.switchInnerTab(id,'domain_offset');b.fire('pagehide');
+    const restored=browser(memory);restored.V.initializeTabSession();
+    check('domain_offset scope restored',restored.nodes.get('ot1-panel').nav.getAttribute('data-scope')==='operations');
+    check('signed input survives reload',restored.nodes.get('ot1-dof-coord-input').value==='(-1,2)');
+    check('domain_offset labels survive reload',restored.V.domainOffsetState.ot1.dstMode.has('coord'));
+    check('domain_offset renders after reload',restored.nodes.get('ot1-dof-dst-svg').innerHTML.includes('<svg')&&!restored.nodes.get('ot1-dof-error').textContent);
+  });
   await test('blocked and corrupt storage remain usable',()=>{
     const bad=new Map([['cute-layout-visualizer.tabs.v1','{broken']]);const broken=browser(bad);broken.V.initializeTabSession();
     check('corrupt storage starts with one tab',broken.nodes.get('outer-tab-buttons').children.length===1);

@@ -51,8 +51,8 @@ const ldState = {};
 
 // Accent colors for the "first tile" highlights. Red for mode-0, deep blue
 // for mode-1 so the two axes/tilers in mode-2 are visually distinguishable.
-const LD_ROW_COLOR  = '#dc2626';  // mode-0 (B0 / row axis labels / tiler[0] cell text)
-const LD_COL_COLOR  = '#1d4ed8';  // mode-1 (B1 / col axis labels / tiler[1] cell text)
+const LD_ROW_COLOR  = LAYOUT_ROW_COLOR;  // mode-0 (B0 / row axis labels / tiler[0] cell text)
+const LD_COL_COLOR  = LAYOUT_COL_COLOR;  // mode-1 (B1 / col axis labels / tiler[1] cell text)
 const LD_EDGE_COLOR = '#dc2626';  // mode-1 single-tiler edge + its cell text (red)
 
 function renderLogicalDivide(tabId) {

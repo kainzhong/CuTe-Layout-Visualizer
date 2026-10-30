@@ -639,7 +639,7 @@ The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. E
 
 - `utility` — Hopper `make_smem_layout_a`, `make_smem_layout_b`, and `make_smem_layout_epi`. Accent color: cyan (`#06b6d4`).
 - `basics` — Layout, TV Layout, Swizzle, Index. Accent color: blue (`#3b82f6`).
-- `operations` — the CuTe layout-algebra tabs (composition, complement, divide/product variants, `local_tile`). Accent color: purple (`#a855f7`).
+- `operations` — the CuTe layout-algebra tabs (composition, complement, divide/product variants, `local_tile`, and `domain_offset`). Accent color: purple (`#a855f7`).
 
   **`local_tile` uses CuTe's tiler convention, not the Divide tabs'.** A single line without a top-level
   colon is a *Shape* tiler — `(8, 32)` means one tiler mode per tensor mode, exactly as
@@ -2151,3 +2151,27 @@ Helper URLs encode `[architecture, LayoutEnum, tiler, dtype, stages]`, with opti
 Blackwell stays disabled, with computation and imports rejecting it. Its API is not interchangeable: A/B take a TiledMMA, derive partition shapes and major modes, and use `tile_to_mma_shape`; its epi helper lacks Hopper's target/order overrides. SM100 also has a special 128B atom for 32-bit M-major A / N-major B (`Swizzle<2,5,2>`). Enabling it will require distinct constructor controls and validation.
 
 The `smem_layout` differential section checks shape/stride, size/cosize, swizzle parameters, and every physical domain offset against actual Hopper helper calls. DOM tests cover defaults, every preset, stage changes, disabled Blackwell, invalid-input cleanup, and URL round trips. Variable tests cover constructor-to-result extraction, raw composed text, types, previews, and visualization.
+
+## domain_offset (Layout Operations)
+
+`tabs/domain_offset.js` exposes CuTeDSL `cute.domain_offset(coord, tensor)`. `domainOffsetCompute` is DOM-free: parse a static affine or scaled-basis layout, normalize the coordinate, evaluate `crd2idx(coord, layout)`, and add it to the input iterator. The returned layout is unchanged. No tensor slicing, memory movement, cropping, or allocation-bounds checking occurs. Views can address beyond the original domain; negative coordinates are valid pointer/iterator arithmetic. Ordinary values are element offsets, not data values. Coordinate tensors use a flat tuple iterator and scaled-basis delta.
+
+The input accepts an optional `iterator o layout` prefix. Scalar layouts use scalar iterators; basis layouts use one tuple component per output axis. Tensor variable results retain that prefix with type **Layout** and raw clipboard text. Raw prefixed tensors reopen in domain_offset with zero additional shift, preserving the result exactly; `variablesParseLayout` still extracts just the layout for layout-algebra consumers.
+
+Nested coordinates match the shape structure. Flat coordinates are also allowed, including into nested modes: signed division truncates toward zero, and the final mode remains unbounded. The legacy JS `idx2crd` wraps dimensions and `crd2idx` uses floor division for negative flat coordinates, so this feature explicitly normalizes coordinates before calling the existing arithmetic helpers. It rejects `_`/None (slicing), malformed structures, unsafe integers, swizzled layouts, and mixed nonzero integer/scaled-basis strides that CuTeDSL cannot evaluate. A zero integer stride alongside basis strides is supported and oracle-tested.
+
+The shared exact layout parser now has an opt-in `{basis:true}` argument; existing consumers retain integer-stride validation. CuTe `cosize` uses absolute strides; the differential reversed-stride case exposed and corrected the old last-point-based implementation in `Layout.cosize`.
+
+Both original and shifted views use `layoutVisualization` / `renderLayoutVisualization` with independent label modes and shared zoom. Rank-one layouts are padded only for drawing. Higher outer modes are grouped into columns with the standard rank warning. The tab generator is appended to preserve existing disclosure indices in stored sessions. The feature stores `srcMode` and `dstMode` Sets through the existing validated session mechanism.
+
+Domain-offset URLs opt into `FEATURE_SPEC.encodedInputs`: each input is encoded before joining the hyphen-separated key, and decoded after arity validation. This protects minus signs in offsets, origins, and strides without changing existing feature encodings. Failed imports validate before changing controls.
+
+The `domain_offset` corpus uses actual `cute.make_tensor` and `cute.domain_offset` arithmetic/coordinate tensors as the oracle. It checks unchanged shape/stride/size/cosize, initial and shifted iterators, deltas, and every source and destination domain point. Cases cover row/column major, existing origins, broadcast and negative strides, negative/out-of-domain offsets, nested/flat coordinates, rank-one/rank-three shapes, and scaled-basis coordinate maps. DOM tests cover presets, full grids without cropping, labels, URL round trips, invalid-input cleanup, and preserved controls; variable and session tests retain iterator and label choices.
+
+
+Domain-offset selections use the same shared red/blue palette and `layoutAxisLabelSVG` as Logical Divide. `renderLayoutVisualization` / `buildColoredLayoutSVG` accept an optional selection (row/column index Sets plus selected cell indices). An overlay path outlines each chosen element without changing its address color or adding extra grid cells. The coordinate-tensor path keeps output-coordinate labels, including distinct coord tags when modes are combined.
+
+`domainOffsetCompute.selectedGrid` maps the normalized coordinate to the displayed row and flattened column. Each hierarchical coordinate leaf must be in range before that axis is highlighted; out-of-range coordinates never wrap or alias onto another logical cell. For valid selections, the original selected cell and returned `(0,0)` both point to the new iterator and are outlined. Valid axes can still be colored when the other axis is outside the displayed domain, with an explanatory warning. The oracle derives these indices from real CuTe identity tensors and compact layouts; tests cover nested/flattened coordinates, rank-three views, reversed/broadcast strides, and a nested out-of-range leaf whose flat index would otherwise alias a visible cell.
+
+
+`domainOffsetColorMap` assigns the shared highlight palette to the unique addressed elements in the shifted view. Original cells receive the same color exactly when their addressed element appears in that map; other original cells are gray. Numeric tensors key by full element offset including the initial iterator, while coordinate tensors key by the entire output tuple, not just axis 0. Broadcast/aliased elements share colors. This is address correspondence, not memory-space or thread ownership coloring. The shared layout renderer's color callback accepts a scalar offset or full output-coordinate tuple. DOM tests compare every input/output cell color against the CuTeDSL oracle's before/after values across the full domain-offset corpus, including reversed strides, aliases, and coordinate tensors.

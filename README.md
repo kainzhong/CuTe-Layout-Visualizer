@@ -43,6 +43,12 @@ This tool runs in your browser and lets you:
 
 - **make_smem_layout_a / b / epi** — Hopper CuTeDSL shared-memory layout helpers. Choose a `LayoutEnum`, static tile shape, dtype, and stage count; inspect the returned composed layout, which includes its swizzle and base shape/strides. The epilogue helper also exposes optional `smem_trg_shape` and `smem_order`. The grid offers combinable **value**, **index**, and **coord** toggles, matching BASICS → Layout. Value shows the swizzled physical element offset; index and coord describe the selected stage’s logical grid. Register its exported URL in the Variable Table to save a **Swizzled Layout**, preserving the base layout and swizzle together, including the identity swizzle. Hopper is enabled; the Blackwell architecture option is disabled pending SM100 validation.
 
+### domain_offset
+
+Under **Layout Operations**, `domain_offset(coord, tensor)` shows the original and shifted tensor side by side. Selected row indices are red and column indices blue, matching Logical Divide. An outline marks the chosen source cell and the shifted view’s new `(0,0)` origin. The output uses a color palette, and input cells addressing the same elements share those colors; other input cells are gray. Negative or out-of-domain coordinates are not wrapped onto a visible cell. For `(3,4):(4,1)`, offset `(1,2)` adds `1×4 + 2×1 = 6` to the tensor's base iterator. The shape stays **3×4** and the strides stay **(4,1)**: the operation moves no data and performs no cropping or allocation-bounds check. Cells show addressed element offsets, not stored values. Coordinate tensors shift their output coordinates instead.
+
+The tab accepts ordinary and scaled-basis layouts, nested and signed coordinates, and optional initial iterators such as `10 o (3,4):(4,1)` or `(10,20) o (3,4):(1@0,1@1)`. It includes shared value/index/coord controls, standalone zoom, presets, URL export, and refresh persistence. A registered result has type **Layout** and preserves the iterator in its raw `iterator o layout` text, so reopening it retains the shift. Swizzled layouts and nonzero integer strides mixed with scaled-basis strides are not supported in this tab.
+
 ### Layouts
 
 - **Layout** — Render any CuTe layout specified as `shape:stride`, including nested/hierarchical modes (e.g. `((2,4),(2,4)):((1,8),(2,16))`). Auto-stride: omit the stride to default to column-major.

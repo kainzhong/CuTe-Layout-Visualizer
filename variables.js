@@ -164,6 +164,7 @@ function variablesClipboardChoices(raw) {
       const composed = tmaParseSmemField(text);
       return [variablesSwizzledChoice(composed.layoutStr,composed.sw,'Layout')];
     }
+    if (topLevelCompose(text)>=0) return [{type:'Layout',value:domainOffsetCompute(text,'0').tensorText,label:'Tensor layout and iterator'}];
     return [variablesRawLayoutChoice(text)];
   }
   const {feature,inputs:a,method} = parsed;
@@ -187,6 +188,7 @@ function variablesClipboardChoices(raw) {
     return [variablesSwizzledChoice(r.layoutText,r.sw,'Swizzled Layout')];
   }
   if (feature === 'layout') return [variablesRawLayoutChoice(a[0])];
+  if (feature === 'domain_offset') return [{type:'Layout',value:domainOffsetCompute(a[0],a[1]).tensorText,label:'Tensor layout and iterator'}];
   if (feature === 'index') return [variablesLayoutChoice(idxComputeIndex(a[0],a[1]).layout)];
   if (feature === 'composition') return [variablesLayoutChoice(composition(layout(a[0]),tiler(a[1])))];
   if (feature === 'complement') return [variablesLayoutChoice(complement(layout(a[0]),layout(a[1]).size()))];
@@ -336,6 +338,7 @@ function variablesVisualization(row) {
     const sm=tmaParseSmemField(row.value);
     return {feature:'swizzle',inputs:[sm.layoutStr,`${sm.sw.B},${sm.sw.M},${sm.sw.S}`]};
   }
+  if (topLevelCompose(row.value)>=0) return {feature:'domain_offset',inputs:[row.value,'0']};
   return {feature:'layout',inputs:[row.value]};
 }
 

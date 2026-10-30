@@ -55,6 +55,7 @@ global function calls; older Node versions use the original contextified fallbac
 |---|---|---|
 | `gemm` | dispatch [4]/[5] and actual rank-one rejection, M/N/K coverage, every invocation’s A/B/C/D offsets, and imported TiledMMA traits | real `cute.gemm` trace plus `cute.slice_and_offset` / tensor indexing for every operand slice |
 | `smem_layout` | Hopper A/B/epilogue base layouts, swizzles, all physical offsets, stages, major modes, dtypes and epilogue overrides | `cutlass.utils.hopper_helpers.make_smem_layout_a/b/epi` |
+| `domain_offset` | Unchanged layouts, iterator shifts, signed/nested coordinates and every original/shifted domain point | `cute.make_tensor` and `cute.domain_offset` |
 | `index` | `idxComputeIndex`: nested and linear indices, wildcard retention, returned layout, every domain point, and base offset | `cute.slice_and_offset` |
 | `layout_ops` | `coalesce`, `filter`, `composition`, `complement`, the inverses, the whole divide / product family, `blocked_product`, `raked_product`, `slice_and_offset`, `size`/`cosize`, `crd2idx`/`idx2crd`, `shape_div`, `product_each` | the same call in `cutlass.cute` |
 | `basis_ops` | the same ops over **coordinate (scaled-basis) layouts** — only the ones CuTe defines for them (see the table in [`docs/architecture.md`](../docs/architecture.md)) | ditto |
@@ -172,3 +173,5 @@ restoration, tab order/names/active scope, closed-tab ID gaps, unrendered drafts
 URLs, debounced and pagehide saves, and unavailable/corrupt storage. It runs in `npm test`.
 
 Variable Table tests also exercise native gzip/base64url table sharing: all-type and Unicode round trips, corruption and size limits, atomic imports, conflict renaming, duplicate skipping, persistence, and clipboard fallback.
+
+Run `node tests/run.js domain_offset` for the focused domain-offset differential section, or `npm run reference -- --section domain_offset` to regenerate its oracle.

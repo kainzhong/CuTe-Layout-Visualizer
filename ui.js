@@ -7,6 +7,8 @@
 // ═══════════════════════════════════════════════════════
 
 const MAX_CELLS = 131072;
+const LAYOUT_ROW_COLOR = '#dc2626';
+const LAYOUT_COL_COLOR = '#1d4ed8';
 const BASE_CS = 56;
 
 function cellSize(M, N) {
@@ -164,20 +166,37 @@ function toggleLayoutVisualizationMode(modes, mode) {
 }
 
 function renderLayoutVisualization({hostId, modeGroupId=`${hostId}-mode-btns`, modes,
-    shape, stride, basis=false, ndim, origin, offset=0, swizzle=null, colorFn=null, valueLabel=null, svg}) {
+    shape, stride, basis=false, ndim, origin, offset=0, swizzle=null, colorFn=null, valueLabel=null, svg, selection=null}) {
   modes=toModeSet(modes);
   const host=document.getElementById(hostId);
   if (!host) return;
   if (svg !== undefined) host.innerHTML=svg;
-  else if (basis) host.innerHTML=buildBasisLayoutSVG(shape,stride,ndim,origin,modes);
-  else if (!offset && !swizzle && !colorFn && !valueLabel) host.innerHTML=buildLayoutSVG(shape,stride,modes);
+  else if (basis && !selection && !colorFn) host.innerHTML=buildBasisLayoutSVG(shape,stride,ndim,origin,modes);
+  else if (!basis && !offset && !swizzle && !colorFn && !valueLabel && !selection) host.innerHTML=buildLayoutSVG(shape,stride,modes);
   else host.innerHTML=buildColoredLayoutSVG(shape,stride,modes,(m,n,value,index)=>{
+    if (basis) {
+      const out=basisAt(shape,stride,m,n,ndim,origin), label=`(${out.join(',')})`;
+      const lines=buildCellLines(modes,label,index,`(${m},${n})`);
+      if (modes.size>1 && modes.has('coord')) lines[lines.length-1]=`crd=(${m},${n})`;
+      return {bg:colorFn?colorFn(out):colorBW(out[0]),text:lines};
+    }
     const physical=applySwizzleOffset(value+offset,swizzle);
     return {bg:colorFn?colorFn(physical):colorBW(physical),
       text:buildCellLines(modes,valueLabel?valueLabel(value,physical):physical,index,`(${m},${n})`)};
-  });
+  },{selection});
   updateModeBtns(modeGroupId,modes);
   applyZoomState(hostId);
+}
+
+/** Shared row/column label styling, including Logical Divide's selections. */
+function layoutAxisLabelSVG(axis,index,{cs,margin,axisFs},selection={}) {
+  selection=selection || {};
+  const col=axis==='col', selected=!!(col?selection.cols:selection.rows)?.has(index);
+  const color=selected?(col?selection.colColor:selection.rowColor) || '#f59e0b':'#555';
+  const x=col?margin+(index+0.5)*cs:margin*0.5;
+  const y=col?margin*0.55:margin+(index+0.5)*cs;
+  return `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle"
+    fill="${color}" font-size="${axisFs}" font-weight="${selected?'bold':'normal'}" font-family="monospace">${index}</text>`;
 }
 
 /** Build axis-label and grid SVG for a regular layout.
@@ -599,16 +618,8 @@ function buildColoredLayoutSVG(shape, stride, modes, cellFn, opts) {
   const axisFs = Math.max(8, Math.min(14, Math.floor(cs * 0.38)));
   let body = '';
 
-  for (let n = 0; n < N; n++) {
-    const cx = margin + (n + 0.5) * cs;
-    body += `<text x="${cx}" y="${margin * 0.55}" text-anchor="middle" dominant-baseline="middle"
-      fill="#555" font-size="${axisFs}" font-family="monospace">${n}</text>`;
-  }
-  for (let m = 0; m < M; m++) {
-    const cy = margin + (m + 0.5) * cs;
-    body += `<text x="${margin * 0.5}" y="${cy}" text-anchor="middle" dominant-baseline="middle"
-      fill="#555" font-size="${axisFs}" font-family="monospace">${m}</text>`;
-  }
+  for (let n=0;n<N;n++) body+=layoutAxisLabelSVG('col',n,{cs,margin,axisFs},opts.selection);
+  for (let m=0;m<M;m++) body+=layoutAxisLabelSVG('row',m,{cs,margin,axisFs},opts.selection);
 
   for (let m = 0; m < M; m++) {
     for (let n = 0; n < N; n++) {
@@ -636,6 +647,12 @@ function buildColoredLayoutSVG(shape, stride, modes, cellFn, opts) {
   const overlay = (typeof opts.overlay === 'function')
     ? opts.overlay({ cs, margin, W, H, M, N }) : '';
 
+  const selection=opts.selection || {};
+  const selectedCells=[...(selection.edgeCells || [])].filter(i=>Number.isInteger(i) && i>=0 && i<M*N);
+  const selectedOverlay=selectedCells.map(i=>{
+    const m=i%M, n=Math.floor(i/M), x=margin+n*cs, y=margin+m*cs;
+    return `<path class="layout-selection" data-row="${m}" data-col="${n}" d="M ${x} ${y} h ${cs} v ${cs} h ${-cs} Z" fill="none" stroke="${selection.edgeColor || '#f59e0b'}" stroke-width="3" pointer-events="none"><title>Selected element</title></path>`;
+  }).join('');
   const scale = opts.pixelScale || 1;
   const styleStr = scale > 1
     ? `width:${Math.round(W * scale)}px;height:${Math.round(H * scale)}px;max-width:none;max-height:none;display:block;margin:0 auto`
@@ -645,6 +662,7 @@ function buildColoredLayoutSVG(shape, stride, modes, cellFn, opts) {
     <rect width="${W}" height="${H}" fill="white"/>
     ${body}
     ${overlay}
+    ${selectedOverlay}
   </svg>`;
 }
 
@@ -675,11 +693,7 @@ function buildTiledLayoutSVG(shape, stride, mode, tileIdxFn, selection) {
 
   selection = selection || {};
   const edgeCells = selection.edgeCells || null;
-  const highlightRows = selection.rows || null;
-  const highlightCols = selection.cols || null;
   const edgeColor = selection.edgeColor || '#f59e0b';
-  const rowColor  = selection.rowColor  || '#f59e0b';
-  const colColor  = selection.colColor  || '#f59e0b';
 
   const cs = cellSize(M, N);
   const margin = cs;
@@ -689,24 +703,8 @@ function buildTiledLayoutSVG(shape, stride, mode, tileIdxFn, selection) {
 
   let body = '';
 
-  // Column labels (top axis)
-  for (let n = 0; n < N; n++) {
-    const cx = margin + (n + 0.5) * cs;
-    const hl = highlightCols && highlightCols.has(n);
-    const fill = hl ? colColor : '#555';
-    const weight = hl ? 'bold' : 'normal';
-    body += `<text x="${cx}" y="${margin * 0.55}" text-anchor="middle" dominant-baseline="middle"
-      fill="${fill}" font-size="${axisFs}" font-weight="${weight}" font-family="monospace">${n}</text>`;
-  }
-  // Row labels (left axis)
-  for (let m = 0; m < M; m++) {
-    const cy = margin + (m + 0.5) * cs;
-    const hl = highlightRows && highlightRows.has(m);
-    const fill = hl ? rowColor : '#555';
-    const weight = hl ? 'bold' : 'normal';
-    body += `<text x="${margin * 0.5}" y="${cy}" text-anchor="middle" dominant-baseline="middle"
-      fill="${fill}" font-size="${axisFs}" font-weight="${weight}" font-family="monospace">${m}</text>`;
-  }
+  for (let n=0;n<N;n++) body+=layoutAxisLabelSVG('col',n,{cs,margin,axisFs},selection);
+  for (let m=0;m<M;m++) body+=layoutAxisLabelSVG('row',m,{cs,margin,axisFs},selection);
 
   for (let m = 0; m < M; m++) {
     for (let n = 0; n < N; n++) {
@@ -747,6 +745,7 @@ function buildTiledLayoutSVG(shape, stride, mode, tileIdxFn, selection) {
  *  attribute on each `.tab` div is the key, so adding a tab means adding one
  *  entry here as well as to `modeIndex` in switchInnerTab. */
 const TAB_RENDER_FN = {
+  domain_offset: 'renderDomainOffset',
   make_smem_layout_a: 'renderSmemLayoutA',
   make_smem_layout_b: 'renderSmemLayoutB',
   make_smem_layout_epi: 'renderSmemLayoutEpi',
@@ -848,7 +847,7 @@ function generateTabContent(id) {
         </div>
         <div class="tab-scope-btn" data-scope="operations" onclick="switchTabGroup('${id}', 'operations')">
           <span class="tab-scope-icon">\u25A3</span>Layout Operations
-          <span class="tab-scope-count">9</span>
+          <span class="tab-scope-count">10</span>
         </div>
         <div class="tab-scope-btn" data-scope="copy" onclick="switchTabGroup('${id}', 'copy')">
           <span class="tab-scope-icon">⇄</span>Copy
@@ -890,6 +889,7 @@ function generateTabContent(id) {
       <div data-tab="make_smem_layout_a" class="tab" data-scope="utility" onclick="switchInnerTab('${id}', 'make_smem_layout_a')">make_smem_layout_a</div>
       <div data-tab="make_smem_layout_b" class="tab" data-scope="utility" onclick="switchInnerTab('${id}', 'make_smem_layout_b')">make_smem_layout_b</div>
       <div data-tab="make_smem_layout_epi" class="tab" data-scope="utility" onclick="switchInnerTab('${id}', 'make_smem_layout_epi')">make_smem_layout_epi</div>
+      <div data-tab="domain_offset" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'domain_offset')">domain_offset</div>
     </div>
     </div>
     ${generateSmemLayoutATabContent(id)}
@@ -921,6 +921,7 @@ function generateTabContent(id) {
     ${generatePartitionABCTabContent(id)}
     ${generateMakeFragmentABCTabContent(id)}
     ${generateGemmTabContent(id)}
+    ${generateDomainOffsetTabContent(id)}
   </div>`;
 }
 
@@ -1152,7 +1153,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, index: 3, composition: 4, complement: 5, divide: 6, zipped: 7, local_tile: 8, product: 9, zipped_product: 10, blocked_product: 11, raked_product: 12, make_copy_atom: 13, make_tiled_copy: 14, make_tiled_copy_tv: 15, make_tiled_copy_ab: 16, retile: 17, make_tiled_tma_atom: 18, tma_partition: 19, partition_sd: 20, make_mma_atom: 21, make_tiled_mma: 22, partition_abc: 23, make_fragment_abc: 24, gemm: 25, make_smem_layout_a: 26, make_smem_layout_b: 27, make_smem_layout_epi: 28 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, index: 3, composition: 4, complement: 5, divide: 6, zipped: 7, local_tile: 8, product: 9, zipped_product: 10, blocked_product: 11, raked_product: 12, make_copy_atom: 13, make_tiled_copy: 14, make_tiled_copy_tv: 15, make_tiled_copy_ab: 16, retile: 17, make_tiled_tma_atom: 18, tma_partition: 19, partition_sd: 20, make_mma_atom: 21, make_tiled_mma: 22, partition_abc: 23, make_fragment_abc: 24, gemm: 25, make_smem_layout_a: 26, make_smem_layout_b: 27, make_smem_layout_epi: 28, domain_offset: 29 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1839,6 +1840,7 @@ function downloadSVG(hostId, filename) {
 // feature -> { expectedInputs, methods? }
 // If `methods` is set, the key must be "<feature>-<method>-<inputs...>".
 const FEATURE_SPEC = {
+  domain_offset: {inputs: 2, encodedInputs: true}, // protect signed coordinates/strides from key separators
   make_smem_layout_a: {inputs: 5},
   make_smem_layout_b: {inputs: 5},
   make_smem_layout_epi: {inputs: 5, optional: 2},
@@ -1891,6 +1893,9 @@ function parseKeyParam(search = location.search) {
   const minInputs = !method && spec.legacyInputs ? spec.legacyInputs : spec.inputs;
   const maxInputs = minInputs + (spec.optional || 0);
   if (inputs.length < minInputs || inputs.length > maxInputs) return null;
+  if (spec.encodedInputs) {
+    try {inputs=inputs.map(decodeURIComponent);} catch (_) {return null;}
+  }
   return { feature, method, inputs };
 }
 
@@ -1913,6 +1918,7 @@ function encodeNestedKeyParam(url) {
 
 /** Pure serialization shared by URL export and cross-API decoding tests. */
 function encodeKeyParam(feature, ...inputs) {
+  if (FEATURE_SPEC[feature]?.encodedInputs) inputs=inputs.map(encodeNestedKeyParam);
   return '?' + new URLSearchParams({key:[feature,...inputs].join('-')}).toString();
 }
 
@@ -1938,6 +1944,10 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
   if (!parsed) return;
   const { feature, method, inputs } = parsed;
   switch (feature) {
+    case 'domain_offset':
+      setDomainOffset(tabId,inputs[0],inputs[1]);
+      switchInnerTab(tabId,'domain_offset');
+      break;
     case 'make_smem_layout_a':
     case 'make_smem_layout_b':
     case 'make_smem_layout_epi':

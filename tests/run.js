@@ -231,6 +231,22 @@ if (section('smem_layout')) {
   });
 }
 
+if (section('domain_offset')) {
+  for (const c of CASES.domain_offset) guard(c.id,()=>{
+    const ref=refFor('domain_offset',c.id);if (!ref) return;
+    const r=V.domainOffsetCompute(c.tensor,c.coord);
+    checkLayout(c.id,r.layout,ref.layout);
+    check(c.id,'selected grid axes',JSON.stringify(r.selectedGrid),JSON.stringify(ref.selected_grid));
+    for (const field of ['initial','delta','shifted']) check(c.id,field,JSON.stringify(r[field]),JSON.stringify(ref[field]));
+    const base=evalAll(V,r.layout,r.layout.size());
+    const evaluate=iterator=>base.map(value=>r.basis
+      ? iterator.map((x,i)=>x+(Number(value.split('|')[i])||0)).join('|')
+      : String(Number(value)+iterator));
+    check(c.id,'every original point',evaluate(r.initial).join(';'),ref.before.join(';'));
+    check(c.id,'every shifted point',evaluate(r.shifted).join(';'),ref.after.join(';'));
+  });
+}
+
 if (section('index')) {
   for (const c of CASES.index) {
     const ref = refFor('index', c.id);

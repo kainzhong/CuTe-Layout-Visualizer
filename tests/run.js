@@ -247,6 +247,16 @@ if (section('domain_offset')) {
   });
 }
 
+if (section('composed_layout')) {
+  for (const c of CASES.composed_layout) guard(c.id,()=>{
+    const ref=refFor('composed_layout',c.id); if (!ref) return;
+    const r=V.clCompute(c.base,c.offset,c.kind,c.inner);
+    check(c.id,'size',r.base.size(),ref.size);
+    check(c.id,'every base output',JSON.stringify(r.plain),JSON.stringify(ref.plain));
+    check(c.id,'every composed output',JSON.stringify(r.values),JSON.stringify(ref.values));
+  });
+}
+
 if (section('index')) {
   for (const c of CASES.index) {
     const ref = refFor('index', c.id);

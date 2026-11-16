@@ -21,6 +21,26 @@ const { parseExact, fmt } = require('./harness');
 function runUnitTests(V, T) {
   const { check, guard, setSection } = T;
 
+  setSection('unit/composed-layout-input');
+  for (const [id,base,offset,kind,inner] of [
+    ['bad-base','(4,4):(4,1)garbage','0','swizzle','2,0,2'],
+    ['bad-offset','(4,4):(4,1)','1.5','swizzle','2,0,2'],
+    ['tuple-on-scalar','(4,4):(4,1)','(0,0)','swizzle','2,0,2'],
+    ['scalar-on-basis','(4,4):(1@0,1@1)','0','layout','(8,8):(8,1)'],
+    ['basis-swizzle','(4,4):(1@0,1@1)','(0,0)','swizzle','2,0,2'],
+    ['bad-kind','8:1','0','unknown','2,0,2'],
+    ['bad-swizzle','8:1','0','swizzle','30,1,2'],
+    ['swizzle-overflow','8:1','2147483647','swizzle','2,0,2'],
+    ['unsafe-offset','8:1','9007199254740992','layout','32:2'],
+    ['result-overflow','8:1','9007199254740991','layout','32:2'],
+    ['bad-inner','8:1','0','layout','(4,4):(1)'],
+    ['tuple-rank','(4,4):(1@0,1@1)','(1,)','layout','(8,8):(8,1)'],
+    ['oversize','(1024,1024):(1024,1)','0','swizzle','2,0,2'],
+  ]) guard(id,()=>{
+    let threw=false; try {V.clCompute(base,offset,kind,inner);} catch (_) {threw=true;}
+    check(id,'rejects unsupported or malformed input',threw,true);
+  });
+
   setSection('unit/domain-offset-input');
   for (const [id,tensor,coord] of [
     ['slice-not-offset','(3,4):(4,1)','(_,2)'],

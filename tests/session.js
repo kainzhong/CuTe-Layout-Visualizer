@@ -164,6 +164,21 @@ async function runSessionTests() {
     check('utility renders after reload',restored.nodes.get('ot1-sml-epi-dst-svg').innerHTML.includes('<svg')&&!restored.nodes.get('ot1-sml-epi-error').textContent);
     check('utility label toggles restored',restored.V.smlState.epi.ot1.mode.size===1&&restored.V.smlState.epi.ot1.mode.has('coord'));
   });
+  await test('Composed Layout constructor, scope and all pane labels survive reload',()=>{
+    const memory=new Map(), b=browser(memory), id=b.V.initializeTabSession();
+    b.V.setCL(id,'(3,4):(1@0,1@1)','(-1,2)','layout','(8,8):(8,1)');
+    for (const side of ['src','extra','dst']) b.V.toggleCLMode(id,side,'coord');
+    b.V.switchInnerTab(id,'composed_layout');b.fire('pagehide');
+    const restored=browser(memory);restored.V.initializeTabSession();
+    check('Composed Layout stays in BASICS',restored.nodes.get('ot1-panel').nav.getAttribute('data-scope')==='basics' && restored.nodes.get('ot1-panel').querySelector('.tab.active').getAttribute('data-tab')==='composed_layout');
+    check('Composed Layout preserves constructor',JSON.stringify(restored.V.clReadInputs('ot1'))===JSON.stringify(['(3,4):(1@0,1@1)','(-1,2)','layout','(8,8):(8,1)']));
+    check('inner Layout controls visible after reload',restored.nodes.get('ot1-cl-inner-field').style.display==='');
+    for (const side of ['src','extra','dst']) {
+      check('Composed Layout labels restored '+side,restored.V.composedLayoutState.ot1[side+'Mode'].has('coord'));
+      check('Composed Layout grid rendered '+side,restored.nodes.get('ot1-cl-'+side+'-svg').innerHTML.includes('<svg'));
+    }
+    check('Composed Layout reload has no diagnostic',!restored.nodes.get('ot1-cl-error').textContent);
+  });
   await test('domain_offset inputs, scope and label modes survive reload',()=>{
     const memory=new Map(), b=browser(memory), id=b.V.initializeTabSession();
     b.V.setDomainOffset(id,'20 o (3,4):(4,1)','(-1,2)');

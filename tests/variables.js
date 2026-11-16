@@ -44,6 +44,17 @@ async function main() {
       check('invalid/corrupt/oversized tables reject',rejected);
     }
   });
+  await test('Composed Layout variables retain constructors and signed offsets',()=>{
+    for (const c of cases.composed_layout) {
+      const query=V.encodeKeyParam('composed_layout',c.base,c.offset,c.kind,c.inner);
+      const row=V.variablesClipboardChoices(query)[0];
+      check('composed result is a compound type',row.type==='Composed Layout');
+      const parsed=V.variablesVisualization(row);
+      same('all constructor fields survive',JSON.stringify(parsed.inputs),JSON.stringify([c.base,c.offset,c.kind,c.inner]));
+      check('preview uses the real computation',V.variablesPreviewText(row).includes(V.clCompute(...parsed.inputs).text));
+      same('variable evaluates to oracle',JSON.stringify(V.clCompute(...parsed.inputs).values),JSON.stringify(refs.composed_layout[c.id].values));
+    }
+  });
   await test('raw layouts and compound types',()=>{
     for (const text of ['(4,8):(1,4)','((2,2,2)):((1,2,4))','(4,5):(1@0,1@1)','():()']) {
       const [r]=V.variablesClipboardChoices(text);

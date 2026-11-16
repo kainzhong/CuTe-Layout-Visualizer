@@ -55,6 +55,7 @@ global function calls; older Node versions use the original contextified fallbac
 |---|---|---|
 | `gemm` | dispatch [4]/[5] and actual rank-one rejection, M/N/K coverage, every invocation’s A/B/C/D offsets, and imported TiledMMA traits | real `cute.gemm` trace plus `cute.slice_and_offset` / tensor indexing for every operand slice |
 | `smem_layout` | Hopper A/B/epilogue base layouts, swizzles, all physical offsets, stages, major modes, dtypes and epilogue overrides | `cutlass.utils.hopper_helpers.make_smem_layout_a/b/epi` |
+| `composed_layout` | Base and final outputs at every coordinate; Swizzle/Layout inner mappings, scalar/tuple offsets, signed and nested modes | `cute.make_composed_layout` (tuple-offset evaluation uses its actual CuTeDSL components; see architecture notes) |
 | `domain_offset` | Unchanged layouts, iterator shifts, signed/nested coordinates and every original/shifted domain point | `cute.make_tensor` and `cute.domain_offset` |
 | `index` | `idxComputeIndex`: nested and linear indices, wildcard retention, returned layout, every domain point, and base offset | `cute.slice_and_offset` |
 | `layout_ops` | `coalesce`, `filter`, `composition`, `complement`, the inverses, the whole divide / product family, `blocked_product`, `raked_product`, `slice_and_offset`, `size`/`cosize`, `crd2idx`/`idx2crd`, `shape_div`, `product_each` | the same call in `cutlass.cute` |

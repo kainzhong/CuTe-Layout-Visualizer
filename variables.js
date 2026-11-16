@@ -169,7 +169,7 @@ function variablesClipboardChoices(raw) {
   }
   const {feature,inputs:a,method} = parsed;
   const base = String(location.href || `${location.origin}${location.pathname}`).split(/[?#]/)[0];
-  const url = /^(?:https?|file):\/\//i.test(text) ? text.split('#')[0] : `${base}?${new URLSearchParams({key:[feature,...(method ? [method] : []),...a].join('-')})}`;
+  const url = /^(?:https?|file):\/\//i.test(text) ? text.split('#')[0] : `${base}${encodeKeyParam(feature,...(method ? [method] : []),...a)}`;
   const object = type => [{type,value:url,label:type}];
   const layout = variablesParseLayout;
   const tiler = str => {
@@ -187,6 +187,7 @@ function variablesClipboardChoices(raw) {
     const r = smlCompute(feature.slice('make_smem_layout_'.length),...a);
     return [variablesSwizzledChoice(r.layoutText,r.sw,'Swizzled Layout')];
   }
+  if (feature === 'composed_layout') {clCompute(...a); return object('Composed Layout');}
   if (feature === 'layout') return [variablesRawLayoutChoice(a[0])];
   if (feature === 'domain_offset') return [{type:'Layout',value:domainOffsetCompute(a[0],a[1]).tensorText,label:'Tensor layout and iterator'}];
   if (feature === 'index') return [variablesLayoutChoice(idxComputeIndex(a[0],a[1]).layout)];
@@ -382,6 +383,7 @@ function variablesPreviewText(row) {
     const t=mtvDecodeTVLayout(row.value);
     return `TV Layout = ${fmt(t.tv)}\nTiler MN = (${t.tile})`;
   }
+  if (row.type === 'Composed Layout') return `ComposedLayout = ${clCompute(...a).text}`;
   if (row.type === 'Swizzle') {
     const sw=swParse(a[1]);
     return `Swizzle<${sw.B}, ${sw.M}, ${sw.S}> applied to ${a[0]}`;

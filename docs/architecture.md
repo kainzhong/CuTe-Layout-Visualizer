@@ -2175,3 +2175,35 @@ Domain-offset selections use the same shared red/blue palette and `layoutAxisLab
 
 
 `domainOffsetColorMap` assigns the shared highlight palette to the unique addressed elements in the shifted view. Original cells receive the same color exactly when their addressed element appears in that map; other original cells are gray. Numeric tensors key by full element offset including the initial iterator, while coordinate tensors key by the entire output tuple, not just axis 0. Broadcast/aliased elements share colors. This is address correspondence, not memory-space or thread ownership coloring. The shared layout renderer's color callback accepts a scalar offset or full output-coordinate tuple. DOM tests compare every input/output cell color against the CuTeDSL oracle's before/after values across the full domain-offset corpus, including reversed strides, aliases, and coordinate tensors.
+
+## Composed Layout (BASICS)
+
+`tabs/composed_layout.js` owns `clCompute`, a DOM-free evaluator for
+`inner(offset + outer(coord))`. It preserves the base layout's exact logical
+shape, evaluates every domain point in CuTe order, and keeps the three output
+arrays separate from the DOM. The inner transformation is an ordinary Layout
+or a Swizzle; the result is never presented as an ordinary shape/stride layout.
+Scalar inputs use integer offsets, and scaled-basis bases use flat tuple offsets
+with one entry per output axis. The latter require a Layout inner transformation;
+mixed nonzero integer/basis strides and basis-output inner layouts are excluded.
+Signed layout coordinates use the shared `domainOffsetCoordinate` normalization.
+Swizzles reuse `parseSwizzleSpec` / `applySwizzleOffset` and reject intermediate
+offsets outside [0, 2^31) rather than truncating through JS bit operations.
+
+All three panes draw the same base domain through shared layout visualization
+frames and SVG builders. Only the base rank can flatten drawn modes, so only
+that field receives a rank warning; the inner layout's domain is not drawn.
+Values are mapping outputs, not tensor data. URL fields are individually encoded
+to preserve signed offsets/strides, and session state retains per-pane labels.
+Variable Table stores this compound type as **Composed Layout** with its
+constructor URL and computes previews through `clCompute`.
+
+The `composed_layout` differential section checks every base and final output
+against CuTeDSL, including scalar and tuple offsets, nested modes, broadcasts,
+identity and XOR swizzles, and layout-to-layout composition. CuTeDSL 4.8 constructs
+the tuple-offset composed type but its MLIR `crd2idx` rejects evaluating it; that
+case evaluates the constructed object's actual `outer`, `offset`, and `inner`
+components using CuTeDSL calls. Scalar cases evaluate the composed object directly.
+DOM tests drive defaults and every preset, all grids, type switching, labels,
+zoom, warnings, stale-result cleanup, and production URL round trips. Variable
+tests check previews and constructor preservation against the oracle.

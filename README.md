@@ -59,6 +59,7 @@ The tab accepts ordinary and scaled-basis layouts, nested and signed coordinates
 
   Both checks are properties of the *(TV layout, data layout)* pair rather than of any copy atom, which is why they live here rather than in the Copy tabs.
 - **Coordinate (TMA) layouts** — The Layout tab also accepts CuTe's scaled-basis strides, `k@i`, which make a layout map a coordinate to a *coordinate* instead of a 1-D offset. That's what TMA and identity/predication tensors are built from, and it's why `(3,4):(1@1,1@0)` is a transpose while `(4,5):(1@0,1@1)` is the identity. You can paste a coordinate-tensor printout verbatim, origin and all — `(2,2) o (4,4):(1@0,1@1)` — and the origin offsets every cell. Cells show the output coordinate, coloured by output axis 0, so which logical mode feeds which output dimension is obvious at a glance.
+- **Composed Layout** — Manually construct `make_composed_layout(inner, offset, outer)` with a Swizzle or Layout as the inner transformation. Three aligned logical grids show the base output, the intermediate value after adding the offset, and the final mapping. Supports nested base modes, scalar offsets, and coordinate layouts with tuple offsets; includes presets, combinable value/index/coord labels, zoom, URL sharing, refresh persistence, and Variable Table previews. Composed Layout variables copy their constructor URL because the result may not have ordinary strides.
 - **Swizzle** — Visualize a CuTe `Swizzle<B, M, S>` as a before/after pair over a base layout. Top grid shows the raw base layout (cell = logical offset `a`); bottom grid shows the same coords with each cell labelled `a → b` where `b = a ⊕ (((a >> (M+S)) & ((1<<B)-1)) << M)`. Bottom-cell colour is keyed to the swizzled offset `b`, so same colour = same post-swizzle address bucket — makes conflict-avoidance patterns visible at a glance.
 
 ### gemm (MMA)
@@ -95,7 +96,7 @@ Every operation tab shows the inputs and the result as linked visualizations, no
 ### Workspace
 
 - **Scoped navigation** — Tabs are grouped into scopes so the tab bar doesn't turn into a wall of buttons as more features are added. The current scopes are:
-  - **Basics** (blue) — Layout, TV Layout, Swizzle, Index.
+  - **Basics** (blue) — Layout, TV Layout, Swizzle, Index, Composed Layout.
   - **Layout Operations** (purple) — Composition, Complement, Logical Divide, Zipped / Tiled / Flat Divide, Logical Product, Zipped / Tiled / Flat Product, Blocked Product, Raked Product.
   - **Copy** (emerald) — the copy-construction pipeline, eight tabs mirroring CuTe's own layering.
     - **make_copy_atom** — build one Copy_Atom. Pick the Op (`CopyUniversalOp` or `cpasync.CopyG2SOp`; neither takes constructor parameters), then give `make_copy_atom` its `tensor_dtype` and `num_bits_per_copy`. Shows the one-thread / N-contiguous-value shape a single instruction moves.

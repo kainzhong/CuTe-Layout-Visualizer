@@ -797,6 +797,30 @@ def run_tma_partition(c):
     }
 
 
+def run_composed_layout(c):
+    base = parse_layout(c['base'], allow_basis=True)
+    offset = _parse_value(c['offset'])
+    inner = (cute.make_swizzle(*parse_swizzle(c['inner'])) if c['kind'] == 'swizzle'
+             else parse_layout(c['inner']))
+    result = cute.make_composed_layout(inner, offset, base)
+    n = int(cute.size(base))
+    def plain_value(i):
+        x = cute.crd2idx(i, base)
+        return list(map(int, x)) if isinstance(x, tuple) else int(x)
+    # CuTeDSL 4.8 constructs a tuple-offset ComposedLayout but its MLIR
+    # crd2idx cannot evaluate it. Evaluate its actual CuTe components instead.
+    def evaluate(i):
+        coord = cute.idx2crd(i, base.shape)
+        if has_basis(base):
+            intermediate = cute.crd2idx(coord, result.outer)
+            shifted = tuple(int(x) + int(y) for x, y in zip(intermediate, result.offset))
+            return int(cute.crd2idx(shifted, result.inner))
+        return int(cute.crd2idx(coord, result))
+    return {'size': int(cute.size(result)),
+            'plain': [plain_value(i) for i in range(n)],
+            'values': [evaluate(i) for i in range(n)]}
+
+
 def run_swizzle(c):
     b, m, s = parse_swizzle(c["bms"])
     base = parse_layout(c["layout"])
@@ -932,6 +956,7 @@ def run_smem_layout(c):
 
 
 SECTIONS = [
+    ("composed_layout", run_composed_layout),
     ("domain_offset", run_domain_offset),
     ("smem_layout", run_smem_layout),
     ("gemm", run_gemm),

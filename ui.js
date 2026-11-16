@@ -751,6 +751,7 @@ const TAB_RENDER_FN = {
   make_smem_layout_epi: 'renderSmemLayoutEpi',
   layout:             'renderLayout',
   index:              'renderIndex',
+  composed_layout:    'renderComposedLayout',
   tv:                 'renderTV',
   swizzle:            'renderSwizzle',
   composition:        'renderComposition',
@@ -843,7 +844,7 @@ function generateTabContent(id) {
       <div class="tab-scope-bar">
         <div class="tab-scope-btn active" data-scope="basics" onclick="switchTabGroup('${id}', 'basics')">
           <span class="tab-scope-icon">\u2756</span>Basics
-          <span class="tab-scope-count">4</span>
+          <span class="tab-scope-count">5</span>
         </div>
         <div class="tab-scope-btn" data-scope="operations" onclick="switchTabGroup('${id}', 'operations')">
           <span class="tab-scope-icon">\u25A3</span>Layout Operations
@@ -864,6 +865,7 @@ function generateTabContent(id) {
       <div data-tab="tv" class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'tv')">TV Layout</div>
       <div data-tab="swizzle" class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'swizzle')">Swizzle</div>
       <div data-tab="index" class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'index')">Index</div>
+      <div data-tab="composed_layout" class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'composed_layout')">Composed Layout</div>
       <div data-tab="composition" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'composition')">Composition</div>
       <div data-tab="complement" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'complement')">Complement</div>
       <div data-tab="divide" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'divide')">Logical Divide</div>
@@ -899,6 +901,7 @@ function generateTabContent(id) {
     ${generateTVTabContent(id)}
     ${generateSwizzleTabContent(id)}
     ${generateIndexTabContent(id)}
+    ${generateComposedLayoutTabContent(id)}
     ${generateCompositionTabContent(id)}
     ${generateComplementTabContent(id)}
     ${generateDivideTabContent(id)}
@@ -1153,7 +1156,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, index: 3, composition: 4, complement: 5, divide: 6, zipped: 7, local_tile: 8, product: 9, zipped_product: 10, blocked_product: 11, raked_product: 12, make_copy_atom: 13, make_tiled_copy: 14, make_tiled_copy_tv: 15, make_tiled_copy_ab: 16, retile: 17, make_tiled_tma_atom: 18, tma_partition: 19, partition_sd: 20, make_mma_atom: 21, make_tiled_mma: 22, partition_abc: 23, make_fragment_abc: 24, gemm: 25, make_smem_layout_a: 26, make_smem_layout_b: 27, make_smem_layout_epi: 28, domain_offset: 29 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, index: 3, composed_layout: 4, composition: 5, complement: 6, divide: 7, zipped: 8, local_tile: 9, product: 10, zipped_product: 11, blocked_product: 12, raked_product: 13, make_copy_atom: 14, make_tiled_copy: 15, make_tiled_copy_tv: 16, make_tiled_copy_ab: 17, retile: 18, make_tiled_tma_atom: 19, tma_partition: 20, partition_sd: 21, make_mma_atom: 22, make_tiled_mma: 23, partition_abc: 24, make_fragment_abc: 25, gemm: 26, make_smem_layout_a: 27, make_smem_layout_b: 28, make_smem_layout_epi: 29, domain_offset: 30 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1840,6 +1843,7 @@ function downloadSVG(hostId, filename) {
 // feature -> { expectedInputs, methods? }
 // If `methods` is set, the key must be "<feature>-<method>-<inputs...>".
 const FEATURE_SPEC = {
+  composed_layout: {inputs: 4, encodedInputs: true},
   domain_offset: {inputs: 2, encodedInputs: true}, // protect signed coordinates/strides from key separators
   make_smem_layout_a: {inputs: 5},
   make_smem_layout_b: {inputs: 5},
@@ -1976,6 +1980,10 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
     case 'gemm':
       setGemm(tabId, inputs.slice(0,6), inputs[6], inputs[7], inputs[8], inputs[9] === 'same' ? '' : inputs[9], Number(inputs[10]), inputs[11] === 'mk_kn_mn');
       switchInnerTab(tabId, 'gemm');
+      break;
+    case 'composed_layout':
+      setCL(tabId,...inputs);
+      switchInnerTab(tabId,'composed_layout');
       break;
     case 'index':
       setIdx(tabId, inputs[0], inputs[1]);

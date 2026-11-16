@@ -320,7 +320,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     const hit = /^\s*(set[A-Z][A-Za-z]*)\('tab1'\s*,/.exec(src);
     if (!hit || typeof ctx[hit[1]] !== 'function') continue;
     const fnName = hit[1];
-    const pfx = { setDomainOffset: 'dof', setSml: 'sml', setGemm: 'gemm', setIdx: 'idx', setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm', setMCAB: 'mcab', setRT: 'rt',
+    const pfx = { setCL: 'cl', setDomainOffset: 'dof', setSml: 'sml', setGemm: 'gemm', setIdx: 'idx', setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm', setMCAB: 'mcab', setRT: 'rt',
                   setPSD: 'psd', setPSDURL: 'psd', setPsdSide: 'psd', setPsdMode: 'psd',
                   setPABC: 'pabc', setPabcOperand: 'pabc', setPabcMode: 'pabc',
                   setMfrag: 'mfrag', setMfragOperand: 'mfrag' }[fnName];
@@ -1821,6 +1821,56 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     ctx.setIdx(TAB, '(4,8):(1,4)', '(4,_)');
     if (els.get(`${TAB}-idx-dst-svg`).innerHTML) throw new Error('Stale Index result remained');
   }, [], {expectError: /whole number/});
+
+  step('Composed Layout: complete oracle grids and production URL round trips',()=>{
+    const corpus=JSON.parse(fs.readFileSync(path.join(__dirname,'cases.json'),'utf8')).composed_layout;
+    const oracle=JSON.parse(fs.readFileSync(path.join(__dirname,'reference.json'),'utf8')).composed_layout;
+    const realSwitch=ctx.switchInnerTab, realExport=ctx.exportURL;
+    const switched=[];
+    try {
+      ctx.switchInnerTab=(id,mode)=>switched.push(mode);
+      let exported;
+      ctx.exportURL=(button,feature,...inputs)=>{exported=ctx.encodeKeyParam(feature,...inputs);};
+      for (const c of corpus) {
+        ctx.setCL(TAB,c.base,c.offset,c.kind,c.inner);
+        for (const side of ['src','extra','dst']) {
+          const svg=els.get(`${TAB}-cl-${side}-svg`).innerHTML;
+          if ((svg.match(/<rect\b/g)||[]).length !== oracle[c.id].size+1) throw new Error(`Missing cells: ${c.id}/${side}`);
+          const expected=(side==='src'?oracle[c.id].plain:side==='dst'?oracle[c.id].values:null);
+          if (expected) for (const value of expected) {
+            if (!svg.includes(`>${ctx.clFormat(value)}</text>`)) throw new Error(`Missing oracle label ${c.id}/${side}: ${value}`);
+          }
+        }
+        ctx.exportCL(TAB);
+        ctx.setCL(TAB,'8:1','0','swizzle','0,0,0');
+        const parsed=ctx.parseKeyParam(exported);
+        if (!parsed || JSON.stringify(parsed.inputs)!==JSON.stringify([c.base,c.offset,c.kind,c.inner])) throw new Error('URL lost constructor fields');
+        ctx.applyKeyParam(TAB,parsed);
+        if (JSON.stringify(ctx.clReadInputs(TAB))!==JSON.stringify(parsed.inputs)) throw new Error('URL failed to restore edits');
+        if (els.get(`${TAB}-cl-inner-field`).style.display!==(c.kind==='layout'?'':'none')) throw new Error('Transformation controls not synchronized');
+      }
+      if (switched.some(mode=>mode!=='composed_layout')) throw new Error('Wrong URL tab');
+    } finally {ctx.switchInnerTab=realSwitch;ctx.exportURL=realExport;}
+  },['src','extra','dst'].map(side=>`${TAB}-cl-${side}-svg`));
+  step('Composed Layout: labels combine, zoom survives, rank warning follows base',()=>{
+    ctx.setCL(TAB,'(4,4):(4,1)','0','swizzle','2,0,2');
+    ctx.toggleCLMode(TAB,'dst','index');ctx.toggleCLMode(TAB,'dst','coord');
+    const host=els.get(`${TAB}-cl-dst-svg`);
+    if (!host.innerHTML.includes('val=7') || !host.innerHTML.includes('idx=9') || !host.innerHTML.includes('(1,2)')) throw new Error('Combined labels lost values or coordinates');
+    ctx.toggleZoom(`${TAB}-cl-dst-svg`);ctx.renderComposedLayout(TAB);
+    if (!els.get(`${TAB}-cl-dst-svg-zoom`).textContent.includes('Zoom out')) throw new Error('Zoom did not survive render');
+    ctx.toggleCLMode(TAB,'dst','index');ctx.toggleCLMode(TAB,'dst','coord');
+    ctx.setCL(TAB,'(2,3,2):(1,4,16)','0','layout','64:1');
+    if (!els.get(`${TAB}-cl-warning`).textContent.includes('Base layout')) throw new Error('Rank warning missing');
+    ctx.setCL(TAB,'(4,4):(4,1)','0','layout','(2,2,4):(1,2,4)');
+    if (els.get(`${TAB}-cl-warning`).textContent) throw new Error('Undrawn inner rank should not warn');
+  });
+  step('Composed Layout: invalid input clears every stage',()=>{
+    ctx.setCL(TAB,'(4,4):(4,1)','(1,2)','swizzle','2,0,2');
+    for (const side of ['src','extra','dst']) if (els.get(`${TAB}-cl-${side}-svg`).innerHTML) throw new Error('Stale composed grid');
+  },[],{expectError:/scalar integer offset/});
+  step('Composed Layout recovers after invalid input',()=>ctx.setCL(TAB,'(4,4):(4,1)','0','swizzle','2,0,2'),
+    ['src','extra','dst'].map(side=>`${TAB}-cl-${side}-svg`));
 
   // ── URL round-trip: every ?key= form must parse ──────────────────────────
   for (const key of [

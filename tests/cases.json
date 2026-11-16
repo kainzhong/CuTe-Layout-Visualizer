@@ -1,4 +1,90 @@
 {
+  "composed_layout": [
+    {
+      "id": "xor_4x4",
+      "base": "(4,4):(4,1)",
+      "offset": "0",
+      "kind": "swizzle",
+      "inner": "2,0,2"
+    },
+    {
+      "id": "offset_before_xor",
+      "base": "(4,4):(4,1)",
+      "offset": "1",
+      "kind": "swizzle",
+      "inner": "2,0,2"
+    },
+    {
+      "id": "double_offsets",
+      "base": "(4,4):(4,1)",
+      "offset": "0",
+      "kind": "layout",
+      "inner": "32:2"
+    },
+    {
+      "id": "layout_permutation",
+      "base": "(4,4):(4,1)",
+      "offset": "0",
+      "kind": "layout",
+      "inner": "(4,4):(4,1)"
+    },
+    {
+      "id": "coordinate_offset",
+      "base": "(3,4):(1@0,1@1)",
+      "offset": "(1,2)",
+      "kind": "layout",
+      "inner": "(8,8):(8,1)"
+    },
+    {
+      "id": "nested_base",
+      "base": "((2,2),4):((1,8),2)",
+      "offset": "0",
+      "kind": "swizzle",
+      "inner": "2,0,2"
+    },
+    {
+      "id": "signed_offset",
+      "base": "(3,4):(4,1)",
+      "offset": "-2",
+      "kind": "layout",
+      "inner": "(8,8):(8,1)"
+    },
+    {
+      "id": "broadcast",
+      "base": "(3,4):(0,1)",
+      "offset": "4",
+      "kind": "swizzle",
+      "inner": "2,0,2"
+    },
+    {
+      "id": "identity_swizzle",
+      "base": "(4,4):(1,4)",
+      "offset": "0",
+      "kind": "swizzle",
+      "inner": "0,0,0"
+    },
+    {
+      "id": "rank3",
+      "base": "(2,3,2):(1,4,16)",
+      "offset": "0",
+      "kind": "swizzle",
+      "inner": "2,0,2"
+    },
+    {
+      "id": "rank1",
+      "base": "8:1",
+      "offset": "3",
+      "kind": "layout",
+      "inner": "32:2"
+    },
+    {
+      "id": "signed_stride",
+      "base": "(2,4):(-4,1)",
+      "offset": "0",
+      "kind": "layout",
+      "inner": "32:2"
+    }
+  ],
  "_comment": [
   "Shared test corpus: read by tests/gen_reference.py (which runs each case through",
   "CuTeDSL to produce tests/reference.json) and by tests/run.js (which runs the same",

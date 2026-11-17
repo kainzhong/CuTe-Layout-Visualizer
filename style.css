@@ -483,6 +483,68 @@ textarea:focus { outline: none; border-color: #3b82f6; }
 }
 .comp-viz-item { min-width: 0; }
 .comp-viz-item .viz-box { padding: 10px; }
+/* One movable window selects an adjacent before/after pair of stages. */
+.cl-visualizations { flex: 1; min-width: 360px; display: flex; flex-direction: column; gap: 12px; }
+.cl-visualizations .comp-results { flex: none; min-width: 0; }
+.cl-stage-viewport { overflow: hidden; min-width: 0; }
+/* Three equal panes with 12px gaps; the viewport fits exactly two panes. */
+.cl-stage-track.comp-results {
+  width: calc(150% + 6px);
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  transition: transform 180ms ease;
+}
+.cl-stage-viewport[data-view="inner"] .cl-stage-track {
+  transform: translateX(calc((-100% - 12px) / 3));
+}
+.cl-comparison.view-toggle {
+  position: relative;
+  width: min(100%, 520px);
+  align-self: center;
+  padding: 2px;
+  font-size: 0.75rem;
+  line-height: 1.25;
+  letter-spacing: 0;
+  box-sizing: border-box;
+  border-color: #475569;
+  color: #94a3b8;
+  isolation: isolate;
+}
+.cl-comparison.view-toggle:hover { border-color: #60a5fa; color: #94a3b8; }
+.cl-comparison::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) * 2 / 3);
+  border-radius: 5px;
+  background: #1e3a5f;
+  box-shadow: inset 0 0 0 1px #60a5fa;
+  transition: transform 180ms ease;
+}
+.cl-comparison[data-view="inner"]::before { transform: translateX(50%); }
+.cl-comparison-labels { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); width: 100%; text-align: center; }
+.cl-comparison-labels span { padding: 6px 4px; }
+.cl-comparison[data-view="offset"] .cl-comparison-labels span:nth-child(-n+2),
+.cl-comparison[data-view="inner"] .cl-comparison-labels span:nth-child(n+2) { color: #eff6ff; }
+.cl-comparison input[type="range"] {
+  position: absolute;
+  inset: 2px;
+  width: calc(100% - 4px);
+  height: calc(100% - 4px);
+  margin: 0;
+  opacity: 0;
+  cursor: ew-resize;
+  appearance: none;
+  background: transparent;
+}
+.cl-comparison input[type="range"]::-webkit-slider-thumb { appearance: none; width: 66.6667%; height: 28px; }
+.cl-comparison input[type="range"]::-moz-range-thumb { width: 66.6667%; height: 28px; border: 0; }
+.cl-comparison:focus-within { outline: 2px solid #60a5fa; outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .cl-comparison::before, .cl-stage-track.comp-results { transition: none; }
+}
 /* Keep per-viz SVGs compact in the Composition tab so the complement row
    below the 2×2 grid is actually visible without scrolling. `!important`
    overrides the inline max-height:70vh emitted by `svgFitStyle`. Scoped to

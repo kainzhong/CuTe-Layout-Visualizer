@@ -70,8 +70,20 @@ function generateComposedLayoutTabContent(id) {
       <button class="preset-btn" onclick="setCL('${id}','((2,2),4):((1,8),2)','0','swizzle','2,0,2')">Nested base modes</button>
     </div></div>
     <div class="hint">Each grid keeps the base layout’s logical coordinates. Value shows the output at that stage, not stored data. The offset is added <b>before</b> the inner transformation. A Swizzle accepts scalar offsets; a Layout also accepts matching coordinate tuples from a scaled-basis base. This constructs a mapping without moving data or checking allocation bounds.</div>
-  </div><div class="comp-results">
-    ${['src','extra','dst'].map((stage,i)=>layoutVisualization({hostId:`${id}-cl-${stage}-svg`,title:['1. Base output','2. Apply Offset','3. Apply Inner Transformation'][i],onMode:mode=>`toggleCLMode('${id}','${stage}','${mode}')`})).join('')}
+  </div><div class="cl-visualizations">
+    <div class="cl-comparison view-toggle" id="${id}-cl-comparison" data-view="inner">
+      <div class="cl-comparison-labels" aria-hidden="true">
+        <span>Original</span><span>After Offset</span><span>After Inner Transformation</span>
+      </div>
+      <input type="range" id="${id}-cl-view" min="0" max="1" step="1" value="1"
+        aria-label="Compare adjacent stages" aria-valuetext="After Offset to After Inner Transformation"
+        oninput="clSyncView('${id}')" onchange="clSyncView('${id}')">
+    </div>
+    <div class="cl-stage-viewport" id="${id}-cl-viewport" data-view="inner">
+    <div class="comp-results cl-stage-track">
+    ${['src','extra','dst'].map((stage,i)=>`<div id="${id}-cl-${stage}-pane" style="min-width:0" aria-hidden="${stage==='src'}"${stage==='src'?' inert':''}>${layoutVisualization({hostId:`${id}-cl-${stage}-svg`,title:['1. Base output','2. Apply Offset','3. Apply Inner Transformation'][i],onMode:mode=>`toggleCLMode('${id}','${stage}','${mode}')`})}</div>`).join('')}
+    </div>
+    </div>
   </div></div>`;
 }
 
@@ -79,6 +91,20 @@ function clSyncKind(id) {
   const sw = document.getElementById(`${id}-cl-kind`).value === 'swizzle';
   document.getElementById(`${id}-cl-swizzle-field`).style.display = sw ? '' : 'none';
   document.getElementById(`${id}-cl-inner-field`).style.display = sw ? 'none' : '';
+}
+
+function clSyncView(id) {
+  const slider = document.getElementById(`${id}-cl-view`);
+  const afterOffset = slider.value === '0';
+  document.getElementById(`${id}-cl-comparison`).setAttribute('data-view',afterOffset ? 'offset' : 'inner');
+  document.getElementById(`${id}-cl-viewport`).setAttribute('data-view',afterOffset ? 'offset' : 'inner');
+  slider.setAttribute('aria-valuetext',afterOffset ? 'Original to After Offset' : 'After Offset to After Inner Transformation');
+  for (const stage of ['src','extra','dst']) {
+    const pane = document.getElementById(`${id}-cl-${stage}-pane`);
+    const offscreen = stage === 'src' ? !afterOffset : stage === 'dst' && afterOffset;
+    pane.setAttribute('aria-hidden',String(offscreen));
+    pane.inert = offscreen;
+  }
 }
 
 function clReadInputs(id) {
@@ -92,6 +118,7 @@ function renderComposedLayout(id) {
   const result = document.getElementById(`${p}-result`);
   showErr(`${p}-error`,''); showWarn(`${p}-warning`,'');
   clSyncKind(id);
+  clSyncView(id);
   try {
     const inputs = clReadInputs(id), r = clCompute(...inputs);
     updateRankWarning(`${p}-warning`,[['Base layout',inputs[0]]]);
@@ -124,14 +151,15 @@ function toggleCLMode(id,stage,mode) {
   renderComposedLayout(id);
 }
 
-function setCL(id,base,offset,kind,inner) {
+function setCL(id,base,offset,kind,inner,view) {
   document.getElementById(`${id}-cl-base-input`).value = base;
   document.getElementById(`${id}-cl-offset-input`).value = offset;
   document.getElementById(`${id}-cl-kind`).value = kind;
   document.getElementById(`${id}-cl-${kind === 'swizzle' ? 'swizzle' : 'inner'}-input`).value = inner;
+  if (view !== undefined) document.getElementById(`${id}-cl-view`).value = view === 'offset' ? '0' : '1';
   renderComposedLayout(id);
 }
 
 function exportCL(id) {
-  exportURL(`${id}-cl-export`,'composed_layout',...clReadInputs(id));
+  exportURL(`${id}-cl-export`,'composed_layout',...clReadInputs(id),document.getElementById(`${id}-cl-view`).value === '0' ? 'offset' : 'inner');
 }

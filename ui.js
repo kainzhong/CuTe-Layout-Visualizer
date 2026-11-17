@@ -1843,7 +1843,7 @@ function downloadSVG(hostId, filename) {
 // feature -> { expectedInputs, methods? }
 // If `methods` is set, the key must be "<feature>-<method>-<inputs...>".
 const FEATURE_SPEC = {
-  composed_layout: {inputs: 4, encodedInputs: true},
+  composed_layout: {inputs: 4, optional: 1, encodedInputs: true},
   domain_offset: {inputs: 2, encodedInputs: true}, // protect signed coordinates/strides from key separators
   make_smem_layout_a: {inputs: 5},
   make_smem_layout_b: {inputs: 5},
@@ -1982,7 +1982,7 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
       switchInnerTab(tabId, 'gemm');
       break;
     case 'composed_layout':
-      setCL(tabId,...inputs);
+      setCL(tabId,...inputs.slice(0,4),inputs[4] || 'inner');
       switchInnerTab(tabId,'composed_layout');
       break;
     case 'index':

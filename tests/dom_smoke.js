@@ -1844,14 +1844,57 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
         ctx.exportCL(TAB);
         ctx.setCL(TAB,'8:1','0','swizzle','0,0,0');
         const parsed=ctx.parseKeyParam(exported);
-        if (!parsed || JSON.stringify(parsed.inputs)!==JSON.stringify([c.base,c.offset,c.kind,c.inner])) throw new Error('URL lost constructor fields');
+        if (!parsed || JSON.stringify(parsed.inputs.slice(0,4))!==JSON.stringify([c.base,c.offset,c.kind,c.inner])) throw new Error('URL lost constructor fields');
         ctx.applyKeyParam(TAB,parsed);
-        if (JSON.stringify(ctx.clReadInputs(TAB))!==JSON.stringify(parsed.inputs)) throw new Error('URL failed to restore edits');
+        if (JSON.stringify(ctx.clReadInputs(TAB))!==JSON.stringify(parsed.inputs.slice(0,4))) throw new Error('URL failed to restore edits');
         if (els.get(`${TAB}-cl-inner-field`).style.display!==(c.kind==='layout'?'':'none')) throw new Error('Transformation controls not synchronized');
       }
       if (switched.some(mode=>mode!=='composed_layout')) throw new Error('Wrong URL tab');
     } finally {ctx.switchInnerTab=realSwitch;ctx.exportURL=realExport;}
   },['src','extra','dst'].map(side=>`${TAB}-cl-${side}-svg`));
+  step('Composed Layout slider shows only the selected adjacent stages',()=>{
+    ctx.setCL(TAB,'(4,4):(4,1)','1','swizzle','2,0,2');
+    const view=els.get(`${TAB}-cl-view`);
+    const before=['src','extra','dst'].map(side=>els.get(`${TAB}-cl-${side}-svg`).innerHTML);
+    const realExport=ctx.exportURL, realSwitch=ctx.switchInnerTab;
+    try {
+      ctx.switchInnerTab=()=>{};
+      for (const selected of ['offset','inner']) {
+        view.value=selected==='offset'?'0':'1';ctx.clSyncView(TAB);
+        const visible=['src','extra','dst'].filter(side=>!els.get(`${TAB}-cl-${side}-pane`).inert);
+        for (const side of ['src','extra','dst']) {
+          const pane=els.get(`${TAB}-cl-${side}-pane`);
+          if (pane.style.display==='none') throw new Error('Sliding pane was removed from the strip');
+          if (pane.getAttribute('aria-hidden')!==String(pane.inert)) throw new Error('Offscreen pane is not hidden from assistive technology');
+        }
+        if (els.get(`${TAB}-cl-viewport`).getAttribute('data-view')!==selected) throw new Error('Visualization strip does not track slider');
+        const expectedPair=selected==='offset'?'Original to After Offset':'After Offset to After Inner Transformation';
+        if (view.getAttribute('aria-valuetext')!==expectedPair) throw new Error('Slider accessible text names the wrong pair');
+        if (els.get(`${TAB}-cl-comparison`).getAttribute('data-view')!==selected) throw new Error('Sliding window does not track selection');
+        if (visible.join(',')!==(selected==='offset'?'src,extra':'extra,dst')) throw new Error('Wrong stage pair: '+selected);
+        if (JSON.stringify(before)!==JSON.stringify(['src','extra','dst'].map(side=>els.get(`${TAB}-cl-${side}-svg`).innerHTML))) throw new Error('Picker changed grid contents');
+        let query;
+        ctx.exportURL=(button,feature,...inputs)=>{query=ctx.encodeKeyParam(feature,...inputs);};
+        ctx.exportCL(TAB);
+        view.value=selected==='offset'?'1':'0';ctx.clSyncView(TAB);
+        ctx.applyKeyParam(TAB,ctx.parseKeyParam(query));
+        if (view.value!==(selected==='offset'?'0':'1')) throw new Error('URL lost selected stage pair');
+        ctx.renderComposedLayout(TAB);
+        if (els.get(`${TAB}-cl-viewport`).getAttribute('data-view')!==selected) throw new Error('Rerender changed selected pair');
+      }
+      view.value='0';ctx.clSyncView(TAB);
+      ctx.applyKeyParam(TAB,{feature:'composed_layout',inputs:['(4,4):(4,1)','0','swizzle','2,0,2']});
+      if (view.value!=='1') throw new Error('Legacy URL did not select the final transformation');
+      const markup=ctx.generateComposedLayoutTabContent(TAB);
+      if (!markup.includes('Original') || !markup.includes('After Offset') || !markup.includes('After Inner Transformation')) throw new Error('Slider labels missing');
+      const controlsEnd=markup.indexOf('<div class="cl-visualizations">');
+      const sliderAt=markup.indexOf(`id="${TAB}-cl-comparison"`);
+      const gridsAt=markup.indexOf('<div class="comp-results cl-stage-track">');
+      if (!(controlsEnd<sliderAt && sliderAt<gridsAt)) throw new Error('Slider is not above the visualizations');
+      if (!markup.includes('class="cl-stage-viewport"') || markup.includes('display:none\" aria-hidden')) throw new Error('Missing three-stage sliding viewport');
+      if (!markup.includes('type="range"') || !markup.includes('min="0" max="1" step="1"')) throw new Error('Slider does not select two adjacent pairs');
+    } finally {ctx.exportURL=realExport;ctx.switchInnerTab=realSwitch;}
+  });
   step('Composed Layout: labels combine, zoom survives, rank warning follows base',()=>{
     ctx.setCL(TAB,'(4,4):(4,1)','0','swizzle','2,0,2');
     ctx.toggleCLMode(TAB,'dst','index');ctx.toggleCLMode(TAB,'dst','coord');

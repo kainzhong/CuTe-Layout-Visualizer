@@ -166,11 +166,12 @@ async function runSessionTests() {
   });
   await test('Composed Layout constructor, scope and all pane labels survive reload',()=>{
     const memory=new Map(), b=browser(memory), id=b.V.initializeTabSession();
-    b.V.setCL(id,'(3,4):(1@0,1@1)','(-1,2)','layout','(8,8):(8,1)');
+    b.V.setCL(id,'(3,4):(1@0,1@1)','(-1,2)','layout','(8,8):(8,1)','offset');
     for (const side of ['src','extra','dst']) b.V.toggleCLMode(id,side,'coord');
     b.V.switchInnerTab(id,'composed_layout');b.fire('pagehide');
     const restored=browser(memory);restored.V.initializeTabSession();
     check('Composed Layout stays in BASICS',restored.nodes.get('ot1-panel').nav.getAttribute('data-scope')==='basics' && restored.nodes.get('ot1-panel').querySelector('.tab.active').getAttribute('data-tab')==='composed_layout');
+    check('Composed Layout comparison survives reload',restored.nodes.get('ot1-cl-view').value==='0' && restored.nodes.get('ot1-cl-viewport').getAttribute('data-view')==='offset' && !restored.nodes.get('ot1-cl-src-pane').inert && restored.nodes.get('ot1-cl-dst-pane').inert);
     check('Composed Layout preserves constructor',JSON.stringify(restored.V.clReadInputs('ot1'))===JSON.stringify(['(3,4):(1@0,1@1)','(-1,2)','layout','(8,8):(8,1)']));
     check('inner Layout controls visible after reload',restored.nodes.get('ot1-cl-inner-field').style.display==='');
     for (const side of ['src','extra','dst']) {

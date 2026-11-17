@@ -2191,7 +2191,18 @@ Swizzles reuse `parseSwizzleSpec` / `applySwizzleOffset` and reject intermediate
 offsets outside [0, 2^31) rather than truncating through JS bit operations.
 
 All three panes draw the same base domain through shared layout visualization
-frames and SVG builders. Only the base rank can flatten drawn modes, so only
+frames and SVG builders. The comparison slider sits above the grids with three stage labels (Original,
+After Offset, After Inner Transformation). Its window spans two adjacent labels:
+base/offset or offset/final (the default). A native two-position range input
+provides dragging, clicking and arrow-key control; CSS animates the shared window
+and honors reduced-motion preferences. Its accessible value names the active pair. All three frames stay laid out in a horizontal strip. A viewport clips it to
+two panes; switching pairs translates the whole strip by one pane plus its gap,
+in sync with the slider window. This preserves labels, zoom, and fullscreen
+hosts and keeps the shared intermediate grid visible as it moves between sides.
+The offscreen pane is inert and aria-hidden so its controls are not focusable.
+Both transitions honor reduced-motion preferences. The optional fifth URL field stores this selection, and
+older four-field links default to the final transformation. Session persistence
+retains the slider as an ordinary range control. Only the base rank can flatten drawn modes, so only
 that field receives a rank warning; the inner layout's domain is not drawn.
 Values are mapping outputs, not tensor data. URL fields are individually encoded
 to preserve signed offsets/strides, and session state retains per-pane labels.

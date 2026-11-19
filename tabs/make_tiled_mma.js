@@ -956,15 +956,18 @@ async function mtmDecodePasteboard(tabId) {
 }
 
 // Shared editable fallback for tabs that primarily import a TiledMMA URL.
-function mtmManualConstructorMarkup({id, p, render, setOp, atomLayout = '(2,2,1)', perm = '', k = null, errorPrefix = p}) {
+// The MMAAtom fields are flattened beside atom_layout_mnk/permutation_mnk with
+// no decoder of their own: import the whole TiledMMA through the outer decoder.
+// `bare` omits the folded wrapper when an enclosing editor already provides one.
+function mtmManualConstructorMarkup({id, p, render, setOp, atomLayout = '(2,2,1)', perm = '', k = null, errorPrefix = p, bare = false}) {
+  const fields = `
+      ${mmaAtomEditorMarkup({id,p,render,setOp,k,errorPrefix,nested:true})}
+      ${layoutInputField({id:`${id}-${p}-atomlayout-input`,label:'atom_layout_mnk',value:atomLayout,placeholder:'(1,1,1)',hint:'Warps along M, N, K. Blank uses (1,1,1).'})}
+      ${layoutInputField({id:`${id}-${p}-perm-input`,label:'permutation_mnk',value:perm,placeholder:'(_,_,_)',hint:'An extent expands a mode; a layout permutes it. Blank leaves modes unchanged.'})}`;
+  if (bare) return fields;
   return `<details class="cuo-section" id="${id}-${p}-manual-construction">
     <summary>Manual construction</summary>
-    <div class="cuo-section-body">
-      <details class="cuo-section" open><summary>MMAAtom</summary><div class="cuo-section-body">
-        ${mmaAtomEditorMarkup({id,p,render,setOp,k,errorPrefix})}
-      </div></details>
-      ${layoutInputField({id:`${id}-${p}-atomlayout-input`,label:'atom_layout_mnk',value:atomLayout,placeholder:'(1,1,1)',hint:'Warps along M, N, K. Blank uses (1,1,1).'})}
-      ${layoutInputField({id:`${id}-${p}-perm-input`,label:'permutation_mnk',value:perm,placeholder:'(_,_,_)',hint:'An extent expands a mode; a layout permutes it. Blank leaves modes unchanged.'})}
+    <div class="cuo-section-body">${fields}
     </div>
   </details>`;
 }

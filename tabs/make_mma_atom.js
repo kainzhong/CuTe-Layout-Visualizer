@@ -580,9 +580,11 @@ function mmaAssignAtomInputs(tabId, p, inputs) {
   }
 }
 
-function mmaAtomEditorMarkup({id,p,render,setOp,k=null,errorPrefix=p,warpgroup=false}) {
-  return `<button class="btn btn-render btn-decode" id="${id}-${p}-decode-atom" onclick="mmaDecodeAtomPasteboard('${id}','${p}','${render}','${errorPrefix}')">Decode from Pasteboard</button>
-    <details class="cuo-section" id="${id}-${p}-atom-manual-construction"><summary>Manual construction</summary><div class="cuo-section-body">
+// `nested` omits the decoder and folded wrapper: inside an enclosing constructor's
+// Manual construction, the atom fields sit beside its other parameters and the
+// enclosing constructor's own decoder is the only import path.
+function mmaAtomEditorMarkup({id,p,render,setOp,k=null,errorPrefix=p,warpgroup=false,nested=false}) {
+  const fields = `
       <div class="form-group"><label>Op</label>
         <select id="${id}-${p}-op-input" onchange="${setOp || render}('${id}')">
           ${Object.entries(warpgroup ? {...MMA_WARP_OPS, ...MMA_WARPGROUP_OPS} : MMA_WARP_OPS).map(([key,op]) => `<option value="${key}">${op.label}</option>`).join('')}
@@ -595,7 +597,10 @@ function mmaAtomEditorMarkup({id,p,render,setOp,k=null,errorPrefix=p,warpgroup=f
       ${warpgroup ? [
         ['b','b_dtype',[]], ['asrc','A source',['SMEM','RMEM']],
         ['amajor','A major mode',['K','MN']], ['bmajor','B major mode',['K','MN']]
-      ].map(([key,label,values]) => `<div class="form-group" id="${id}-${p}-${key}-group"><label>${label}</label><select id="${id}-${p}-${key}-input" onchange="${render}('${id}')">${values.map(v => `<option value="${v}">${v}</option>`).join('')}</select></div>`).join('') : ''}
+      ].map(([key,label,values]) => `<div class="form-group" id="${id}-${p}-${key}-group"><label>${label}</label><select id="${id}-${p}-${key}-input" onchange="${render}('${id}')">${values.map(v => `<option value="${v}">${v}</option>`).join('')}</select></div>`).join('') : ''}`;
+  if (nested) return fields;
+  return `<button class="btn btn-render btn-decode" id="${id}-${p}-decode-atom" onclick="mmaDecodeAtomPasteboard('${id}','${p}','${render}','${errorPrefix}')">Decode from Pasteboard</button>
+    <details class="cuo-section" id="${id}-${p}-atom-manual-construction"><summary>Manual construction</summary><div class="cuo-section-body">${fields}
     </div></details>`;
 }
 

@@ -825,18 +825,13 @@ function mtcManualConstructorMarkup(id, p, render, errorPrefix=p) {
       </select></div>
       <div id="${id}-${p}-mma-group">
         <div class="form-group"><label>Operand</label><select id="${id}-${p}-operand-input" onchange="${render}('${id}')"><option value="A">A</option><option value="B">B</option></select></div>
-        ${mtmManualConstructorMarkup({id,p:`${p}-mma`,render,errorPrefix,k:16,perm:'(32,32,16)'})}
+        ${mtmManualConstructorMarkup({id,p:`${p}-mma`,render,errorPrefix,k:16,perm:'(32,32,16)',bare:true})}
       </div>
-      <details class="cuo-section" open><summary>CopyAtom</summary><div class="cuo-section-body">
-        <button class="btn btn-render btn-decode" id="${id}-${p}-decode-atom" onclick="mtcDecodeManualCopyAtomPasteboard('${id}','${p}','${render}','${errorPrefix}')">Decode from Pasteboard</button>
-        <details class="cuo-section" id="${id}-${p}-copy-atom-manual-construction"><summary>Manual construction</summary><div class="cuo-section-body">
-      <div class="form-group"><label>Op</label><select id="${id}-${p}-atom-copy-input" onchange="${render}('${id}')">${simtCopyOpOptions('universal')}</select></div>
+      <div class="form-group"><label>CopyAtom Op</label><select id="${id}-${p}-atom-copy-input" onchange="${render}('${id}')">${simtCopyOpOptions('universal')}</select></div>
       <div class="form-group" id="${id}-${p}-dtype-group"><label>Value dtype</label><select id="${id}-${p}-dtype-input">${dtypeOptions('half_t')}</select></div>
       <div class="form-group" id="${id}-${p}-atom-bits-group"><label>num_bits_per_copy</label><input type="text" id="${id}-${p}-atom-bits-input" value="32"></div>
       <div class="form-group" id="${id}-${p}-atom-nm-group"><label>num_matrices</label><select id="${id}-${p}-atom-nm-input"><option value="1">1</option><option value="2">2</option><option value="4">4</option></select></div>
       <div class="form-group" id="${id}-${p}-atom-trans-group"><label>transpose</label><select id="${id}-${p}-atom-trans-input"><option value="0">False</option><option value="1">True</option></select></div>
-        </div></details>
-      </div></details>
       <div id="${id}-${p}-primitive-group">
         ${layoutInputField({id:`${id}-${p}-tv-input`,label:'layout_tv',value:'((8,4),(2,2)):((16,2),(8,1))'})}
         ${layoutInputField({id:`${id}-${p}-tiler-input`,label:'Tiler_MN',value:'(8,16)'})}
@@ -906,31 +901,3 @@ function mtcManualConstructorURL(tabId, p) {
   return '?' + new URLSearchParams({key:[parsed.feature,...parsed.inputs].join('-')}).toString();
 }
 
-
-function mtcImportManualCopyAtom(tabId,p,render,text) {
-  const a = mcaDecodeAtomURL(text);
-  const read = key => document.getElementById(`${tabId}-${p}-${key}-input`).value;
-  const mma = read('kind') === 'make_tiled_copy_ab';
-  const opKey = mma && a.opKey === 'universal' ? 's2r' : a.opKey;
-  if (!(mma ? MCAB_COPY_OPS.includes(opKey) : !!MTC_OPS[opKey])) throw new Error('CopyAtom Op is not supported by this TiledCopy constructor.');
-  if (mma) {
-    const inputs = mtmReadConstructorControls(tabId, `${p}-mma`);
-    const dtype = inputs[1] === 'na' ? 'tfloat32_t' : inputs[1];
-    if (dtype !== a.dtype) throw new Error('CopyAtom dtype must match the MMAAtom operand dtype.');
-  }
-  const write = (key,value) => { document.getElementById(`${tabId}-${p}-${key}-input`).value = String(value); };
-  mtcSyncManualConstructor(tabId,p);
-  write('atom-copy',opKey);
-  mtcSyncManualConstructor(tabId,p); // Rebuild matrix/transpose options first.
-  write('atom-bits',a.numBits);
-  if (mma) { write('atom-nm',a.nm); write('atom-trans',a.trans ? 1 : 0); }
-  else write('dtype',a.dtype);
-  globalThis[render](tabId);
-}
-
-async function mtcDecodeManualCopyAtomPasteboard(tabId,p,render,errorPrefix=p) {
-  const text = await readPasteboardText('Paste the make_copy_atom URL or its query string:');
-  if (text === null || text === undefined) return;
-  try { mtcImportManualCopyAtom(tabId,p,render,text); }
-  catch (e) { showErr(`${tabId}-${errorPrefix}-error`,e.message); }
-}

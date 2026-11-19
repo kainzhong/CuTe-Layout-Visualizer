@@ -1282,11 +1282,21 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     } finally { ctx.exportURL = realExport; }
   }, [`${TAB}-gemm-a-svg`,`${TAB}-gemm-b-svg`,`${TAB}-gemm-tile-svg`]);
   step('MMAAtom and CopyAtom sections use type names and default-folded manual controls', () => {
-    for (const prefix of ['mma','mtm','mfrag','gemm-mma','pabc','pshp','mcab','psd-manual-mma']) {
+    for (const prefix of ['mma','mtm','mfrag']) {
       if (!html.includes(`id="${TAB}-${prefix}-decode-atom"`)) throw new Error(`Missing MMAAtom decoder ${prefix}`);
       const tag = html.match(new RegExp(`<details class="cuo-section" id="${TAB}-${prefix}-atom-manual-construction"([^>]*)>`));
       if (!tag || /\bopen\b/.test(tag[1])) throw new Error(`MMAAtom ${prefix} manual section is not folded`);
     }
+    // An atom nested in an enclosing constructor's Manual construction is flattened:
+    // no inner decoder or inner folded section; the enclosing decoder imports it.
+    for (const prefix of ['gemm-mma','pabc','pshp','mcab','psd-manual-mma','psd-manual']) {
+      if (!html.includes(`id="${TAB}-${prefix}-op-input"`) && !html.includes(`id="${TAB}-${prefix}-atom-copy-input"`))
+        throw new Error(`Missing flattened atom fields ${prefix}`);
+      if (html.includes(`id="${TAB}-${prefix}-decode-atom"`) || html.includes(`id="${TAB}-${prefix}-atom-manual-construction"`) ||
+          html.includes(`id="${TAB}-${prefix}-copy-atom-manual-construction"`))
+        throw new Error(`Nested atom ${prefix} still has its own decoder`);
+    }
+    if (html.includes(`id="${TAB}-psd-manual-mma-manual-construction"`)) throw new Error('Nested TiledMMA editor is double-folded');
     for (const prefix of ['mca','mtc','mtv']) {
       if (!html.includes(`id="${TAB}-${prefix}-decode-atom"`)) throw new Error(`Missing CopyAtom decoder ${prefix}`);
       const tag = html.match(new RegExp(`<details class="cuo-section" id="${TAB}-${prefix}-atom-manual-construction"([^>]*)>`));
@@ -1302,11 +1312,6 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
       ['mma','renderMakeMmaAtom', () => ctx.setMMA(TAB,'f16bf16','half_t','float',16)],
       ['mtm','renderMakeTiledMma', () => ctx.setMTM(TAB,'f16bf16','half_t','float',16,'(2,2,1)','')],
       ['mfrag','renderMakeFragmentABC', () => ctx.setMfrag(TAB,'C','f16bf16','half_t','float',16,'((2,2),2,2):((1,256),1024,16)',0)],
-      ['pabc','renderPartitionABC', () => ctx.setPABC(TAB,'C','f16bf16','half_t','float',16,'(2,2,1)','','5','(64,64):(1,64)')],
-      ['pshp','renderPartitionShapeABC', () => ctx.setPshp(TAB,'C','f16bf16','half_t','float',16,'(2,2,1)','','(64,64)')],
-      ['gemm-mma','renderGemm', () => ctx.setGemm(TAB,ctx.GEMM_DEFAULT_MMA,'(8,2):(1,8)','(4,3):(1,4)','(4,2,3):(1,4,8)','',0)],
-      ['mcab','renderMakeTiledCopyAB', () => ctx.setMCAB(TAB,'A','f16bf16','half_t','float',16,'(2,2,1)','(32,32,16)','ldmatrix',4,0,16)],
-      ['psd-manual-mma','renderPartitionSD', () => ctx.setPSDURL(TAB,'S','?key=make_tiled_copy_ab-A-f16bf16-half_t-float-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp','0','(64,32):(32,1)')],
     ];
     for (const [prefix, render, setup] of targets) {
       setup();
@@ -1533,7 +1538,8 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     if (!rejected || JSON.stringify(before) !== JSON.stringify(['op','bits','dtype'].map(x => els.get(`${TAB}-mtc-${x}-input`).value)))
       throw new Error('SIMT-only tab accepted or mutated fields for an unsupported CopyAtom');
     ctx.setPSDURL(TAB,'S','?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp','0','(128,32,4):(32,1,4096)');
-    ctx.mtcImportManualCopyAtom(TAB,'psd-manual','renderPartitionSD','?key=make_copy_atom-ldmatrix-128-half_t-1-0');
+    els.get(`${TAB}-psd-manual-atom-nm-input`).value = '1';
+    ctx.renderPartitionSD(TAB);
     const refs = JSON.parse(fs.readFileSync(path.join(__dirname,'reference.json'),'utf8'));
     if (!els.get(`${TAB}-psd-result`).innerHTML.includes(refs.partition_sd.url_A_x1_S.layout.str))
       throw new Error('CopyAtom decode in partition_S/D differs from CuTeDSL');

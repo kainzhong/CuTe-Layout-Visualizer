@@ -2106,8 +2106,11 @@ spacing shared across tabs rather than adding per-button inline margins.
 
 The pasteboard-first TiledMMA sections in gemm, partition_A/B/C, and make_tiled_copy_A/B retain their
 visible decode buttons and derived summaries. `mtmManualConstructorMarkup` supplies
-a nested, default-collapsed Manual construction section with the same Op/dtype/K
-controls and layout fields used by the other MMA tabs. `mtmWriteConstructorControls`
+a default-collapsed Manual construction section with the same Op/dtype/K
+controls and layout fields used by the other MMA tabs. The MMAAtom fields are
+flattened beside atom_layout_mnk/permutation_mnk (`mmaAtomEditorMarkup({nested:true})`)
+with no inner decoder or inner fold: one decode path per constructor, the outer one.
+`bare:true` drops the wrapper when an enclosing editor (partition_S/D's TiledCopy) already folds it. `mtmWriteConstructorControls`
 validates a complete constructor before changing controls and rebuilds dependent
 options before assigning values. Both imports and gemm presets/URL restores use it.
 `mtmReadConstructorControls` supplies gemm rendering and export from current editable
@@ -2169,14 +2172,15 @@ field IDs. `mmaDecodeAtomInputs` validates the supported Op/dtypes before update
 `mmaImportAtom` imports only the atom, rebuilds dependent options, assigns values,
 and invokes the owning render function. The owning status prefix is explicit for
 nested editors, keeping decode errors in the enclosing tab's error host. TiledMMA
-construction uses the same atom validation and nests this atom editor above its
-atom-layout/permutation fields.
+construction uses the same atom validation and places the atom fields (with
+`nested:true`, so no decoder) directly above its atom-layout/permutation fields.
 
 `mcaDecodeAtomURL` validates offered SIMT and ldmatrix atoms via the existing dtype
 and LdMatrix trait tables. `mcaImportAtom` serves the standalone CopyAtom tab and
 SIMT-only primitive/TV TiledCopy tabs; unsupported atoms are rejected before field
-updates. `mtcImportManualCopyAtom` serves a manual TiledCopy constructor and checks
-its allowed Op set and MMA operand dtype. make_tiled_copy_A/B keeps its existing
+updates. A manual TiledCopy constructor (partition_S/D) flattens its CopyAtom fields
+beside the other constructor parameters without a separate atom decoder; its
+TiledCopy decoder is the import path. make_tiled_copy_A/B keeps its existing
 CopyAtom import and shared dynamic matrix/transpose controls. No new hardware Op
 is introduced. Legacy unpack_bits URL tails remain ignored as required by the
 fixed-None convention. Constructor summaries stay outside the folded raw fields.

@@ -323,6 +323,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     const pfx = { setCL: 'cl', setDomainOffset: 'dof', setSml: 'sml', setGemm: 'gemm', setIdx: 'idx', setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm', setMCAB: 'mcab', setRT: 'rt',
                   setPSD: 'psd', setPSDURL: 'psd', setPsdSide: 'psd', setPsdMode: 'psd',
                   setPABC: 'pabc', setPabcOperand: 'pabc', setPabcMode: 'pabc',
+                  setPshp: 'pshp', setPshpOperand: 'pshp',
                   setMfrag: 'mfrag', setMfragOperand: 'mfrag' }[fnName];
     const svgs = pfx ? paneIds.filter(id => id.startsWith(`${TAB}-${pfx}-`)) : [];
     let args;
@@ -447,6 +448,128 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     if (!els.get(`${TAB}-mfrag-result`).innerHTML.includes(partitionRef.partition_abc.A_colmajor.fragment.str))
       throw new Error('make_fragment displayed the wrong returned layout');
   }, [`${TAB}-pabc-tile-svg`, `${TAB}-mfrag-svg`]);
+  // ── partition_shape_A / B / C ────────────────────────────────────────────
+  const pshpPanes = paneIds.filter(id => id.startsWith(`${TAB}-pshp-`));
+  step('partition_shape tab has its visualization host', () => {
+    if (pshpPanes.join(',') !== `${TAB}-pshp-tile-svg,${TAB}-pshp-sweep-svg`) throw new Error(`hosts: ${pshpPanes.join(',')}`);
+    for (const grid of ['tile', 'sweep']) {
+      if (!html.includes(`id="${TAB}-pshp-${grid}-svg-zoom"`)) throw new Error(`missing ${grid} zoom button`);
+      for (const mode of ['value', 'index', 'coord'])
+        if (!html.includes(`onclick="setPshpMode('${TAB}','${grid}','${mode}')"`)) throw new Error(`missing ${grid} ${mode} toggle`);
+    }
+  });
+  for (const [which, ref, shape] of [['A', 'A_2x2x1', '(64, 48)'], ['B', 'B_2x2x1', '(32, 48)'], ['C', 'C_2x2x1', '(64, 32)']]) {
+    step(`partition_shape_${which} displays its returned shape and fragment`, () => {
+      ctx.setPshp(TAB, which, 'f16bf16', 'half_t', 'float', 16, '(2, 2, 1)', '', shape);
+      const got = els.get(`${TAB}-pshp-result`).innerHTML;
+      const r = partitionRef.partition_shape_abc[ref];
+      if (!got.includes(`partition_shape_${which}(${shape.replace(/\s/g, '')}) = <b>${r.shape}</b>`))
+        throw new Error(`result = ${got}, expected ${r.shape}`);
+      if (!got.includes(`make_fragment_${which}(shape) = <b>${r.fragment.str}</b>`))
+        throw new Error(`fragment differs from CuTeDSL ${r.fragment.str}`);
+    }, pshpPanes);
+  }
+  step('partition_shape draws the input shape column-major, as CuTe reads it', () => {
+    ctx.setPshp(TAB, 'C', 'f16bf16', 'half_t', 'float', 16, '(2, 2, 1)', '', '(64, 32, 2)');
+    const tileModes = ctx.pshpState[TAB].tileMode;
+    tileModes.clear(); tileModes.add('value');
+    ctx.renderPartitionShapeABC(TAB);
+    const svg = els.get(`${TAB}-pshp-tile-svg`).innerHTML;
+    const input = ctx.pshpState[TAB].inputLayout;
+    const oracle = partitionRef.partition_shape_abc;
+    if (ctx.formatLayoutStr(input.shape, input.stride) !== '(64,32,2):(1,64,2048)') throw new Error('input is not column-major');
+    if (!svg.includes(`make_layout((64,32,2)) = <b style="color:#93c5fd">(64,32,2):(1,64,2048)</b>`))
+      throw new Error('header does not state make_layout(shape)');
+    if (!svg.includes('>64</text>') || !svg.includes('>2047</text>') || svg.includes('>2048</text>'))
+      throw new Error('drawn plane is not slice 0 of the column-major layout');
+    if (!svg.includes('stroke-width="2"')) throw new Error('warp-tile boundaries are missing');
+    if (oracle.C_2x2x1.input.str !== '(64,32):(1,64)') throw new Error('oracle input changed');
+  }, pshpPanes);
+  step('partition_shape groups the TiledMMA and the shape into numbered sections', () => {
+    const panel = html.slice(html.indexOf(`id="${TAB}-tab-partition_shape_abc"`), html.indexOf(`id="${TAB}-tab-make_fragment_abc"`));
+    const section = panel.slice(panel.indexOf('<summary>1. TiledMMA</summary>'), panel.indexOf('<summary>2. The shape being partitioned</summary>'));
+    if (!section) throw new Error('numbered sections are missing');
+    for (const key of ['op','ab','acc','k','atomlayout','perm'])
+      if (!section.includes(`id="${TAB}-pshp-${key}-input"`)) throw new Error(`${key} is outside the TiledMMA section`);
+    if (!section.includes(`onclick="pshpDecodePasteboard('${TAB}')"`)) throw new Error('Pasteboard decode is not wired');
+    if (panel.includes('get_slice')) throw new Error('a shape-only tab must not ask for a thread');
+  });
+  step('partition_shape keeps Rest flat where partition_A nests it', () => {
+    ctx.setPshp(TAB, 'A', 'f16bf16', 'half_t', 'float', 16, '(2, 2, 1)', '((2,32):(32,1), 32, 16)', '(128, 48)');
+    const want = partitionRef.partition_shape_abc.A_perm_layout.shape;
+    if (ctx.pshpState[TAB].shapeStr !== want) throw new Error(`${ctx.pshpState[TAB].shapeStr} != ${want}`);
+    if (!partitionRef.partition_abc.A_perm_layout.layout.str.startsWith('((2,2,2),(2,2),3)'))
+      throw new Error('partition_A reference no longer nests; revisit this preset');
+    if (!els.get(`${TAB}-pshp-sweep-svg`).innerHTML.includes('permutation_mnk does not change this shape'))
+      throw new Error('the header does not say the permutation was ignored');
+  }, pshpPanes);
+  step('partition_shape rounds a small extent up and says so', () => {
+    ctx.setPshp(TAB, 'A', 'f16bf16', 'half_t', 'float', 16, '(2, 2, 1)', '', '(16, 64)');
+    if (ctx.pshpState[TAB].shapeStr !== partitionRef.partition_shape_abc.A_round_up_M.shape) throw new Error('wrong shape');
+    if (!/rounds up to 1/.test(els.get(`${TAB}-pshp-warning`).textContent)) throw new Error('no rounding note');
+  }, pshpPanes);
+  step('partition_shape rejects an extent CuTeDSL cannot partition', () => {
+    ctx.setPshp(TAB, 'A', 'f16bf16', 'half_t', 'float', 16, '(2, 2, 1)', '', '(48, 64)');
+    if (els.get(`${TAB}-pshp-sweep-svg`).innerHTML || els.get(`${TAB}-pshp-tile-svg`).innerHTML)
+      throw new Error('stale grid left after an error');
+    if (els.get(`${TAB}-pshp-result`).innerHTML) throw new Error('stale result left after an error');
+  }, [], { expectError: /neither a multiple nor a divisor/ });
+  step('partition_shape label toggles are combinable and survive rerender', () => {
+    ctx.setPshp(TAB, 'C', 'f16bf16', 'half_t', 'float', 16, '(2, 2, 1)', '', '(64, 32)');
+    // The preset sweep also clicks these toggles, so start from a known set.
+    const modes = ctx.pshpState[TAB].mode;
+    modes.clear(); modes.add('coord');
+    ctx.setPshpMode(TAB, 'sweep', 'value');
+    const svg = els.get(`${TAB}-pshp-sweep-svg`).innerHTML;
+    if (!svg.includes('>val=3</text>') || !svg.includes('>(1,1)</text>')) throw new Error('value + coord labels missing');
+    ctx.renderPartitionShapeABC(TAB);
+    if (!ctx.pshpState[TAB].mode.has('value') || !ctx.pshpState[TAB].mode.has('coord'))
+      throw new Error('modes reset on rerender');
+    ctx.setPshpMode(TAB, 'sweep', 'value');
+  }, pshpPanes);
+  step('partition_shape decodes a TiledMMA URL and keeps operand and shape', () => {
+    ctx.setPshp(TAB, 'B', 'f16bf16', 'half_t', 'float', 16, '(2, 2, 1)', '', '(32, 48)');
+    ctx.pshpImportTiledMma(TAB, '?key=make_tiled_mma-tf32-na-na-8-(2, 2, 1)-na');
+    if (els.get(`${TAB}-pshp-op-input`).value !== 'tf32' || els.get(`${TAB}-pshp-k-input`).value !== '8')
+      throw new Error('constructor was not decoded');
+    if (ctx.pshpState[TAB].which !== 'B' || els.get(`${TAB}-pshp-shape-input`).value !== '(32, 48)')
+      throw new Error('decode changed operand or shape');
+    const before = ['op','k','atomlayout','perm'].map(key => els.get(`${TAB}-pshp-${key}-input`).value);
+    let rejected = false;
+    try { ctx.pshpImportTiledMma(TAB, '?key=layout-8:1'); } catch (_) { rejected = true; }
+    if (!rejected || JSON.stringify(before) !== JSON.stringify(['op','k','atomlayout','perm'].map(key => els.get(`${TAB}-pshp-${key}-input`).value)))
+      throw new Error('failed decode altered the constructor');
+  }, pshpPanes);
+  step('partition_shape URL round-trips', () => {
+    ctx.setPshp(TAB, 'C', 'f16bf16', 'bfloat16_t', 'float', 16, '(2, 2, 2)', '(32, 32, 32)', '(64, 32, 2)');
+    const realExport = ctx.exportURL, realSwitch = ctx.switchInnerTab;
+    let exported, switched = '';
+    ctx.exportURL = (btn, feature, ...inputs) => { exported = [feature, ...inputs]; };
+    try { ctx.exportPshp(TAB); } finally { ctx.exportURL = realExport; }
+    const want = ctx.pshpState[TAB].shapeStr;
+    ctx.setPshp(TAB, 'A', 'tf32', 'na', 'na', 8, '(1, 1, 1)', '', '(16, 8)');
+    ctx.location.search = `?key=${encodeURIComponent(exported.join('-'))}`;
+    ctx.switchInnerTab = (_, mode) => { switched = mode; };
+    try { ctx.applyKeyParam(TAB); } finally { ctx.switchInnerTab = realSwitch; ctx.location.search = ''; }
+    if (switched !== 'partition_shape_abc') throw new Error(`opened ${switched}`);
+    if (ctx.pshpState[TAB].which !== 'C' || ctx.pshpState[TAB].shapeStr !== want)
+      throw new Error(`round trip gave ${ctx.pshpState[TAB].which} ${ctx.pshpState[TAB].shapeStr}, expected C ${want}`);
+    if (els.get(`${TAB}-pshp-ab-input`).value !== 'bfloat16_t') throw new Error('dtype lost in round trip');
+  }, pshpPanes);
+  step('partition_shape make_fragment button hands the shape to the register view', () => {
+    ctx.setPshp(TAB, 'A', 'f16bf16', 'half_t', 'float', 16, '(2, 2, 1)', '', '(32, 32)');
+    els.get(`${TAB}-pshp-shape-input`).value = '(64, 48)';          // edited, not rendered
+    const realSwitch = ctx.switchInnerTab;
+    let switched = '';
+    ctx.switchInnerTab = (_, mode) => { switched = mode; };
+    try { ctx.pshpOpenFragment(TAB); } finally { ctx.switchInnerTab = realSwitch; }
+    const r = partitionRef.partition_shape_abc.A_2x2x1;
+    if (switched !== 'make_fragment_abc') throw new Error(`opened ${switched}`);
+    if (els.get(`${TAB}-mfrag-partition-input`).value !== r.shape) throw new Error('handed off a stale shape');
+    if (!els.get(`${TAB}-mfrag-result`).innerHTML.includes(`make_fragment_A = <b>${r.fragment.str}</b>`))
+      throw new Error('make_fragment of the shape differs from CuTeDSL');
+  }, [...pshpPanes, `${TAB}-mfrag-svg`]);
+
   step('partition make_fragment selection field precedes its shortcut', () => {
     const field = html.indexOf(`id="${TAB}-pabc-fragment-slice-input"`);
     const button = html.indexOf(`id="${TAB}-pabc-make-fragment"`);
@@ -1159,7 +1282,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     } finally { ctx.exportURL = realExport; }
   }, [`${TAB}-gemm-a-svg`,`${TAB}-gemm-b-svg`,`${TAB}-gemm-tile-svg`]);
   step('MMAAtom and CopyAtom sections use type names and default-folded manual controls', () => {
-    for (const prefix of ['mma','mtm','mfrag','gemm-mma','pabc','mcab','psd-manual-mma']) {
+    for (const prefix of ['mma','mtm','mfrag','gemm-mma','pabc','pshp','mcab','psd-manual-mma']) {
       if (!html.includes(`id="${TAB}-${prefix}-decode-atom"`)) throw new Error(`Missing MMAAtom decoder ${prefix}`);
       const tag = html.match(new RegExp(`<details class="cuo-section" id="${TAB}-${prefix}-atom-manual-construction"([^>]*)>`));
       if (!tag || /\bopen\b/.test(tag[1])) throw new Error(`MMAAtom ${prefix} manual section is not folded`);
@@ -1180,17 +1303,18 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
       ['mtm','renderMakeTiledMma', () => ctx.setMTM(TAB,'f16bf16','half_t','float',16,'(2,2,1)','')],
       ['mfrag','renderMakeFragmentABC', () => ctx.setMfrag(TAB,'C','f16bf16','half_t','float',16,'((2,2),2,2):((1,256),1024,16)',0)],
       ['pabc','renderPartitionABC', () => ctx.setPABC(TAB,'C','f16bf16','half_t','float',16,'(2,2,1)','','5','(64,64):(1,64)')],
+      ['pshp','renderPartitionShapeABC', () => ctx.setPshp(TAB,'C','f16bf16','half_t','float',16,'(2,2,1)','','(64,64)')],
       ['gemm-mma','renderGemm', () => ctx.setGemm(TAB,ctx.GEMM_DEFAULT_MMA,'(8,2):(1,8)','(4,3):(1,4)','(4,2,3):(1,4,8)','',0)],
       ['mcab','renderMakeTiledCopyAB', () => ctx.setMCAB(TAB,'A','f16bf16','half_t','float',16,'(2,2,1)','(32,32,16)','ldmatrix',4,0,16)],
       ['psd-manual-mma','renderPartitionSD', () => ctx.setPSDURL(TAB,'S','?key=make_tiled_copy_ab-A-f16bf16-half_t-float-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp','0','(64,32):(32,1)')],
     ];
     for (const [prefix, render, setup] of targets) {
       setup();
-      const other = ['pabc-tensor-input','mfrag-partition-input','gemm-a-input','mcab-copy-input','psd-tensor-input'].map(x => els.get(`${TAB}-${x}`).value);
+      const other = ['pabc-tensor-input','pshp-shape-input','mfrag-partition-input','gemm-a-input','mcab-copy-input','psd-tensor-input'].map(x => els.get(`${TAB}-${x}`).value);
       ctx.mmaImportAtom(TAB,prefix,render,url);
       for (const [key,value] of [['op','f16bf16'],['ab','bfloat16_t'],['acc','float'],['k','16']])
         if (els.get(`${TAB}-${prefix}-${key}-input`).value !== value) throw new Error(`${prefix} did not decode ${key}`);
-      if (JSON.stringify(other) !== JSON.stringify(['pabc-tensor-input','mfrag-partition-input','gemm-a-input','mcab-copy-input','psd-tensor-input'].map(x => els.get(`${TAB}-${x}`).value)))
+      if (JSON.stringify(other) !== JSON.stringify(['pabc-tensor-input','pshp-shape-input','mfrag-partition-input','gemm-a-input','mcab-copy-input','psd-tensor-input'].map(x => els.get(`${TAB}-${x}`).value)))
         throw new Error('MMAAtom decode changed unrelated inputs');
     }
     const before = ['op','ab','acc','k'].map(x => els.get(`${TAB}-mma-${x}-input`).value);
@@ -1270,7 +1394,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
       // Source-dependent major options must be rebuilt before MN is assigned.
       ctx.mmaImportAtom(TAB,'mma','renderMakeMmaAtom','?key=make_mma_atom-wg_f16bf16-half_t-float-16-64-SMEM-MN-MN-half_t');
       if (ctx.mmaState[TAB].aMajor !== 'MN') throw new Error('SMEM major mode was assigned before options');
-      for (const p of ['mfrag','pabc','gemm-mma','mcab','psd-manual-mma']) {
+      for (const p of ['mfrag','pabc','pshp','gemm-mma','mcab','psd-manual-mma']) {
         const fields = ['op','ab','acc','k'];
         const previous = fields.map(key => els.get(`${TAB}-${p}-${key}-input`).value);
         let rejected = false;
@@ -1935,6 +2059,8 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     'partition_sd-D-cpasync-128-half_t-((8,16),8):((128,1),16)-(16, 64)-3-(16, 64):(64, 1)',
     'partition_abc-A-f16bf16-half_t-float-16-(2, 2, 1)-na-5-(64, 48):(48, 1)',
     'partition_abc-C-tf32-na-na-8-(2, 2, 1)-(32, 16, 8)-3-(64, 32):(32, 1)',
+    'partition_shape_abc-A-f16bf16-half_t-float-16-(2, 2, 1)-na-(64, 48)',
+    'partition_shape_abc-C-tf32-na-na-8-(2, 2, 1)-(32, 16, 8)-(64, 32, 4)',
     'make_fragment_abc-A-f16bf16-half_t-float-16-((2,2,2),2,3):((1,384,8),1536,16)',
     'make_fragment_abc-B-f16bf16-bfloat16_t-float-16-((2,2),2,3):((1,8),768,16)-7',
   ]) {

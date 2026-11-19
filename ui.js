@@ -772,6 +772,7 @@ const TAB_RENDER_FN = {
   make_mma_atom:      'renderMakeMmaAtom',
   make_tiled_mma:     'renderMakeTiledMma',
   partition_abc:      'renderPartitionABC',
+  partition_shape_abc: 'renderPartitionShapeABC',
   make_fragment_abc:  'renderMakeFragmentABC',
   make_tiled_copy_ab: 'renderMakeTiledCopyAB',
   retile: 'renderRetile',
@@ -856,7 +857,7 @@ function generateTabContent(id) {
         </div>
         <div class="tab-scope-btn" data-scope="mma" onclick="switchTabGroup('${id}', 'mma')">
           <span class="tab-scope-icon">\u2B21</span>MMA
-          <span class="tab-scope-count">5</span>
+          <span class="tab-scope-count">6</span>
         </div>
         <div class="tab-scope-btn" data-scope="utility" onclick="switchTabGroup('${id}', 'utility')"><span class="tab-scope-icon">⚙</span>UTILITY<span class="tab-scope-count">3</span></div>
     </div>
@@ -886,6 +887,7 @@ function generateTabContent(id) {
       <div data-tab="make_mma_atom" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_mma_atom')">make_mma_atom</div>
       <div data-tab="make_tiled_mma" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_tiled_mma')">make_tiled_mma</div>
       <div data-tab="partition_abc" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'partition_abc')">partition_A / B / C</div>
+      <div data-tab="partition_shape_abc" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'partition_shape_abc')">partition_shape_A / B / C</div>
       <div data-tab="make_fragment_abc" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'make_fragment_abc')">make_fragment_A / B / C</div>
       <div data-tab="gemm" class="tab" data-scope="mma" onclick="switchInnerTab('${id}', 'gemm')">gemm</div>
       <div data-tab="make_smem_layout_a" class="tab" data-scope="utility" onclick="switchInnerTab('${id}', 'make_smem_layout_a')">make_smem_layout_a</div>
@@ -922,6 +924,7 @@ function generateTabContent(id) {
     ${generateMakeMmaAtomTabContent(id)}
     ${generateMakeTiledMmaTabContent(id)}
     ${generatePartitionABCTabContent(id)}
+    ${generatePartitionShapeABCTabContent(id)}
     ${generateMakeFragmentABCTabContent(id)}
     ${generateGemmTabContent(id)}
     ${generateDomainOffsetTabContent(id)}
@@ -1156,7 +1159,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, index: 3, composed_layout: 4, composition: 5, complement: 6, divide: 7, zipped: 8, local_tile: 9, product: 10, zipped_product: 11, blocked_product: 12, raked_product: 13, make_copy_atom: 14, make_tiled_copy: 15, make_tiled_copy_tv: 16, make_tiled_copy_ab: 17, retile: 18, make_tiled_tma_atom: 19, tma_partition: 20, partition_sd: 21, make_mma_atom: 22, make_tiled_mma: 23, partition_abc: 24, make_fragment_abc: 25, gemm: 26, make_smem_layout_a: 27, make_smem_layout_b: 28, make_smem_layout_epi: 29, domain_offset: 30 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, index: 3, composed_layout: 4, composition: 5, complement: 6, divide: 7, zipped: 8, local_tile: 9, product: 10, zipped_product: 11, blocked_product: 12, raked_product: 13, make_copy_atom: 14, make_tiled_copy: 15, make_tiled_copy_tv: 16, make_tiled_copy_ab: 17, retile: 18, make_tiled_tma_atom: 19, tma_partition: 20, partition_sd: 21, make_mma_atom: 22, make_tiled_mma: 23, partition_abc: 24, partition_shape_abc: 25, make_fragment_abc: 26, gemm: 27, make_smem_layout_a: 28, make_smem_layout_b: 29, make_smem_layout_epi: 30, domain_offset: 31 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1873,6 +1876,7 @@ const FEATURE_SPEC = {
   make_tiled_mma:  { inputs: 6, optional: 5 },  // legacy constructor; WGMMA appends N/source/major modes/B dtype
   retile: { inputs: 6 }, // tiled TV, tiler, atom values, dtype, RMEM input, thread
   partition_abc:   { inputs: 9, optional: 1 },  // operand, op, ab, acc, K, atom_layout_mnk, perm, thr, tensor [, fragment slice]
+  partition_shape_abc: { inputs: 8 },  // operand, op, ab, acc, K, atom_layout_mnk, perm, shape
   make_fragment_abc: { inputs: 6, optional: 1 }, // operand, op, ab, acc, K, partitioned layout [, thread]
 };
 
@@ -2100,6 +2104,11 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
       document.getElementById(`${tabId}-pabc-fragment-slice-input`).value = inputs[9] && inputs[9] !== 'na' ? inputs[9] : '';
       switchInnerTab(tabId, 'partition_abc');
       renderPartitionABC(tabId);
+      break;
+    }
+    case 'partition_shape_abc': {
+      switchInnerTab(tabId, 'partition_shape_abc');
+      pshpApplyKey(tabId, inputs);
       break;
     }
     case 'make_fragment_abc': {

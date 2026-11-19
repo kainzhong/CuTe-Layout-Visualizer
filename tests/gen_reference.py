@@ -704,6 +704,40 @@ def run_partition_abc(c):
     }
 
 
+def run_partition_shape_abc(c):
+    """TiledMMA.partition_shape_X(shape): a SHAPE, with no thread and no strides.
+
+    C++ CuTe builds it as the shape of partition_X over a dummy compact layout
+    (mma_atom.hpp:563-610), but CuTeDSL's op differs where it matters: Rest
+    modes come back flat even when a permuting layout makes partition_X's Rest
+    nested, and a mode SMALLER than one warp tile rounds up to 1. Both are
+    pinned here. `fragment` is make_fragment_X on that shape -- where the
+    strides a shape lacks actually come from.
+    """
+    op_cfg = {"ab_dtype": c.get("ab") or "half_t",
+              "acc_dtype": c.get("acc") or "float", "k": c["k"]}
+    tmma = cute.make_tiled_mma(
+        cute.make_mma_atom(MMA_OPS[c["op"]](op_cfg)),
+        parse_layout(c["atom_layout"]),
+        parse_tiled_mma_perm(c["perm"]),
+    )
+    shape = _parse_value(c["shape"])
+    fn = getattr(tmma, "partition_shape_" + c["which"])
+    if c.get("expect_error"):
+        try:
+            fn(shape)
+        except Exception:                                   # noqa: BLE001
+            return {"error": True}
+        raise AssertionError("CuTeDSL unexpectedly accepted partition_shape_%s%s"
+                             % (c["which"], c["shape"]))
+    result = fn(shape)
+    fragment = getattr(tmma, "make_fragment_" + c["which"])(result)
+    # The input as CuTe reads a bare shape: make_layout(shape), column-major.
+    # The tab draws it; C++'s partition_shape partitions exactly this layout.
+    return {"input": record(cute.make_layout(shape)),
+            "shape": canon(result), "fragment": record(fragment.layout)}
+
+
 def run_retile(c):
     dtype = DTYPES[c["dtype"]]
     if c["op"] == "universal":
@@ -976,6 +1010,7 @@ SECTIONS = [
     ("tma_partition", run_tma_partition),
     ("partition_sd", run_partition_sd),
     ("partition_abc", run_partition_abc),
+    ("partition_shape_abc", run_partition_shape_abc),
     ("make_fragment_abc", run_make_fragment_abc),
     ("retile", run_retile),
     ("local_tile", run_local_tile),

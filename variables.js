@@ -212,6 +212,13 @@ function variablesClipboardChoices(raw) {
     const mma = mtmDecodeConstructor(a.slice(1,7));
     return [variablesLayoutChoice(pabcComputePartition(mma.atom,mma.atomLayout,mma.perm,a[0],layout(a[8]),a[7] === '' ? null : Number(a[7])).partition)];
   }
+  if (feature === 'partition_shape_abc') {
+    // A Shape has no strides of its own; registered the way CuTe reads one, as
+    // make_layout(shape) — compact column-major.
+    const mma = mtmDecodeConstructor(a.slice(1,7));
+    const r = pshpComputeShape(mma.atom,mma.atomLayout,mma.perm,a[0],pshpParseShape(a[7]).shape);
+    return [variablesRawLayoutChoice(r.shapeStr,'Shape (as make_layout)')];
+  }
   if (feature === 'partition_sd') {
     const side=a[0], copy = method === 'url'
       ? mtcDecodeURL(parsePastedKeyParam(decodeURIComponent(a[1])))

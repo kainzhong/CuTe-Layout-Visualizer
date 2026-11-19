@@ -66,6 +66,10 @@ tabs/
                         `partition_A/B/C` from mma_atom.hpp by reusing `mtmThrfrg` /
                         `mtmComputeTiledMma` with a TENSOR instead of one tile, and
                         `mtmOperandGrid` / `mtmBuildSVG` for grid 1. Prefix `pabc`.
+  partition_shape_abc.js "partition_shape_A / B / C" tab (MMA scope) — TiledMMA.partition_shape_X:
+                        the thread- and stride-free shape of a partition. Reuses
+                        `mtmComputeTiledMma` for mode 0 and `pabcMakeFragment` for
+                        make_fragment_X(shape). Prefix `pshp`.
   make_fragment_abc.js  "make_fragment_A / B / C" tab (MMA scope) — one warp MMA
                         thread's register words from an already partitioned
                         operand layout. Reuses `pabcMakeFragment`. Prefix `mfrag`.
@@ -693,7 +697,7 @@ The tab bar is grouped into **scopes** so it doesn't become a wall of buttons. E
   CuTeDSL is not the oracle for this one: its MLIR `crd2idx` cannot infer a result type for that
   coord/layout pair at all, so the case lives in `tests/unit.js`.
 - `copy` — the copy-construction pipeline: `make_copy_atom` (one instruction), then `make_tiled_copy` / `make_tiled_copy_tv` (replicate it over a tile), `make_tiled_copy_A/B` (match a copy to an MMA operand), then `partition_sd` (hand that TiledCopy a tensor and one thread), plus `make_tiled_tma_atom` and `tma_partition` (the TMA path, which bypasses threads entirely). Accent color: emerald (`#10b981`).
-- `mma` — the MMA side: `make_mma_atom`, then `make_tiled_mma`, then `partition_abc` (hand that TiledMMA a tensor and one thread), then `make_fragment_abc` (the register layout produced from that partition). Accent color: amber (`#f59e0b`). The natural next tab is `make_tiled_copy_A/B/C`, which is where the copy and MMA scopes finally meet — a TiledMMA's `tv_layout_A` is literally the `layout_tv` they hand a copy.
+- `mma` — the MMA side: `make_mma_atom`, then `make_tiled_mma`, then `partition_abc` (hand that TiledMMA a tensor and one thread), `partition_shape_abc` (the same partition's shape from a tile shape alone), then `make_fragment_abc` (the register layout produced from that partition). Accent color: amber (`#f59e0b`). The natural next tab is `make_tiled_copy_A/B/C`, which is where the copy and MMA scopes finally meet — a TiledMMA's `tv_layout_A` is literally the `layout_tv` they hand a copy.
 
 ### How scopes are wired
 
@@ -1894,6 +1898,56 @@ fragments can be descriptors or TMEM tensors, so this tab deliberately offers on
 `tests/run.js` pins this tab the same indirect-but-complete way as `partition_sd` — every thread's
 layout and base offset — plus `tile_mnk` and `thr_layout_vmnk`. The two permutation cases are the
 section's point.
+
+### partition_shape_A / partition_shape_B / partition_shape_C
+
+`tiled_mma.partition_shape_X(shape)` returns a **Shape**: no thread, no tensor, no strides. The
+tab's input groups are `1. TiledMMA` (the same pasteboard decode and folded Manual construction as
+partition_A/B/C, via `mtmManualConstructorMarkup` / `mtmWriteConstructorControls`) and `2. The shape
+being partitioned`. Decode keeps the operand and shape.
+
+**The rule is CuTeDSL's, not C++'s.** C++ CuTe (`mma_atom.hpp:563-610`) partitions a dummy
+compact layout and keeps its shape. CuTeDSL's op, the oracle, differs in two ways, and
+`pshpComputeShape` implements CuTeDSL's version:
+
+```
+mode 0     the atom's per-thread value shape (mode 0 of any partition_X)
+modes 1-2  shape_div(size(shape[i]), atom[i] * atom_layout[i])      permutation_mnk ignored
+modes 3+   shape[3:], verbatim
+```
+
+- Rest is **flat**. With `((2,32):(32,1),32,16)` on a (128,48) A, `partition_A` gives
+  `((2,2,2),(2,2),3)` and `partition_shape_A` gives `((2,2,2),4,3)`. A preset shows this.
+- An extent **smaller** than one warp tile rounds up to 1. `partition_A` rejects that tensor,
+  because its `zipped_divide` must be exact. The tab reports the rounding as a warning and still
+  renders.
+- An extent that is neither a multiple nor a divisor of its warp tile is CuTeDSL's
+  "failed to partition ... with tiled_mma". The oracle records these as `expect_error` cases.
+
+The shape field accepts a full layout, since C++ takes `shape(x)` of its argument, but warns
+that the strides are dropped.
+
+**Strides come from the consumer.** The result box also prints `make_fragment_X(shape)`:
+`pabcMakeFragment` over `make_layout(shape)` (compact column-major, via `autoStride`), which matches
+CuTeDSL's `TiledMma.make_fragment_X(shape)` and is checked against it. The **make_fragment**
+button hands the shape string itself to make_fragment_A/B/C, whose parser reads it the same way.
+It re-renders first, so an edited field never hands off a stale shape. Named variables register
+the result as a Layout, `make_layout(shape)`, labelled "Shape (as make_layout)", because the
+variables contract has no Shape type.
+
+**Two grids.** The first is the input as CuTe reads a bare shape, `make_layout(shape)`: compact
+column-major, size-1 modes at stride 0 (`mtmCompactStride`). That is also the dummy layout C++'s
+`partition_shape` partitions, and the oracle records it as `input`. It draws modes 0-1 at index 0
+of every later mode, colored by the warp tile each element falls in (`colorHighlight` of its Rest
+index, the second grid's colors), with tile boundaries drawn once by the overlay. The second is
+Rest modes 1-2 as `make_layout(Rest)`, column-major. Each cell adds the element where its warp
+tile starts. Both use the shared value/index/coord labels and zoom, with separate mode sets
+(`tileMode`, `mode`). Mode 0 is not drawn, since it is the same in every Rest cell, and modes 3+
+are never tiled; the second header lists both, so it concatenates to the returned shape.
+
+**No `updateRankWarning`.** The shape may have rank above 2, but neither grid flattens it. The
+first draws one stated slice of modes 0-1 and prints the complete `make_layout(shape)` above it;
+the second is always exactly Rest modes 1-2.
 
 ## Layout input convention (rank warnings)
 

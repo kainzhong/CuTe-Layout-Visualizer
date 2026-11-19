@@ -2830,6 +2830,254 @@
    "tensor": "(32, 96):(96, 1)"
   }
  ],
+ "_comment_partition_shape_abc": "TiledMMA.partition_shape_A/B/C(shape) -- mma_atom.hpp:563-610. Oracle is CuTeDSL's own partition_shape_X plus make_fragment_X on the returned shape. Thread- and stride-free: mode 0 is the atom's per-thread value shape, modes 1-2 are shape_div(size(mode), atom extent x atom_layout extent) -- flat even when partition_X's Rest would be NESTED under a permuting layout, permutation_mnk otherwise ignored, rounded UP when the shape is smaller than one warp tile -- and later modes pass through unchanged. expect_error cases are extents that are neither multiples nor divisors of that warp tile, which CuTeDSL rejects.",
+ "partition_shape_abc": [
+  {
+   "id": "A_2x2x1",
+   "which": "A",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": null,
+   "shape": "(64, 48)"
+  },
+  {
+   "id": "B_2x2x1",
+   "which": "B",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": null,
+   "shape": "(32, 48)"
+  },
+  {
+   "id": "C_2x2x1",
+   "which": "C",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": null,
+   "shape": "(64, 32)"
+  },
+  {
+   "id": "A_kloop",
+   "which": "A",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": null,
+   "shape": "(64, 48, 4)"
+  },
+  {
+   "id": "A_nested_trailing",
+   "which": "A",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": null,
+   "shape": "(128, 64, (3, 2))"
+  },
+  {
+   "id": "A_nested_first",
+   "which": "A",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": null,
+   "shape": "((32, 4), 64)"
+  },
+  {
+   "id": "B_nested_k",
+   "which": "B",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": null,
+   "shape": "(64, (32, 2))"
+  },
+  {
+   "id": "A_perm_layout",
+   "which": "A",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": "((2,32):(32,1),32,16)",
+   "shape": "(128, 48)"
+  },
+  {
+   "id": "B_perm_layout",
+   "which": "B",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": "(32,(4,8):(8,1),16)",
+   "shape": "(64, 32)"
+  },
+  {
+   "id": "C_perm_layout",
+   "which": "C",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": "((2,32):(32,1),32,16)",
+   "shape": "(128, 64)"
+  },
+  {
+   "id": "A_perm_extent_ignored",
+   "which": "A",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": "(64,32,16)",
+   "shape": "(32, 64)"
+  },
+  {
+   "id": "A_round_up_M",
+   "which": "A",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": null,
+   "shape": "(16, 64)"
+  },
+  {
+   "id": "A_round_up_K",
+   "which": "A",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": null,
+   "shape": "(128, 8)"
+  },
+  {
+   "id": "C_round_up_single_warp",
+   "which": "C",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(1,1,1)",
+   "perm": null,
+   "shape": "(8, 4)"
+  },
+  {
+   "id": "C_kwarps",
+   "which": "C",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,2)",
+   "perm": null,
+   "shape": "(64, 32)"
+  },
+  {
+   "id": "B_4warps_perm",
+   "which": "B",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(4,1,1)",
+   "perm": "(64,16,32)",
+   "shape": "(16, 64)"
+  },
+  {
+   "id": "A_strided_atom_layout",
+   "which": "A",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1):(2,1,4)",
+   "perm": null,
+   "shape": "(64, 48)"
+  },
+  {
+   "id": "A_tf32",
+   "which": "A",
+   "op": "tf32",
+   "ab": null,
+   "acc": null,
+   "k": 8,
+   "atom_layout": "(2,2,1)",
+   "perm": null,
+   "shape": "(64, 32)"
+  },
+  {
+   "id": "B_fp8",
+   "which": "B",
+   "op": "fp8",
+   "ab": "float_e4m3_t",
+   "acc": "float",
+   "k": 32,
+   "atom_layout": "(2,2,1)",
+   "perm": null,
+   "shape": "(32, 96)"
+  },
+  {
+   "id": "A_reject_48",
+   "which": "A",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": null,
+   "expect_error": true,
+   "shape": "(48, 64)"
+  },
+  {
+   "id": "B_reject_24",
+   "which": "B",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,1)",
+   "perm": null,
+   "expect_error": true,
+   "shape": "(24, 64)"
+  },
+  {
+   "id": "A_reject_kwarps",
+   "which": "A",
+   "op": "f16bf16",
+   "ab": "half_t",
+   "acc": "float",
+   "k": 16,
+   "atom_layout": "(2,2,2)",
+   "perm": null,
+   "expect_error": true,
+   "shape": "(64, 48)"
+  }
+ ],
  "make_tiled_copy_ab": [
   {
    "id": "A_x1_normal",

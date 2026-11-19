@@ -13,7 +13,7 @@ function tabSessionStores() {
     tv: tvState, make_mma_atom: mmaState, make_tiled_mma: mtmState,
     make_copy_atom: mcaState, make_tiled_copy: mtcState, make_tiled_copy_tv: mtvState,
     make_tiled_copy_ab: mcabState, make_tiled_tma_atom: tmaState, tma_partition: tpState,
-    partition_sd: psdState, partition_abc: pabcState, make_fragment_abc: mfragState, gemm: gemmState};
+    partition_sd: psdState, partition_abc: pabcState, partition_shape_abc: pshpState, make_fragment_abc: mfragState, gemm: gemmState};
 }
 
 function tabSessionEncode(value) {

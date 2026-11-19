@@ -134,6 +134,7 @@ Pointwise agreement is the decisive layout check. Two printed layouts can differ
 - `make_mma_atom`: one warp-level instruction's A/B/C fragments.
 - `make_tiled_mma`: replication of the atom across warps and permutation.
 - `partition_abc`: one thread's TiledMMA partition over A/B/C tensors.
+- `partition_shape_abc`: the shape of a TiledMMA partition from a tile shape alone; no thread, tensor, or strides. Follows CuTeDSL (flat Rest, round-up), not C++ CuTe.
 - `make_fragment_abc`: register layout produced by `MmaAtom.make_fragment_A/B/C` from an already partitioned warp MMA operand. It labels source offsets, not runtime values; Hopper descriptors and Blackwell TMEM are outside this tab.
 
 If a proposed control cannot change a drawn cell, prefer a label or explanatory note. Keep constructor parameters, derived tiling, tensor partitioning, and access analysis in their respective layers instead of growing an all-purpose tab.

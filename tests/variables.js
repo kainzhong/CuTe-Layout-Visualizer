@@ -79,6 +79,13 @@ async function main() {
       const value=V.variablesClipboardChoices(key('make_fragment_abc',c.which,c.op,c.ab||'na',c.acc||'na',c.k,c.partition))[0];
       check('fragment is Layout',value.type==='Layout');same(`fragment/${c.id}`,value.value,refs.make_fragment_abc[c.id].str);
     }
+    // A Shape registers as CuTe reads it, make_layout(shape): the oracle shape, column-major.
+    for(const c of cases.partition_shape_abc.filter(c=>!c.expect_error)) {
+      const value=V.variablesClipboardChoices(key('partition_shape_abc',c.which,c.op,c.ab||'na',c.acc||'na',c.k,c.atom_layout,c.perm||'na',c.shape))[0];
+      const want=V.parseLayout(refs.partition_shape_abc[c.id].shape);
+      check('partition shape is Layout',value.type==='Layout');
+      same(`partition_shape/${c.id}`,value.value,V.formatLayoutStr(want.shape,want.stride));
+    }
     for(const c of cases.retile) {
       const ref=refs.retile[c.id];
       same(`retile/${c.id}`,V.variablesClipboardChoices(key('retile',c.tv,`(${c.tile})`,ref.atom_values,c.dtype,c.input,0))[0].value,ref.str);

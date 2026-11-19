@@ -801,6 +801,30 @@ if (section('partition_abc')) {
   }
 }
 
+if (section('partition_shape_abc')) {
+  for (const c of CASES.partition_shape_abc) {
+    const ref = refFor('partition_shape_abc', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const atom = V.mmaWarpAtom(c.op, c.k);
+      const atomLayout = V.mtmParseAtomLayout(c.atom_layout);
+      const perm = V.mtmParsePerm(c.perm || '');
+      const shape = V.pshpParseShape(c.shape).shape;
+      if (ref.error) {
+        let rejected = false;
+        try { V.pshpComputeShape(atom, atomLayout, perm, c.which, shape); } catch (_) { rejected = true; }
+        check(c.id, 'rejected by CuTeDSL and JS', rejected, true);
+        return;
+      }
+      const r = V.pshpComputeShape(atom, atomLayout, perm, c.which, shape);
+      checkLayout(`${c.id}/input`, r.inputLayout, ref.input);   // make_layout(shape)
+      check(c.id, `partition_shape_${c.which}`, r.shapeStr, ref.shape);
+      // make_fragment_X(shape): where the strides a shape lacks come from.
+      checkLayout(`${c.id}/fragment`, r.fragment, ref.fragment);
+    });
+  }
+}
+
 if (section('retile')) {
   for (const c of CASES.retile) {
     const ref = refFor('retile', c.id);

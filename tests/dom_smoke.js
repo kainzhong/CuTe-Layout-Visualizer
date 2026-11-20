@@ -2129,6 +2129,39 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
   };
   const WG_SS = [64, 'SMEM', 'K', 'K', 'half_t'], WG_RS = [64, 'RMEM', 'K', 'K', 'half_t'];
 
+  const tmaPanes = [`${TAB}-tma-src-svg`, `${TAB}-tma-dst-svg`], tpPanes = [`${TAB}-tp-s-svg`, `${TAB}-tp-g-svg`];
+  step('make_tiled_tma_atom: the TMA store swaps SRC/DST and keeps the box', () => {
+    ctx.setTMA(TAB, 'half_t', '(256, 128):(128, 1)', '3,4,3', '(8, 64):(64, 1)', '(8, 64)');
+    const load = tmaPanes.map(id => els.get(id).innerHTML), loadBox = ctx.tmaState[TAB].box.map(b => b.extent).join();
+    expectBadge('tma-src', 'GMEM'); expectBadge('tma-dst', 'SMEM');
+    ctx.setTMA(TAB, 'half_t', '(256, 128):(128, 1)', '3,4,3', '(8, 64):(64, 1)', '(8, 64)', 'tma_s2g');
+    expectBadge('tma-src', 'SMEM'); expectBadge('tma-dst', 'GMEM');
+    if (els.get(`${TAB}-tma-src-svg`).innerHTML !== load[1] || els.get(`${TAB}-tma-dst-svg`).innerHTML !== load[0])
+      throw new Error('store did not swap the GMEM and SMEM panes');
+    if (ctx.tmaState[TAB].box.map(b => b.extent).join() !== loadBox) throw new Error('store changed the box');
+    if (!els.get(`${TAB}-tma-op-params`).innerHTML.includes('CopyBulkTensorTileS2GOp()')) throw new Error('store constructor missing');
+  }, tmaPanes);
+  step('make_tiled_tma_atom: URL keeps the store; a legacy URL means the load', () => {
+    const { exported } = urlRoundTrip(() => ctx.exportTMA(TAB));
+    if (exported.at(-1) !== 'tma_s2g' || els.get(`${TAB}-tma-op-input`).value !== 'tma_s2g') throw new Error('store lost in URL');
+    ctx.location.search = '?key=' + encodeURIComponent('make_tiled_tma_atom-float-(32, 64):(64, 1)-3,4,3-(8, 32):(32, 1)-(8, 32)');
+    const realSwitch = ctx.switchInnerTab; ctx.switchInnerTab = () => {};
+    try { ctx.applyKeyParam(TAB); } finally { ctx.switchInnerTab = realSwitch; ctx.location.search = ''; }
+    if (els.get(`${TAB}-tma-op-input`).value !== 'tma_g2s') throw new Error('legacy URL did not default to the load');
+    expectBadge('tma-src', 'GMEM');
+  }, tmaPanes);
+  step('tma_partition: the store partitions like the load and says how to copy', () => {
+    const args = [16, 'float', '3,4,3', '((4, 16), 2):((16, 1), 64)', '((4, 16), (2, 2)):((1@0, 1@1), (4@0, 16@1))'];
+    ctx.setTP(TAB, ...args);
+    const load = tpPanes.map(id => els.get(id).innerHTML), loadParts = [ctx.tpState[TAB].sPartStr, ctx.tpState[TAB].gPartStr].join();
+    ctx.setTP(TAB, ...args, 'tma_s2g');
+    if (tpPanes.some((id, i) => els.get(id).innerHTML !== load[i]) ||
+        [ctx.tpState[TAB].sPartStr, ctx.tpState[TAB].gPartStr].join() !== loadParts) throw new Error('store changed the partition');
+    if (!/Store:.*SMEM &rarr; GMEM/.test(els.get(`${TAB}-tp-result`).innerHTML)) throw new Error('store copy line missing');
+    const { exported } = urlRoundTrip(() => ctx.exportTP(TAB));
+    if (exported.at(-1) !== 'tma_s2g' || els.get(`${TAB}-tp-op-input`).value !== 'tma_s2g') throw new Error('store lost in URL');
+  }, tpPanes);
+
   step('every MMA editor offers exactly MMA_ALL_OPS', () => {
     const want = JSON.stringify(Object.keys(ctx.MMA_ALL_OPS));
     const pickers = [...html.matchAll(/<select id="([^"]+-op-input)"[^>]*>([\s\S]*?)<\/select>/g)]

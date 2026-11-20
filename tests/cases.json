@@ -1752,6 +1752,96 @@
       "swizzle": "none",
       "smem": "(2,256):(256,1)",
       "tiler": "(2,256)"
+    },
+    {
+      "id": "tma-f16-64x64-sw128-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "3,4,3",
+      "smem": "(64,64):(64,1)",
+      "tiler": "(64,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-8x64-sw128-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "3,4,3",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-8x32-sw64-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "2,4,3",
+      "smem": "(8,32):(32,1)",
+      "tiler": "(8,32)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-none-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f32-32x32-s2g",
+      "dtype": "float",
+      "gmem": "(128,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(32,32):(32,1)",
+      "tiler": "(32,32)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-u128-8x8-sw128-s2g",
+      "dtype": "uint128_t",
+      "gmem": "(64,32):(32,1)",
+      "swizzle": "3,4,3",
+      "smem": "(8,8):(8,1)",
+      "tiler": "(8,8)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-colmajor-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(1,256)",
+      "swizzle": "none",
+      "smem": "(64,64):(1,64)",
+      "tiler": "(64,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-reshape-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(16,128):(128,1)",
+      "tiler": "(16,128)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-1x64-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(1,64):(64,1)",
+      "tiler": "(1,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-2x256-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,256):(256,1)",
+      "swizzle": "none",
+      "smem": "(2,256):(256,1)",
+      "tiler": "(2,256)",
+      "op": "tma_s2g"
     }
   ],
   "_comment_tma_partition": [
@@ -1847,6 +1937,95 @@
       "swizzle": "none",
       "smem": "(64,64):(1,64)",
       "tiler": "(64,64)"
+    },
+    {
+      "id": "tp-f16-8x64-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "3,4,3",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tp-f16-iter8-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)",
+      "atom_smem": "(1,64):(64,1)",
+      "atom_tiler": "(1,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tp-f16-iter2-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)",
+      "atom_smem": "(4,64):(64,1)",
+      "atom_tiler": "(4,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tp-f16-iter16-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "3,4,3",
+      "smem": "(16,128):(128,1)",
+      "tiler": "(16,128)",
+      "atom_smem": "(1,128):(128,1)",
+      "atom_tiler": "(1,128)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tp-f16-col-iter-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(1,256)",
+      "swizzle": "none",
+      "smem": "(64,64):(1,64)",
+      "tiler": "(64,64)",
+      "atom_smem": "(64,1):(1,64)",
+      "atom_tiler": "(64,1)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tp-f16-64x64-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "3,4,3",
+      "smem": "(64,64):(64,1)",
+      "tiler": "(64,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tp-f16-nosw-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tp-f32-32x32-s2g",
+      "dtype": "float",
+      "gmem": "(128,128):(128,1)",
+      "swizzle": "none",
+      "smem": "(32,32):(32,1)",
+      "tiler": "(32,32)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tp-f16-col-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128):(1,256)",
+      "swizzle": "none",
+      "smem": "(64,64):(1,64)",
+      "tiler": "(64,64)",
+      "op": "tma_s2g"
     }
   ],
   "_comment_swizzle": [

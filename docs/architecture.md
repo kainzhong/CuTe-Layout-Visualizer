@@ -1000,6 +1000,18 @@ layout and no thread panel — `mtcRenderThreadPanel` has no analogue here, and 
 wrapper's `layout_TV` is degenerate (`cta_t_map = 1` without multicast). The tab shares nothing with
 the mtc/mtv tabs except ui.js's SRC/DST panes.
 
+**Load and store share everything but direction.** `TMA_OPS` holds the plain `.tile` load
+(`tma_g2s`, GMEM→SMEM) and store (`tma_s2g`, SMEM→GMEM). CuTeDSL hands both the same
+`smem_layout` and `cta_v_map` (`atom_make_non_exec_tiled_tma_store`), and every `-s2g` oracle case
+equals its load twin: same `num_val`, atom layout and coordinate tensor. `tmaComputeAtom` therefore
+ignores the Op. `tmaRenderBoxViz` puts the GMEM grid in the SRC pane for the load and the DST pane
+for the store; badges come from `COPY_OP_MOVES` through `syncCopyMoves`. The Op is an optional
+sixth URL field (`make_tiled_tma_atom` and `tma_partition`); a URL without it means the load.
+`tests/gpu_check.py --tma` executes the store for every `tma_atom` case (fill SMEM, fence the
+async proxy, TMA store, compare GMEM bit-exactly). CuTeDSL 4.8 cannot lower a coordinate tensor
+over 128-bit elements for either Op, so `tma-u128-8x8-sw128` is listed as a known lowering
+failure; the gate fails if that case starts working, so the entry is noticed.
+
 **The box is inferred, never given.** `cta_tiler` picks the region; `smem_layout` picks the order and
 swizzle; the descriptor falls out of the two. The pipeline is a port of
 `include/cute/atom/copy_traits_sm90_tma.hpp` — `construct_tma_gbasis` (:735), `coalesce_256` (:676),
@@ -1098,6 +1110,10 @@ direction would silently become wrong the moment the store Op is added, which is
 roadmap. SMEM never has one; it is an ordinary layout over a flat buffer.
 
 ### tma_partition
+
+The Op picker offers the same load and store as `make_tiled_tma_atom`. Both atoms are
+`ThrID 1:0`, `Src = Dst = (1,N)`, and the split depends only on SMEM, so the partition is identical
+(the `-s2g` oracle cases pin it). The Op changes only the `cute.copy` line in the result box.
 
 Its own tab rather than a panel on `make_tiled_tma_atom`, because it is a separate call people reach
 for on its own; a **flow collection** composing `make_tiled_tma_atom` + `local_tile` +

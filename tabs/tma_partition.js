@@ -31,6 +31,11 @@
 //     `size<0>(stensor) == size<0>(tensor)` — mode 0 must already BE the tile on
 //     both sides, which is what the caller's `group_modes(x, 0, 2)` is for.
 //
+// The load (CopyBulkTensorTileG2SOp) and the store (CopyBulkTensorTileS2GOp)
+// partition identically: both atoms are ThrID 1:0, Src = Dst = (1,N), and the
+// split comes from SMEM alone. The Op changes only the direction of the copy
+// the result feeds, which the result box spells out.
+//
 // Multicast is out of scope here (cta_layout is 1), so `domain_offset` is always
 // zero. It lands with the multicast Op, alongside the same gap in the
 // make_tiled_tma_atom tab.
@@ -47,9 +52,7 @@ function generateTmaPartitionTabContent(id) {
           <div class="cuo-section-body">
             <div class="form-group">
               <label>TMA operation</label>
-              <select id="${id}-tp-op-input" disabled>
-                <option value="tma_g2s" selected>cpasync.CopyBulkTensorTileG2SOp</option>
-              </select>
+              <select id="${id}-tp-op-input" onchange="renderTmaPartition('${id}')">${tmaOpOptions('tma_g2s')}</select>
             </div>
             <div class="form-group">
               <label>ThrID<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; always one thread for TMA</span></label>
@@ -114,6 +117,7 @@ function generateTmaPartitionTabContent(id) {
             <button class="preset-btn" onclick="setTP('${id}',32,'bfloat16_t','3,4,3','((4, 32), 2):((32, 1), 128)','((4, 32), (2, 2)):((1@0, 1@1), (4@0, 32@1))')">bf16, 4 passes of 32</button>
             <button class="preset-btn" onclick="setTP('${id}',16,'float','none','(4, 16):(1, 4)','((4, 16), (2, 2)):((1@0, 1@1), (4@0, 16@1))')">M-major SMEM &mdash; same shape, the order runs down the columns</button>
             <button class="preset-btn" onclick="setTP('${id}',16,'float','3,4,3','(4, 16):(16, 1)','(4, 16):(1@0, 1@1)')">No Rest &mdash; a single tile, so tAgA is rank 1 like tAsA</button>
+            <button class="preset-btn" onclick="setTP('${id}',16,'float','3,4,3','((4, 16), 2):((16, 1), 64)','((4, 16), (2, 2)):((1@0, 1@1), (4@0, 16@1))','tma_s2g')">TMA store &mdash; the same split, copied SMEM &rarr; GMEM</button>
             <button class="preset-btn" onclick="setTP('${id}',4096,'bfloat16_t','3,4,3','((32,128),2):((128,1),4096)','((32,128),(12,2)):((1@1,1@0),(32@1,128@0))')">Production scale &mdash; 4096-element tile is one pass, so each of the 24 tiles is one cell</button>
           </div>
         </div>
@@ -351,6 +355,7 @@ function renderTmaPartition(tabId) {
     const smemStr = document.getElementById(`${tabId}-tp-smem-input`).value;
     const gmemStr = document.getElementById(`${tabId}-tp-gmem-input`).value;
     const swRaw   = document.getElementById(`${tabId}-tp-swizzle-input`).value;
+    const opKey   = tmaOpKey(document.getElementById(`${tabId}-tp-op-input`).value);
 
     const elemBits = DTYPE_BITS[dtype];
     if (!elemBits) throw new Error(`Unknown element type "${dtype}"`);
@@ -415,7 +420,10 @@ function renderTmaPartition(tabId) {
     // is in the hint for anyone who wants it — nobody reads it inline.
     document.getElementById(`${tabId}-tp-result`).innerHTML =
       `<div class="cuo-result-line">tAsA = <b>${tmaEsc(sPartStr)}</b></div>` +
-      `<div class="cuo-result-line">tAgA = <b>${tmaEsc(gPartStr)}</b></div>`;
+      `<div class="cuo-result-line">tAgA = <b>${tmaEsc(gPartStr)}</b></div>` +
+      (opKey === 'tma_s2g'
+        ? `<div class="cuo-result-line" style="color:#9ca3af">Store: <code>cute.copy(tma_atom, tAsA, tAgA[(None, rest)])</code> &mdash; SMEM &rarr; GMEM. The partition is the load's; only the copy's direction changes.</div>`
+        : `<div class="cuo-result-line" style="color:#9ca3af">Load: <code>cute.copy(tma_atom, tAgA[(None, rest)], tAsA, tma_bar_ptr=...)</code> &mdash; GMEM &rarr; SMEM.</div>`);
 
     const prev = tpState[tabId] || {};
     tpState[tabId] = {
@@ -660,7 +668,8 @@ function setTpMode(tabId, mode) {
   tpRenderViz(tabId);
 }
 
-function setTP(tabId, vals, dtype, sw, smem, gmem) {
+function setTP(tabId, vals, dtype, sw, smem, gmem, op) {
+  document.getElementById(`${tabId}-tp-op-input`).value      = tmaOpKey(op);
   document.getElementById(`${tabId}-tp-vals-input`).value    = vals;
   document.getElementById(`${tabId}-tp-dtype-input`).value   = dtype;
   document.getElementById(`${tabId}-tp-swizzle-input`).value = sw;
@@ -676,5 +685,6 @@ function exportTP(tabId) {
     document.getElementById(`${tabId}-tp-dtype-input`).value,
     document.getElementById(`${tabId}-tp-swizzle-input`).value,
     document.getElementById(`${tabId}-tp-smem-input`).value,
-    document.getElementById(`${tabId}-tp-gmem-input`).value);
+    document.getElementById(`${tabId}-tp-gmem-input`).value,
+    tmaOpKey(document.getElementById(`${tabId}-tp-op-input`).value));
 }

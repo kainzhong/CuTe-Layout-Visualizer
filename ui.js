@@ -1479,6 +1479,11 @@ const COPY_OP_MOVES = {
   tma_g2s: [
     ['GMEM', 'SMEM'],
   ],
+  // Bulk tensor (TMA) store: the plain `.tile` S2G Op. Same descriptor, box and
+  // coordinate tensor as the load; only the direction differs.
+  tma_s2g: [
+    ['SMEM', 'GMEM'],
+  ],
   // ldmatrix reads .shared::cta and writes registers — the source operand is a
   // shared-memory address and the destination is the warp's register file, both
   // fixed by the instruction encoding. There is no GMEM form (that is what
@@ -1867,8 +1872,8 @@ const FEATURE_SPEC = {
   make_copy_atom:     { inputs: 3, optional: 3 },  // op, bits, dtype [, num_matrices, transpose]; accept legacy unpack_bits tail
   make_tiled_copy:    { inputs: 5 },  // op, bits, dtype, layout_tv, tiler_mn
   make_tiled_copy_tv: { inputs: 5 },  // op, bits, dtype, thr, val
-  make_tiled_tma_atom: { inputs: 5 },  // dtype, gmem, swizzle, smem, tiler
-  tma_partition:       { inputs: 5 },  // values, dtype, swizzle, smem, rest
+  make_tiled_tma_atom: { inputs: 5, optional: 1 },  // dtype, gmem, swizzle, smem, tiler [, op]
+  tma_partition:       { inputs: 5, optional: 1 },  // values, dtype, swizzle, smem, rest [, op]
   partition_sd:        { inputs: 4, methods: ['url'], legacyInputs: 8 },  // url: side, encoded copy URL, thread, tensor; legacy constructor fields remain accepted
   swizzle:         { inputs: 2 },
   make_mma_atom:   { inputs: 4, optional: 5 },  // warpgroup adds N, A source, A/B major modes, B dtype
@@ -2231,6 +2236,7 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
       document.getElementById(`${tabId}-tma-swizzle-input`).value = inputs[2];
       document.getElementById(`${tabId}-tma-smem-input`).value    = inputs[3];
       document.getElementById(`${tabId}-tma-tiler-input`).value   = inputs[4];
+      document.getElementById(`${tabId}-tma-op-input`).value      = tmaOpKey(inputs[5]);
       switchInnerTab(tabId, 'make_tiled_tma_atom');
       renderMakeTiledTmaAtom(tabId);
       break;
@@ -2240,6 +2246,7 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
       document.getElementById(`${tabId}-tp-swizzle-input`).value = inputs[2];
       document.getElementById(`${tabId}-tp-smem-input`).value    = inputs[3];
       document.getElementById(`${tabId}-tp-gmem-input`).value    = inputs[4];
+      document.getElementById(`${tabId}-tp-op-input`).value      = tmaOpKey(inputs[5]);
       switchInnerTab(tabId, 'tma_partition');
       renderTmaPartition(tabId);
       break;

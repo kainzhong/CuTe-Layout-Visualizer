@@ -2,6 +2,7 @@
 """OPTIONAL GPU gate: does each Op the tabs offer actually EXECUTE?
 
     python3 tests/gpu_check.py
+    python3 tests/gpu_check.py --tma     # TMA store, SM90+
 
 NOT part of `npm test`, and not part of `npm run reference` -- both of those are
 deliberately GPU-free (see tests/README.md). This is the check you run BEFORE
@@ -283,6 +284,131 @@ def warpgroup_main():
     return 1 if failures else 0
 
 
+def run_tma_store(case):
+    """One CTA, one TMA store (cpasync.CopyBulkTensorTileS2GOp) of the tile at
+    the origin. Threads fill the SMEM tile from `src`, the TMA unit writes it to
+    `dst`; the tile must arrive bit-exact and nothing else may be written.
+    Returns the number of mismatched elements."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from gen_reference import DTYPES, parse_layout, parse_swizzle, _parse_value
+    from cutlass.cute.nvgpu import cpasync
+    from cutlass.memory import SmemAllocator
+
+    dtype = DTYPES[case["dtype"]]
+    gmem_str, smem_str, sw = case["gmem"], case["smem"], parse_swizzle(case["swizzle"])
+    tiler_val = _parse_value(case["tiler"])
+    tile_size = int(np.prod(tiler_val))
+    threads = min(tile_size, 1024)
+    assert tile_size % threads == 0
+    smem_bytes = tile_size * dtype.width // 8
+
+    @cute.kernel
+    def kern(atom: cute.CopyAtom, tma_dst: cute.Tensor, src: cute.Tensor):
+        tid, _, _ = cute.arch.thread_idx()
+        alloc = SmemAllocator()
+        base = parse_layout(smem_str)
+        if cutlass.const_expr(sw is not None):
+            sC = alloc.allocate_tensor(dtype, base, 128, swizzle=cute.make_swizzle(*sw))
+        else:
+            sC = alloc.allocate_tensor(dtype, base, 128)
+        gS = cute.local_tile(src, tiler_val, (0, 0))
+        for k in cutlass.range_constexpr(tile_size // threads):
+            sC[tid + k * threads] = gS[tid + k * threads]
+        # Generic-proxy SMEM writes must be visible to the async (TMA) proxy.
+        cute.arch.fence_proxy("async.shared", space="cta")
+        cute.arch.barrier()
+        gD = cute.local_tile(tma_dst, tiler_val, (0, 0))
+        tAsC, tAgC = cpasync.tma_partition(atom, 0, cute.make_layout(1),
+                                           cute.group_modes(sC, 0, 2), cute.group_modes(gD, 0, 2))
+        warp = cute.arch.make_warp_uniform(cute.arch.warp_idx())
+        if warp == 0:
+            cute.copy(atom, tAsC, tAgC)
+            cute.arch.cp_async_bulk_commit_group()
+            cute.arch.cp_async_bulk_wait_group(0, read=False)
+
+    @cute.jit
+    def launch(psrc: cute.Pointer, pdst: cute.Pointer):
+        layout = parse_layout(gmem_str)
+        src = cute.make_tensor(psrc, layout)
+        dst = cute.make_tensor(pdst, layout)
+        slay = parse_layout(smem_str)
+        if cutlass.const_expr(sw is not None):
+            slay = cute.make_composed_layout(cute.make_swizzle(*sw), 0, slay)
+        atom, tma_dst = cpasync.make_tiled_tma_atom(
+            cpasync.CopyBulkTensorTileS2GOp(), dst, slay, tiler_val)
+        kern(atom, tma_dst, src).launch(grid=(1, 1, 1), block=(threads, 1, 1),
+                                        smem=smem_bytes + 1024)
+
+    layout_shape = [int(x) for x in gmem_str.split(":")[0].strip("() ").split(",")]
+    n = int(np.prod(layout_shape))
+    nbytes = dtype.width // 8
+    rng = np.random.default_rng(1)
+    src = rng.integers(1, 255, size=n * nbytes, dtype=np.uint8)
+    dst = np.zeros_like(src)
+    psrc, pdst = to_device(src), to_device(dst)
+    ptr = lambda p: cute.runtime.make_ptr(  # noqa: E731
+        dtype, int(p), cute.AddressSpace.gmem, assumed_align=128)
+    args = (ptr(psrc), ptr(pdst))
+    cute.compile(launch, *args)(*args)
+    ck(drv.cuCtxSynchronize())
+    got = from_device(pdst, dst).reshape(n, nbytes)
+    want = np.zeros_like(got)
+    # Expected: exactly the origin tile copied. Evaluate offsets on the host
+    # from the (flat, rank-2) GMEM layout.
+    shape = layout_shape
+    stride = [int(x) for x in gmem_str.split(":")[1].strip("() ").split(",")]
+    for i in range(tiler_val[0]):
+        for j in range(tiler_val[1]):
+            off = i * stride[0] + j * stride[1]
+            want[off] = src.reshape(n, nbytes)[off]
+    return int(np.any(got != want, axis=1).sum())
+
+
+# CuTeDSL 4.8 cannot lower a TMA coordinate tensor over 128-bit elements, for
+# the LOAD Op as much as the store ("failed to legalize unresolved
+# materialization"). Not a property of the store; recorded so the gate stays
+# honest. The case must keep failing -- if it starts passing, delete it here.
+TMA_KNOWN_LOWERING_FAILURES = {
+    "tma-u128-8x8-sw128": "CuTeDSL 4.8 cannot lower 128-bit TMA elements (load or store)",
+}
+
+
+def tma_main():
+    import json
+    from pathlib import Path
+    ck(drv.cuInit(0))
+    dev = ck(drv.cuDeviceGet(0))
+    major = ck(drv.cuDeviceGetAttribute(
+        drv.CUdevice_attribute.CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, dev))
+    if major < 9:
+        sys.exit(f"TMA requires SM90 or newer; this device is SM{major}x.")
+    ck(drv.cuCtxCreate(0, dev))
+    case_filter = sys.argv[sys.argv.index("--case") + 1] if "--case" in sys.argv else ""
+    cases = [c for c in json.loads(Path(__file__).with_name("cases.json").read_text())["tma_atom"]
+             if case_filter in c["id"]]
+    print("make_tiled_tma_atom -- cpasync.CopyBulkTensorTileS2GOp, compiled and executed")
+    failures = []
+    for case in cases:
+        known = TMA_KNOWN_LOWERING_FAILURES.get(case["id"])
+        try:
+            bad = run_tma_store(case)
+            if bad:
+                raise AssertionError(f"{bad} elements differ")
+            if known:
+                raise AssertionError(f"now executes; remove it from TMA_KNOWN_LOWERING_FAILURES ({known})")
+            print(f"  ok    {case['id']}", flush=True)
+        except Exception as e:                              # noqa: BLE001
+            if known and "compiler pass failed" in str(e):
+                print(f"  known {case['id']}  {known}", flush=True)
+                continue
+            print(f"  FAIL  {case['id']}  {type(e).__name__}: {' '.join(str(e).split())[:200]}", flush=True)
+            failures.append(case["id"])
+    known = sum(1 for c in cases if c["id"] in TMA_KNOWN_LOWERING_FAILURES and c["id"] not in failures)
+    print(f"{len(cases) - len(failures) - known}/{len(cases)} TMA store cases compiled and executed"
+          + (f", {known} known DSL lowering failure{'s' if known != 1 else ''}" if known else ""))
+    return 1 if failures else 0
+
+
 def main():
     ck(drv.cuInit(0))
     dev = ck(drv.cuDeviceGet(0))
@@ -319,4 +445,5 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(warpgroup_main() if "--warpgroup" in sys.argv else main())
+    sys.exit(warpgroup_main() if "--warpgroup" in sys.argv
+             else tma_main() if "--tma" in sys.argv else main())

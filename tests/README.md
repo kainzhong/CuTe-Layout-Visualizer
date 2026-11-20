@@ -146,6 +146,22 @@ against NumPy. `--case <substring>` narrows the corpus during debugging.
 Execution validated with CuTeDSL 4.8.0 on NVIDIA H100 PCIe: all 303 offered
 WGMMA configurations compiled and executed with exact agreement against NumPy.
 
+## TMA store
+
+```bash
+python3 tests/gpu_check.py --tma
+```
+
+Requires SM90 or newer. For each `tma_atom` case it builds a `CopyBulkTensorTileS2GOp` atom,
+fills the SMEM tile with threads, fences the async proxy, issues the TMA store and compares
+the destination GMEM bit-exactly, including that nothing outside the tile was written.
+`--case <substring>` narrows the corpus. The `tma_atom` / `tma_partition` oracle sections
+mirror every load case as an `-s2g` store case.
+
+Execution validated with CuTeDSL 4.8.0 on NVIDIA GB200 (SM100): 9 of 10 cases executed
+bit-exact. `tma-u128-8x8-sw128` is a known CuTeDSL lowering failure for 128-bit elements,
+which affects the load Op as well.
+
 ## WGMMA in every MMA consumer
 
 Every MMA tab offers every MMA Op, so each consumer has a WGMMA oracle section, traced

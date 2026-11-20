@@ -861,10 +861,21 @@ def _tma_inputs(c):
     return dtype, g, _smem_layout(c["smem"], sw), _parse_value(c["tiler"]), sw
 
 
+# The tab's Op picker keys. The plain store builds the same atom and
+# coordinate tensor as the load; the s2g cases pin that.
+TMA_OPS = {
+    "tma_g2s": lambda: cpasync.CopyBulkTensorTileG2SOp(),
+    "tma_s2g": lambda: cpasync.CopyBulkTensorTileS2GOp(),
+}
+
+
+def _tma_op(c):
+    return TMA_OPS[c.get("op", "tma_g2s")]()
+
+
 def run_tma_atom(c):
     dtype, g, slay, tiler, _sw = _tma_inputs(c)
-    atom, tma_tensor = cpasync.make_tiled_tma_atom(
-        cpasync.CopyBulkTensorTileG2SOp(), g, slay, tiler)
+    atom, tma_tensor = cpasync.make_tiled_tma_atom(_tma_op(c), g, slay, tiler)
     num_val = int(cute.size(atom.layout_src_tv, mode=[1]))
     return {
         "num_val": num_val,
@@ -881,11 +892,10 @@ def run_tma_partition(c):
     # the whole tile and TMA_Iter is degenerate.
     if "atom_tiler" in c:
         atom, gA = cpasync.make_tiled_tma_atom(
-            cpasync.CopyBulkTensorTileG2SOp(), g,
+            _tma_op(c), g,
             _smem_layout(c["atom_smem"], sw), _parse_value(c["atom_tiler"]))
     else:
-        atom, gA = cpasync.make_tiled_tma_atom(
-            cpasync.CopyBulkTensorTileG2SOp(), g, slay, tiler)
+        atom, gA = cpasync.make_tiled_tma_atom(_tma_op(c), g, slay, tiler)
     sA = cute.make_tensor(
         cute.make_ptr(dtype, 0, cute.AddressSpace.smem, assumed_align=16), slay)
     sT = cute.group_modes(sA, 0, 2)          # ((tile)) -- no Rest on the smem side

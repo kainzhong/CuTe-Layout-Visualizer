@@ -3,11 +3,13 @@
 // it moves) and the TMA coordinate tensor.
 // Functions become globals on `window` (no module system).
 //
-// Scope for now: `cpasync.CopyBulkTensorTileG2SOp` only (plain `.tile` mode TMA
-// load, GMEM -> SMEM), num_multicast fixed at 1. The DSL itself rejects
-// num_multicast != 1 for this Op (cpasync/helpers.py:521-526); the multicast,
-// store and im2col Ops are separate entries in the same `if` chain and belong
-// in later revisions of this tab.
+// Scope for now: the plain `.tile`-mode Ops, `cpasync.CopyBulkTensorTileG2SOp`
+// (load, GMEM -> SMEM, num_multicast fixed at 1) and
+// `cpasync.CopyBulkTensorTileS2GOp` (store, SMEM -> GMEM). The DSL rejects
+// num_multicast != 1 for the load (cpasync/helpers.py:521-526) and the store
+// takes none. The store builds the same descriptor, box and coordinate tensor
+// (atom_make_non_exec_tiled_tma_store gets the same smem_layout and cta_v_map);
+// only which pane is SRC changes. Multicast, reduce and im2col are later work.
 //
 // The DSL entry point (python/CuTeDSL/cutlass/cute/nvgpu/cpasync/helpers.py:419)
 // only packs arguments and hands them to MLIR, so the algorithm mirrored here is
@@ -37,8 +39,8 @@
 const TMA_MAX_BOX_EXTENT = 256;   // 2^8, copy_traits_sm90_tma.hpp:1005-1014
 const TMA_MAX_RANK = 5;           // cuTensorMapEncodeTiled's tensorRank limit
 
-// The only Op this tab builds, kept in a table so the multicast / store / im2col
-// variants slot in beside it rather than restructuring the form.
+// The Ops this tab builds, kept in a table so the multicast / reduce / im2col
+// variants slot in beside them rather than restructuring the form.
 const TMA_OPS = {
   tma_g2s: {
     label: 'cpasync.CopyBulkTensorTileG2SOp',
@@ -49,7 +51,27 @@ const TMA_OPS = {
           '<code>num_multicast != 1</code> on this Op — the multicast form is a ' +
           'different Op (<code>CopyBulkTensorTileG2SMulticastOp</code>).',
   },
+  tma_s2g: {
+    label: 'cpasync.CopyBulkTensorTileS2GOp',
+    ctor: 'cute.nvgpu.cpasync.CopyBulkTensorTileS2GOp()',
+    params: [],
+    note: 'Plain <code>.tile</code>-mode bulk tensor store, SMEM &rarr; GMEM. ' +
+          'Takes no constructor parameters and has no multicast. Descriptor, box and ' +
+          'coordinate tensor are the load\'s; only the direction differs. Before the copy, ' +
+          'make SMEM writes visible to TMA with <code>fence_proxy("async.shared")</code>; ' +
+          'afterwards, <code>cp_async_bulk_commit_group</code> and <code>cp_async_bulk_wait_group</code>.',
+  },
 };
+
+/** URL/preset Op field -> TMA_OPS key; old URLs carry none and mean the load. */
+function tmaOpKey(raw) {
+  return TMA_OPS[raw] ? raw : 'tma_g2s';
+}
+
+function tmaOpOptions(selected) {
+  return Object.entries(TMA_OPS).map(([key, op]) =>
+    `<option value="${key}"${key === selected ? ' selected' : ''}>${op.label}</option>`).join('');
+}
 
 // ═══════════════════════════════════════════════════════
 //  Swizzle: CuTe's TMA smem swizzle is expressed in BYTES
@@ -564,12 +586,10 @@ ${copyMoveField(id, 'tma')}
           <div class="cuo-section-body">
             <div class="form-group">
               <label>TMA operation</label>
-              <select id="${id}-tma-op-input" disabled>
-                <option value="tma_g2s" selected>cpasync.CopyBulkTensorTileG2SOp</option>
-              </select>
+              <select id="${id}-tma-op-input" onchange="renderMakeTiledTmaAtom('${id}')">${tmaOpOptions('tma_g2s')}</select>
             </div>
             <div class="form-group">
-              <label>num_multicast<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; fixed at 1: this Op is the non-multicast form</span></label>
+              <label>num_multicast<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; fixed at 1: both Ops are non-multicast forms</span></label>
               <input type="text" id="${id}-tma-multicast-input" value="1" disabled>
             </div>
             <div id="${id}-tma-op-params" class="cuo-result"></div>
@@ -623,6 +643,8 @@ ${copyMoveField(id, 'tma')}
             <button class="preset-btn" onclick="setTMA('${id}','float','(32, 64):(64, 1)','3,4,3','(8, 64):(64, 1)','(8, 64)')">Box row 256 B vs a 128 B swizzle &mdash; rejected by the driver</button>
             <button class="preset-btn" onclick="setTMA('${id}','float','(32, 64):(64, 1)','3,4,3','(8, 32):(1, 8)','(8, 32)')">M-major SMEM over a K-major tensor &mdash; majorness mismatch</button>
             <button class="preset-btn" onclick="setTMA('${id}','float','(32, 64):(64, 1)','3,4,3','(8, 32):(32, 1)','(8:2, 32)')">Strided tiler (8:2, 32) &mdash; box truncated, 8 instructions per tile</button>
+            <button class="preset-btn" onclick="setTMA('${id}','half_t','(256, 128):(128, 1)','3,4,3','(8, 64):(64, 1)','(8, 64)','tma_s2g')">TMA store &mdash; the same 8&times;64 half box, SMEM &rarr; GMEM</button>
+            <button class="preset-btn" onclick="setTMA('${id}','half_t','(256, 128):(128, 1)','3,4,3','(64, 64):(64, 1)','(64, 64)','tma_s2g')">TMA store &mdash; a 64&times;64 epilogue tile (big)</button>
           </div>
         </div>
 
@@ -663,7 +685,10 @@ ${copyMoveField(id, 'tma')}
           of the cells. The <code>swizzled cells</code> the DST pane shows
           moving is the check: if no cell moves, the tile is too small to
           exercise the swizzle you asked for.<br><br>
-          <b>Not covered yet.</b> Multicast, TMA store, im2col,
+          <b>Load or store.</b> <code>CopyBulkTensorTileS2GOp</code> builds the same
+          descriptor, box and coordinate tensor as the load; only the direction
+          changes, so SMEM becomes the SRC pane and GMEM the DST pane.<br><br>
+          <b>Not covered yet.</b> Multicast, reduce-store, im2col,
           <code>gather4</code>/<code>scatter4</code>, <code>internal_type</code>
           recasts, rank &gt; 2 tensors, and <code>tma_partition</code>.
         </div>
@@ -672,7 +697,7 @@ ${copyMoveField(id, 'tma')}
       <div class="comp-results" style="grid-template-columns:1fr">
         <div class="comp-viz-item">
           <div class="comp-viz-header">
-            <span class="comp-viz-label" id="${id}-tma-box-title">CTA tile &mdash; GMEM to SMEM, coloured by TMA box</span>
+            <span class="comp-viz-label" id="${id}-tma-box-title">CTA tile &mdash; coloured by TMA box</span>
             <span style="display:flex;align-items:center;gap:4px">
               ${copyDirButtons(id, 'tma')}
               <span class="mode-btn-group" id="${id}-tma-box-mode-btns">
@@ -683,8 +708,8 @@ ${copyMoveField(id, 'tma')}
             </span>
           </div>
           <div class="cuo-viz-desc">
-            One CTA tile: <b>SRC</b> is it in GMEM, <b>DST</b> the same elements
-            in SMEM. Colour is shared &mdash; same colour = same box row, so
+            One CTA tile, in GMEM and the same elements in SMEM. For the load,
+            GMEM is <b>SRC</b> and SMEM <b>DST</b>; the store reverses them. Colour is shared &mdash; same colour = same box row, so
             matching bands are the elements one contiguous TMA fetch moves, and
             when a tile needs several instructions the later ones are darker.<br><br>
             <b>The grid is the tile, not the box.</b> The box is not a different
@@ -702,7 +727,7 @@ ${copyMoveField(id, 'tma')}
             coordinate maps to in each space: the element's linear offset from the
             tensor base on SRC, and its offset in shared memory on DST, swizzle
             included. Since the same tuple appears in both panes, finding it twice
-            is the copy: that is where the element starts and where it lands.<br><br>
+            is the copy: where the element is read and where it is written.<br><br>
             The SMEM value is the <em>composed</em> layout's output, so it already
             has the swizzle in it. To see what the swizzle did, set the swizzle
             picker to <code>none</code> and compare &mdash; the header reports how
@@ -721,11 +746,10 @@ ${copyPanes(id, 'tma')}
           </div>
           <div class="cuo-viz-desc">
             The second return value, and always the <b>GMEM-side</b> tensor: with
-            this load Op that makes it the SRC, but the same
-            <code>get_tma_tensor</code> exists on
-            <code>Copy_Traits&lt;SM90_TMA_STORE&gt;</code>
-            (<code>copy_traits_sm90_tma.hpp:389</code>), where GMEM is the
-            destination. SMEM never gets one &mdash; it is an ordinary layout over
+            the load it is the SRC, with the store
+            (<code>Copy_Traits&lt;SM90_TMA_STORE&gt;</code>,
+            <code>copy_traits_sm90_tma.hpp:389</code>) the DST &mdash; the same
+            tensor either way. SMEM never gets one &mdash; it is an ordinary layout over
             a flat buffer. Its strides are scaled basis elements, so it maps a
             GMEM coordinate to the <em>TMA coordinate</em> the instruction
             consumes, not to an address; partitioning it
@@ -765,11 +789,12 @@ function renderMakeTiledTmaAtom(tabId) {
   showErr(`${tabId}-tma-error`, '');
   showWarn(`${tabId}-tma-warning`, '');
   try {
-    const op = TMA_OPS.tma_g2s;
+    const opKey = tmaOpKey(document.getElementById(`${tabId}-tma-op-input`).value);
+    const op = TMA_OPS[opKey];
     document.getElementById(`${tabId}-tma-op-params`).innerHTML =
       `<div class="cuo-result-line"><b>${op.ctor}</b></div>` +
       `<div class="cuo-result-line" style="color:#9ca3af">No constructor parameters required. ${op.note}</div>`;
-    syncCopyMoves(tabId, 'tma', 'tma_g2s');
+    syncCopyMoves(tabId, 'tma', opKey);
 
     const gmemStr  = document.getElementById(`${tabId}-tma-gmem-input`).value;
     const smemStr  = document.getElementById(`${tabId}-tma-smem-input`).value;
@@ -876,7 +901,7 @@ function renderMakeTiledTmaAtom(tabId) {
     tmaState[tabId] = {
       ...r, gShape, gStride, dtype, elemBits, swInfo, sShape, sStride, S0, S1,
       tiler: { extents: tiler.extents, strides: tilerStrides },
-      opLabel: op.label,
+      opLabel: op.label, opKey,
       boxMode: (prev.boxMode instanceof Set) ? prev.boxMode : new Set(),
     };
 
@@ -979,8 +1004,12 @@ function tmaRenderBoxViz(tabId) {
     return { bg: tmaCellColor(c, s), text: lines };
   });
 
-  document.getElementById(`${tabId}-tma-src-svg`).innerHTML = srcHeader + srcSVG;
-  document.getElementById(`${tabId}-tma-dst-svg`).innerHTML = dstHeader + dstSVG;
+  // The GMEM grid is SRC for the load and DST for the store; the SMEM grid the
+  // other one. The badges come from COPY_OP_MOVES via syncCopyMoves.
+  const gmemPane = srcHeader + srcSVG, smemPane = dstHeader + dstSVG;
+  const store = s.opKey === 'tma_s2g';
+  document.getElementById(`${tabId}-tma-src-svg`).innerHTML = store ? smemPane : gmemPane;
+  document.getElementById(`${tabId}-tma-dst-svg`).innerHTML = store ? gmemPane : smemPane;
   applyZoomState(`${tabId}-tma-src-svg`);
   applyZoomState(`${tabId}-tma-dst-svg`);
   updateModeBtns(`${tabId}-tma-box-mode-btns`, modes);
@@ -1079,7 +1108,8 @@ function setTmaMode(tabId, mode) {
   tmaRenderBoxViz(tabId);
 }
 
-function setTMA(tabId, dtype, gmem, sw, smem, tiler) {
+function setTMA(tabId, dtype, gmem, sw, smem, tiler, op) {
+  document.getElementById(`${tabId}-tma-op-input`).value      = tmaOpKey(op);
   document.getElementById(`${tabId}-tma-dtype-input`).value   = dtype;
   document.getElementById(`${tabId}-tma-gmem-input`).value    = gmem;
   document.getElementById(`${tabId}-tma-swizzle-input`).value = sw;
@@ -1094,5 +1124,6 @@ function exportTMA(tabId) {
     document.getElementById(`${tabId}-tma-gmem-input`).value,
     document.getElementById(`${tabId}-tma-swizzle-input`).value,
     document.getElementById(`${tabId}-tma-smem-input`).value,
-    document.getElementById(`${tabId}-tma-tiler-input`).value);
+    document.getElementById(`${tabId}-tma-tiler-input`).value,
+    tmaOpKey(document.getElementById(`${tabId}-tma-op-input`).value));
 }

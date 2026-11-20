@@ -1469,12 +1469,11 @@ identical layout strings. `MMA_C_LAYOUT` is a separate constant because C is inv
 The `WarpMmaOp` subclass check is the structural boundary; "can the three grids show what makes this
 Op different" is the editorial one. Both matter when deciding whether a new Op belongs here.
 
-**Hopper WGMMA in the atom tab.** The standalone `make_mma_atom` editor also accepts
-`warpgroup.MmaF16BF16Op`, `MmaF8Op`, and `MmaI8Op`. Keep these in
-`MMA_WARPGROUP_OPS`, separate from `MMA_WARP_OPS`: the shared constructor editor is
-shared with the TiledMMA editor and warp-only partition, Copy and fragment consumers. The atom and standalone TiledMMA
-editors opt into WGMMA; `mmaAssignAtomInputs` rejects warpgroup atoms for other
-consumers before touching controls.
+**Hopper WGMMA in the atom tab.** The `make_mma_atom` editor also accepts
+`warpgroup.MmaF16BF16Op`, `MmaF8Op`, and `MmaI8Op`. Their traits live in
+`MMA_WARPGROUP_OPS`, separate from `MMA_WARP_OPS`, and both are registered together in
+`MMA_ALL_OPS`, which is what every MMA editor lists. No consumer opts in or out: see
+"Every MMA tab supports every MMA atom" below.
 
 `mmaWarpgroupAtom` is DOM-free. Its traits come from CuTeDSL / CUTLASS SM90 GMMA:
 ThrID is 128:1, M is 64, K is 16 (F16/BF16) or 32 (FP8/INT8). Floating-point
@@ -1565,9 +1564,8 @@ The standalone tab decodes both MMAAtom URLs (section 1) and complete TiledMMA U
 (section 2). Both forms validate the prospective constructor before modifying
 controls. The complete WGMMA URL keeps the six legacy fields and appends
 `N, a_src, a_major, b_major, b_dtype`. Named variables accept and preview both
-scopes. `mtmDecodeConstructor` requires explicit `{warpgroup: true}` for WGMMA;
-Copy/partition/fragment/GEMM consumers remain warp-only. Dependent source/major
-options are rebuilt before assigning imported values.
+scopes. `mtmDecodeConstructor` decodes either family for every consumer. Dependent
+source/major options are rebuilt before assigning imported values.
 
 H100 execution checks cover representative group replication, explicit thread
 ordering, mixed dtypes, supported major modes and tile repetition. Fine-grained
@@ -1697,8 +1695,8 @@ racing for one element is how a warning goes missing.
 
 ### make_tiled_copy_A / B
 
-`tabs/make_tiled_copy_ab.js` bridges the MMA and Copy constructors. It takes the existing
-warp MMA Op, `atom_layout_mnk`, `permutation_mnk`, operand A/B, and an existing SMEM→RMEM
+`tabs/make_tiled_copy_ab.js` bridges the MMA and Copy constructors. It takes any
+offered MMA Op (warp MMA or WGMMA), `atom_layout_mnk`, `permutation_mnk`, operand A/B, and an existing SMEM→RMEM
 CopyAtom. Copy dtype follows the MMA input dtype. No tensor layout or partitioning is involved.
 
 `mcabComputeTiledCopy(mma, operand, atom)` uses the operand's TV layout as
@@ -1891,9 +1889,10 @@ does not expose C++'s `ThrMMA::partition_fragment_A` wrapper. The register-word 
 the output layout and dtype and is tested separately from the oracle layout.
 
 The input rank is at least 3 by the API's own contract. `updateRankWarning` does not apply: every
-mode is enumerated into scalar cells, with no flattening to an operand plane. Hopper/Blackwell
-fragments can be descriptors or TMEM tensors, so this tab deliberately offers only the existing
-`cute.nvgpu.warp` Ops whose A/B/C fragments are registers.
+mode is enumerated into scalar cells, with no flattening to an operand plane. WGMMA C and
+register A are register fragments and use the same view. A WGMMA shared-memory A/B becomes a
+descriptor tensor (see below), drawn one cell per descriptor. Blackwell TMEM fragments remain
+outside this tab.
 
 `tests/run.js` pins this tab the same indirect-but-complete way as `partition_sd` — every thread's
 layout and base offset — plus `tile_mnk` and `thr_layout_vmnk`. The two permutation cases are the
@@ -1935,13 +1934,16 @@ It re-renders first, so an edited field never hands off a stale shape. Named var
 the result as a Layout, `make_layout(shape)`, labelled "Shape (as make_layout)", because the
 variables contract has no Shape type.
 
-**Two grids.** The first is the input as CuTe reads a bare shape, `make_layout(shape)`: compact
-column-major, size-1 modes at stride 0 (`mtmCompactStride`). That is also the dummy layout C++'s
-`partition_shape` partitions, and the oracle records it as `input`. It draws modes 0-1 at index 0
-of every later mode, colored by the warp tile each element falls in (`colorHighlight` of its Rest
-index, the second grid's colors), with tile boundaries drawn once by the overlay. The second is
-Rest modes 1-2 as `make_layout(Rest)`, column-major. Each cell adds the element where its warp
-tile starts. Both use the shared value/index/coord labels and zoom, with separate mode sets
+**Two grids, matching partition_A/B/C's first two.** The first is the unit the op steps across
+the shape: one TiledMMA tile for the operand, computed without `permutation_mnk` (which this op
+ignores) and therefore exactly the block one Rest position covers. It is drawn with each cell's
+owning `T`/`V` from the shared `mtmOperandGrid` / `mtmTvLines`, the same ownership partition_A/B/C
+and make_tiled_mma show; a WGMMA shared-memory operand is one uniform descriptor block. It used to
+draw the whole input `make_layout(shape)` with tile outlines, which repeated grid 2 and did not
+match partition_A/B/C. The input layout (`mtmCompactStride`, the dummy layout C++'s
+`partition_shape` partitions, recorded by the oracle as `input`) is printed in its header instead.
+The second is Rest modes 1-2 as `make_layout(Rest)`, column-major. Each cell adds the element
+where its tile starts. Both use the shared value/index/coord labels and zoom, with separate mode sets
 (`tileMode`, `mode`). Mode 0 is not drawn, since it is the same in every Rest cell, and modes 3+
 are never tiled; the second header lists both, so it concatenates to the returned shape.
 
@@ -2092,7 +2094,7 @@ initially open `<details class="cuo-section" open>` / `<summary>` /
 `.cuo-section-body` pattern. Render/Export actions and overall result/status hosts
 stay outside those sections. Do not replace this shared pattern with standalone
 headings or custom panels. The gemm controls follow it with `1. TiledMMA` (pasteboard
-decode and constructor summary) and `2. Per-thread RMEM fragments` (A/B/C and the
+decode and constructor summary) and `2. Per-thread fragments` (A/B/C and the
 disabled D input). Both groups can collapse independently using native browser
 behavior, with shared styling and unchanged input IDs.
 
@@ -2101,6 +2103,59 @@ Pasteboard decode buttons use the shared `.btn-decode` class, which adds 10px
 of bottom margin before the following input or constructor summary. Keep this
 spacing shared across tabs rather than adding per-button inline margins.
 
+
+### Every MMA tab supports every MMA atom
+
+Project rule: an MMA atom family offered anywhere is offered everywhere. `MMA_ALL_OPS`
+(`make_mma_atom.js`) is the single registry. `mmaAtomEditorMarkup` always lists it and
+always carries the WGMMA fields (hidden for warp Ops), `mmaSyncControls` treats every
+prefix alike, and `mmaDecodeAtomInputs` / `mtmDecodeConstructor` accept both families for
+every caller. `mmaDecodeAtomInputs` also records `atom.dtypes = {A, B, C}` (WGMMA's B may
+differ from A), which consumers use instead of re-reading dtype controls. dom_smoke
+fails if any MMA picker (mma, mtm, pabc, pshp, mfrag, gemm-mma, mcab, psd-manual-mma)
+lists anything other than `MMA_ALL_OPS`. Adding an MMA atom therefore means, in one
+change: its traits, its constructor fields, and correct behaviour plus CuTeDSL cases in
+partition_A/B/C, partition_shape_A/B/C, make_fragment_A/B/C, gemm, make_tiled_copy_A/B
+and the MMA-derived TiledCopy that partition_S/D and retile decode.
+
+**URL tails.** Consumer URLs keep the six legacy TiledMMA fields (or four atom fields)
+in their original positions and append the atom's Op-specific tail (WGMMA: `N, a_src,
+a_major, b_major, b_dtype`) after the consumer's own optional fields:
+partition_abc after the fragment selector, partition_shape_abc after the shape,
+make_fragment_abc after the thread, gemm after the view, make_tiled_copy_ab after the
+comparison. `mtmSplitConstructor` / `mtmJoinConstructor` (and `gemmConstructorFromURL`,
+`mcabConstructorFromURL`, `mfragAtomInputsFromURL`) are the only places that know the
+positions, so links exported before an Op family existed still parse.
+
+**What WGMMA changes per consumer**, all pinned by the `warpgroup_*` oracle sections:
+
+- *partition_A/B/C*: the shared `mtmThrfrg` derivation is unchanged. For a shared-memory
+  A/B, mode 0 is the whole 64×K (N×K) atom block and every thread of a warpgroup gets it,
+  so the level-1 grid visits one representative thread per atom (as `mtmOperandGrid`
+  does) and draws a uniform descriptor block. Thread ids span 128 per warpgroup.
+- *make_fragment_A/B/C* (`mmaMakeFragment`): RMEM operands use `pabcMakeFragment`.
+  A shared-memory A/B becomes a descriptor tensor (`mmaDescriptorFragment`): mode 0
+  collapses to `1:0` and every Rest stride is recast to 128-bit units as
+  `ceil(stride / (128/bits))`, with Rest shapes divided by `ceil((128/bits) / stride)`.
+  CuTeDSL 4.8 applies this without a divisibility check (a 3-element half_t stride
+  becomes 1); the oracle pins that case. CuTeDSL requires an SMEM source tensor of the
+  operand's real element type, which the generator supplies.
+- *partition_shape_A/B/C*: the shape rule is unchanged, counted in warpgroup tiles.
+  CuTeDSL rejects `make_fragment_X(shape)` for a descriptor operand (a descriptor needs
+  a tensor), so the tab reports it unavailable and disables the handoff.
+- *gemm*: a WGMMA shared-memory A/B argument is a descriptor tensor with V = 1
+  (`(1,M,K)`); register A and C keep the atom's value count. CuTeDSL rejects a register
+  tensor or a V ≠ 1 descriptor for a descriptor operand. Memory badges follow
+  `atom[X].space`.
+- *make_tiled_copy_A/B*: only an RMEM operand (WGMMA register A) has a destination
+  fragment. For a descriptor operand CuTeDSL still builds a TiledCopy whose thread mode
+  broadcasts the whole tile to all 128 threads of a warpgroup; `mcabComputeTiledCopy`
+  rejects it with an explanation, and the oracle records the broadcast as the reason.
+  **Show Warp Groups** is offered for WGMMA, as in make_tiled_mma.
+
+The WGMMA Ops themselves passed `tests/gpu_check.py --warpgroup` on H100; these consumer
+tabs add no new hardware Op. The consumer semantics are checked by tracing CuTeDSL in
+the SM90a worker, not by execution.
 
 ### Editable TiledMMA fallback
 
@@ -2133,6 +2188,17 @@ default-collapsed Manual construction section, and leave derived summaries outsi
 Decode fills the same controls used for rendering and export. Constructor changes
 must preserve dependent option ordering; invalid imports leave all controls intact.
 The root AGENTS.md records this convention for future tabs.
+
+Every Decode from Pasteboard handler goes through `decodeFromPasteboard` in `ui.js`,
+passing its validating import function and `sources`: the `DECODE_SOURCE_TABS` keys
+whose Export URL it accepts (`TILED_COPY_SOURCES` for TiledCopy consumers). A
+rejected paste, including an empty pasteboard, writes the reason to the tab's
+error box and opens one modal popup (`showDecodeFailurePopup`) that says the
+input is invalid, repeats the reason, and names each source tab with an
+**Open** button. Escape, Close or the backdrop dismiss it. A cancelled paste
+prompt is not a failure. `tests/decode_popup.js` clicks every Decode button in
+the real templates with rejected pastes; a new button must be added to its
+`EXPECTED` map.
 
 For retile this folds the existing fields; math and imports stay unchanged.
 For partition_S/D, `mtcManualConstructorMarkup` offers primitive make_tiled_copy,

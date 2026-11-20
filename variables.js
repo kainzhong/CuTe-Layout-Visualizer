@@ -179,7 +179,7 @@ function variablesClipboardChoices(raw) {
   };
   if (feature === 'make_mma_atom') { mmaDecodeAtomInputs(a); return object('MMAAtom'); }
   if (feature === 'make_copy_atom') { mcaDecodeAtomURL(text); return object('CopyAtom'); }
-  if (feature === 'make_tiled_mma') { mtmDecodeConstructor(a, {warpgroup: true}); return object('TiledMMA'); }
+  if (feature === 'make_tiled_mma') { mtmDecodeConstructor(a); return object('TiledMMA'); }
   if (['make_tiled_copy','make_tiled_copy_tv','make_tiled_copy_ab'].includes(feature)) {
     mtcDecodedSummary(mtcDecodeURL(parsed)); return object('TiledCopy');
   }
@@ -206,16 +206,16 @@ function variablesClipboardChoices(raw) {
     if (!sw) throw new Error('Invalid swizzle.');
     layout(a[0]); return object('Swizzle');
   }
-  if (feature === 'make_fragment_abc') return [variablesLayoutChoice(mfragCompute(layout(a[5]),a[0],a[1],Number(a[4]),a[2] === 'na' ? 'tfloat32_t' : a[2],a[3] === 'na' ? 'float' : a[3]).fragment)];
+  if (feature === 'make_fragment_abc') return [variablesLayoutChoice(mfragCompute(layout(a[5]),a[0],mfragAtomInputsFromURL(a)).fragment)];
   if (feature === 'retile') return [variablesLayoutChoice(rtComputeRetile(layout(a[0]),mtcParseTiler(a[1]).extents,Number(a[2]),layout(a[4])).layout)];
   if (feature === 'partition_abc') {
-    const mma = mtmDecodeConstructor(a.slice(1,7));
+    const mma = mtmDecodeConstructor(mtmJoinConstructor(a.slice(1,7), a.slice(10)));
     return [variablesLayoutChoice(pabcComputePartition(mma.atom,mma.atomLayout,mma.perm,a[0],layout(a[8]),a[7] === '' ? null : Number(a[7])).partition)];
   }
   if (feature === 'partition_shape_abc') {
     // A Shape has no strides of its own; registered the way CuTe reads one, as
     // make_layout(shape) — compact column-major.
-    const mma = mtmDecodeConstructor(a.slice(1,7));
+    const mma = mtmDecodeConstructor(mtmJoinConstructor(a.slice(1,7), a.slice(8)));
     const r = pshpComputeShape(mma.atom,mma.atomLayout,mma.perm,a[0],pshpParseShape(a[7]).shape);
     return [variablesRawLayoutChoice(r.shapeStr,'Shape (as make_layout)')];
   }
@@ -227,7 +227,7 @@ function variablesClipboardChoices(raw) {
     return [variablesLayoutChoice(psdComputePartition(copy.tv,copy.tiler,tensor,copy.copyAtom,tid === '' ? null : Number(tid),side).partition)];
   }
   if (feature === 'gemm') {
-    gemmCompute(a.slice(0,6),a[6],a[7],a[8],a[8]);
+    gemmCompute(gemmConstructorFromURL(a),a[6],a[7],a[8],a[8]);
     return object('None');
   }
   if (feature === 'tma_partition') {
@@ -368,8 +368,8 @@ function variablesPreviewText(row) {
   const parsed=parsePastedKeyParam(row.value), a=parsed.inputs;
   const fmt=L=>formatLayoutStr(L.shape,L.stride);
   if (row.type === 'None' && parsed.feature === 'gemm')
-    return 'Return type: None (gemm writes into D).\n\n' + gemmFormatResult(gemmCompute(a.slice(0,6),a[6],a[7],a[8],a[8]));
-  if (row.type === 'TiledMMA') return gemmMmaSummary(mtmDecodeConstructor(a, {warpgroup: true}));
+    return 'Return type: None (gemm writes into D).\n\n' + gemmFormatResult(gemmCompute(gemmConstructorFromURL(a),a[6],a[7],a[8],a[8]));
+  if (row.type === 'TiledMMA') return gemmMmaSummary(mtmDecodeConstructor(a));
   if (row.type === 'TiledCopy') return mtcDecodedSummary(mtcDecodeURL(parsed))
     .replace(/<\/div>/g,'\n').replace(/<[^>]*>/g,'').replace(/&gt;/g,'>').replace(/&lt;/g,'<').replace(/&amp;/g,'&').trim();
   if (row.type === 'MMAAtom') {

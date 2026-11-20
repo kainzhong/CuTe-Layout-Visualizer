@@ -545,7 +545,7 @@ function generateMakeTiledMmaTabContent(id) {
         <details class="cuo-section" open>
           <summary>1. MMAAtom</summary>
           <div class="cuo-section-body">
-            ${mmaAtomEditorMarkup({id,p:'mtm',render:'renderMakeTiledMma',setOp:'setMtmOp',warpgroup:true})}
+            ${mmaAtomEditorMarkup({id,p:'mtm',render:'renderMakeTiledMma',setOp:'setMtmOp'})}
             <div id="${id}-mtm-op-params" class="cuo-result"></div>
           </div>
         </details>
@@ -607,7 +607,8 @@ function generateMakeTiledMmaTabContent(id) {
           required fence, commit and wait operations. This constructor partitions work;
           it neither stages shared memory nor supplies those synchronization operations.
           Logical permutations still require a compatible physical SMEM descriptor layout.
-          Copy, partition, fragment and gemm tabs currently accept warp MMA constructors only.
+          Every MMA tab (partition, partition_shape, make_fragment, gemm, make_tiled_copy_A/B)
+          accepts the same warp MMA and WGMMA constructors.
 
         </div>
       </div>
@@ -644,7 +645,7 @@ function renderMakeTiledMma(tabId) {
     const opKey = document.getElementById(`${tabId}-mtm-op-input`).value;
     mmaSyncControls(tabId, opKey, 'mtm');
     const inputs = mtmReadConstructorControls(tabId, 'mtm');
-    const {atom, atomLayout, perm, tiled: permStage} = mtmDecodeConstructor(inputs, {warpgroup: true});
+    const {atom, atomLayout, perm, tiled: permStage} = mtmDecodeConstructor(inputs);
     const {op, k} = atom;
     const abDtype = inputs[1] === 'na' ? 'tfloat32_t' : inputs[1];
     const accDtype = inputs[2] === 'na' ? 'float' : inputs[2];
@@ -928,11 +929,11 @@ function exportMTM(tabId) {
   exportURL(`${tabId}-mtm-export`, 'make_tiled_mma', ...mtmReadConstructorControls(tabId, 'mtm'));
 }
 
-// WGMMA is opt-in: existing partition/copy/fragment/GEMM consumers stay warp-only.
-function mtmDecodeConstructor(inputs, {warpgroup = false} = {}) {
-  const [opKey, ab, acc, k, atomText, permText] = inputs;
+/** Every MMA tab decodes the same constructor family: the six legacy fields
+ *  plus the atom's Op-specific tail (WGMMA: N, A source, A/B major, B dtype). */
+function mtmDecodeConstructor(inputs) {
+  const [opKey, , , , atomText, permText] = inputs;
   const wg = !!MMA_WARPGROUP_OPS[opKey];
-  if (wg && !warpgroup) throw new Error('This consumer supports warp MMA constructors only.');
   if (inputs.length !== (wg ? 11 : 6)) throw new Error('Incomplete or extra TiledMMA constructor parameters.');
   const {atom} = mmaDecodeAtomInputs([...inputs.slice(0,4), ...inputs.slice(6)]);
   const atomLayout = mtmParseAtomLayout(atomText);
@@ -948,11 +949,9 @@ function mtmImportConstructor(tabId, text) {
   renderMakeTiledMma(tabId);
 }
 
-async function mtmDecodePasteboard(tabId) {
-  const text = await readPasteboardText('Paste the make_tiled_mma URL or its query string:');
-  if (text == null) return;
-  try { mtmImportConstructor(tabId, text); }
-  catch (e) { showErr(`${tabId}-mtm-error`, e.message); }
+function mtmDecodePasteboard(tabId) {
+  return decodeFromPasteboard({tabId, errorId: `${tabId}-mtm-error`, sources: ['make_tiled_mma'],
+    message: 'Paste the make_tiled_mma URL or its query string:', importFn: text => mtmImportConstructor(tabId, text)});
 }
 
 // Shared editable fallback for tabs that primarily import a TiledMMA URL.
@@ -977,6 +976,19 @@ function mtmWriteConstructorControls(tabId, p, inputs) {
   mmaAssignAtomInputs(tabId, p, [...inputs.slice(0,4), ...inputs.slice(6)]);
   document.getElementById(`${tabId}-${p}-atomlayout-input`).value = inputs[4];
   document.getElementById(`${tabId}-${p}-perm-input`).value = inputs[5] === 'na' ? '' : inputs[5];
+}
+
+/** Consumer URLs keep the six legacy constructor fields where they always
+ *  were and append the Op-specific tail LAST, after any of their own optional
+ *  fields, so links exported before an Op family existed keep parsing. */
+function mtmSplitConstructor(inputs) {
+  return { head: inputs.slice(0, 6), tail: inputs.slice(6) };
+}
+
+/** Rebuild constructor inputs from a consumer URL's head and trailing fields. */
+function mtmJoinConstructor(head, tail) {
+  const wg = !!MMA_WARPGROUP_OPS[head[0]];
+  return [...head, ...(wg ? tail.slice(0, 5) : [])];
 }
 
 function mtmReadConstructorControls(tabId, p) {

@@ -968,3 +968,23 @@ textarea:focus { outline: none; border-color: #3b82f6; }
 .tab-scope-btn[data-scope="utility"].active .tab-scope-count { background: #155e75; }
 .tab-bar[data-scope="utility"] .tab:not([data-scope="utility"]) { display: none; }
 .tab[data-scope="utility"].active { background: #164e63; color: #67e8f9; border-color: #06b6d4; }
+
+/* Popup for a rejected Decode from Pasteboard (showDecodeFailurePopup). */
+.decode-error-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: #000a;
+}
+.decode-error-box {
+  width: min(480px, 100%); padding: 18px 20px;
+  background: #1f2937; border: 1px solid #7f1d1d; border-radius: 8px;
+  box-shadow: 0 12px 32px #000a;
+}
+.decode-error-title { font-size: 1rem; color: #f87171; margin-bottom: 10px; }
+.decode-error-reason {
+  font-size: 0.82rem; color: #fca5a5; background: #2d1b1b;
+  border: 1px solid #7f1d1d; border-radius: 4px; padding: 6px 8px;
+  margin-bottom: 10px; overflow-wrap: anywhere;
+}
+.decode-error-hint { font-size: 0.85rem; color: #e5e7eb; line-height: 1.5; margin-bottom: 14px; }
+.decode-error-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }

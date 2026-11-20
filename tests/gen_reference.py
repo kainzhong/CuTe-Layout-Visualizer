@@ -209,11 +209,11 @@ def eval_all(layout, cap=EVAL_CAP):
     return [canon(cute.crd2idx(i, layout)) for i in range(n)]
 
 
-def record(layout):
+def record(layout, cap=EVAL_CAP):
     out = {"str": canon(layout), "size": int(cute.size(layout))}
     if not has_basis(layout):
         out["cosize"] = int(cute.cosize(layout))
-    out["eval"] = eval_all(layout)
+    out["eval"] = eval_all(layout, cap)
     return out
 
 
@@ -375,10 +375,11 @@ def decode_tiled_copy_url(url):
     parts = parse_qs(query)["key"][0].split("-")
     feature, a = parts[0], parts[1:]
     if feature == "make_tiled_copy_ab":
-        cfg = {"ab_dtype": a[2], "acc_dtype": a[3], "k": int(a[4])}
-        tmma = cute.make_tiled_mma(cute.make_mma_atom(MMA_OPS[a[1]](cfg)),
+        # make_tiled_copy_ab URLs append the MMA atom's Op-specific tail last.
+        cfg = atom_cfg(a[1:5] + a[14:19])
+        tmma = cute.make_tiled_mma(cute.make_mma_atom(make_any_mma_op(cfg)),
                                   parse_layout(a[5]), parse_tiled_mma_perm(None if a[6] == "na" else a[6]))
-        dtype = DTYPES["tfloat32_t" if a[2] == "na" else a[2]]
+        dtype = DTYPES[operand_space(cfg, a[0])[1]]
         if a[7] == "s2r":
             atom = cute.make_copy_atom(common.CopyUniversalOp(), dtype, num_bits_per_copy=int(a[10]))
         else:
@@ -535,6 +536,34 @@ def make_warpgroup_mma_op(c):
     return op
 
 
+def atom_cfg(inputs):
+    """make_mma_atom URL fields -> an op config: [op, ab, acc, K, ...tail],
+    where a WGMMA tail is N, A source, A major, B major, B dtype."""
+    op, ab, acc, k = inputs[:4]
+    cfg = {"op": op, "ab_dtype": "tfloat32_t" if ab == "na" else ab,
+           "acc_dtype": "float" if acc == "na" else acc, "k": int(k)}
+    if op.startswith("wg_"):
+        n, a_src, a_major, b_major, b_dtype = inputs[4:9]
+        cfg.update(n=int(n), a_src=a_src, a_major=a_major, b_major=b_major, b_dtype=b_dtype)
+    return cfg
+
+
+def make_any_mma_op(cfg):
+    """Every MMA tab offers both families, so every MMA runner builds through this."""
+    return make_warpgroup_mma_op(cfg) if cfg["op"].startswith("wg_") else MMA_OPS[cfg["op"]](cfg)
+
+
+def operand_space(cfg, which):
+    """(is a descriptor/SMEM operand, element dtype name) for operand A/B/C."""
+    if which == "C":
+        return False, cfg["acc_dtype"]
+    if not cfg["op"].startswith("wg_"):
+        return False, cfg["ab_dtype"]
+    if which == "A":
+        return cfg["a_src"] == "SMEM", cfg["ab_dtype"]
+    return True, cfg["b_dtype"]
+
+
 def run_warpgroup_mma_atom(c):
     atom = cute.make_mma_atom(make_warpgroup_mma_op(c))
     out = {'thr_id': canon(atom.thr_id), 'shape_mnk': canon(atom.shape_mnk)}
@@ -636,11 +665,13 @@ def run_warpgroup_tiled_mma(c):
 
 
 def run_make_tiled_copy_ab(c):
+    cfg = atom_cfg(c["atom"]) if "atom" in c else c
     tmma = cute.make_tiled_mma(
-        cute.make_mma_atom(MMA_OPS[c["op"]](c)),
+        cute.make_mma_atom(make_any_mma_op(cfg)),
         parse_layout(c["atom_layout"]), parse_tiled_mma_perm(c["perm"]),
     )
-    dtype = DTYPES[c["ab_dtype"]]
+    smem, dtype_name = operand_space(cfg, c["operand"])
+    dtype = DTYPES[dtype_name]
     if c["copy_op"] == "s2r":
         atom = cute.make_copy_atom(common.CopyUniversalOp(), dtype,
                                    num_bits_per_copy=c["bits"])
@@ -651,8 +682,19 @@ def run_make_tiled_copy_ab(c):
             transpose=c["transpose"], num_matrices=c["num_matrices"]), dtype)
     tc = getattr(cute, "make_tiled_copy_" + c["operand"])(atom, tmma)
     tile = [int(tmma.get_tile_size(i)) for i in ([0, 2] if c["operand"] == "A" else [1, 2])]
-    return {"tv": record(tc.layout_tv_tiled), "src": record(tc.layout_src_tv_tiled),
-            "dst": record(tc.layout_dst_tv_tiled), "tiler_mn": canon(tc.tiler_mn),
+    if smem:
+        # A WGMMA descriptor operand: CuTeDSL builds a TiledCopy whose thread
+        # mode broadcasts, so every thread of a warpgroup receives the whole
+        # tile. The tab rejects it; pin that broadcast as the reason.
+        tv = tc.layout_tv_tiled
+        thr = cute.make_layout(tv.shape[0], stride=tv.stride[0])
+        return {"descriptor": True, "tv": canon(tv),
+                "warpgroup_broadcast": all(int(thr(t)) == int(thr(0)) for t in range(128))}
+    # A 256-thread WGMMA TiledCopy exceeds EVAL_CAP; run.js checks every grid
+    # entry against these maps, so record WGMMA side maps over their full domain.
+    full = (lambda L: record(L, int(cute.size(L)))) if "atom" in c else record
+    return {"tv": full(tc.layout_tv_tiled), "src": full(tc.layout_src_tv_tiled),
+            "dst": full(tc.layout_dst_tv_tiled), "tiler_mn": canon(tc.tiler_mn),
             "tile": tile, "atom_src": record(atom.layout_src_tv),
             "atom_dst": record(atom.layout_dst_tv),
             "mma_tv": record(getattr(tmma, "tv_layout_" + c["operand"] + "_tiled"))}
@@ -671,16 +713,26 @@ def run_partition_abc(c):
     partition_A differs from partition_S. Diffing the printed layout catches
     either drifting.
     """
-    op_cfg = {"ab_dtype": c.get("ab") or "half_t",
-              "acc_dtype": c.get("acc") or "float", "k": c["k"]}
+    if "atom" in c:
+        op_cfg = atom_cfg(c["atom"])
+    else:
+        op_cfg = {"op": c["op"], "ab_dtype": c.get("ab") or "half_t",
+                  "acc_dtype": c.get("acc") or "float", "k": c["k"]}
     tmma = cute.make_tiled_mma(
-        cute.make_mma_atom(MMA_OPS[c["op"]](op_cfg)),
+        cute.make_mma_atom(make_any_mma_op(op_cfg)),
         parse_layout(c["atom_layout"]),
         parse_tiled_mma_perm(c["perm"]),
     )
     tl = parse_layout(c["tensor"])
     which = c["which"]
-    ptr_t = cute.make_tensor(cute.make_ptr(cutlass.Float16, 0, cute.AddressSpace.gmem), tl)
+    # A WGMMA descriptor operand's make_fragment needs an SMEM tensor of the
+    # operand's real element type (the descriptor recast depends on its width).
+    smem, dtype_name = operand_space(op_cfg, which)
+    if "atom" in c:
+        space = cute.AddressSpace.smem if smem else cute.AddressSpace.gmem
+        ptr_t = cute.make_tensor(cute.make_ptr(DTYPES[dtype_name], 0, space, assumed_align=16), tl)
+    else:
+        ptr_t = cute.make_tensor(cute.make_ptr(cutlass.Float16, 0, cute.AddressSpace.gmem), tl)
     idn_t = cute.make_identity_tensor(tl.shape)
 
     layout, fragment, offsets = None, None, []
@@ -714,10 +766,13 @@ def run_partition_shape_abc(c):
     pinned here. `fragment` is make_fragment_X on that shape -- where the
     strides a shape lacks actually come from.
     """
-    op_cfg = {"ab_dtype": c.get("ab") or "half_t",
-              "acc_dtype": c.get("acc") or "float", "k": c["k"]}
+    if "atom" in c:
+        op_cfg = atom_cfg(c["atom"])
+    else:
+        op_cfg = {"op": c["op"], "ab_dtype": c.get("ab") or "half_t",
+                  "acc_dtype": c.get("acc") or "float", "k": c["k"]}
     tmma = cute.make_tiled_mma(
-        cute.make_mma_atom(MMA_OPS[c["op"]](op_cfg)),
+        cute.make_mma_atom(make_any_mma_op(op_cfg)),
         parse_layout(c["atom_layout"]),
         parse_tiled_mma_perm(c["perm"]),
     )
@@ -731,11 +786,20 @@ def run_partition_shape_abc(c):
         raise AssertionError("CuTeDSL unexpectedly accepted partition_shape_%s%s"
                              % (c["which"], c["shape"]))
     result = fn(shape)
+    out = {"input": record(cute.make_layout(shape)), "shape": canon(result)}
+    if operand_space(op_cfg, c["which"])[0]:
+        # A WGMMA descriptor operand has no fragment of a bare shape.
+        try:
+            getattr(tmma, "make_fragment_" + c["which"])(result)
+        except Exception:                                   # noqa: BLE001
+            out["fragment_error"] = True
+            return out
+        raise AssertionError("CuTeDSL unexpectedly built a descriptor fragment from a shape")
     fragment = getattr(tmma, "make_fragment_" + c["which"])(result)
     # The input as CuTe reads a bare shape: make_layout(shape), column-major.
     # The tab draws it; C++'s partition_shape partitions exactly this layout.
-    return {"input": record(cute.make_layout(shape)),
-            "shape": canon(result), "fragment": record(fragment.layout)}
+    out["fragment"] = record(fragment.layout)
+    return out
 
 
 def run_retile(c):
@@ -755,13 +819,18 @@ def run_retile(c):
 
 def run_make_fragment_abc(c):
     """The tab's direct input: a layout that has already been partitioned."""
-    op_cfg = {"ab_dtype": c.get("ab") or "half_t",
-              "acc_dtype": c.get("acc") or "float", "k": c["k"]}
-    atom = cute.make_mma_atom(MMA_OPS[c["op"]](op_cfg))
+    if "atom" in c:
+        op_cfg = atom_cfg(c["atom"])
+    else:
+        op_cfg = {"op": c["op"], "ab_dtype": c.get("ab") or "half_t",
+                  "acc_dtype": c.get("acc") or "float", "k": c["k"]}
+    atom = cute.make_mma_atom(make_any_mma_op(op_cfg))
     part = parse_layout(c["partition"])
-    dtype = c["acc"] if c["which"] == "C" else c["ab"]
-    tensor = cute.make_tensor(cute.make_ptr(DTYPES[dtype], 0,
-                                            cute.AddressSpace.gmem), part)
+    smem, dtype = operand_space(op_cfg, c["which"])
+    if "atom" not in c:
+        dtype = c["acc"] if c["which"] == "C" else c["ab"]
+    space = cute.AddressSpace.smem if smem else cute.AddressSpace.gmem
+    tensor = cute.make_tensor(cute.make_ptr(DTYPES[dtype], 0, space, assumed_align=16), part)
     selected = None
     if "slice" in c:
         layout, offset = cute.slice_and_offset(to_crd(c["slice"]), part)
@@ -917,15 +986,27 @@ def run_index(c):
 
 
 def run_gemm(c):
-    op, ab, acc, k, atom_layout, perm = c["mma"]
-    cfg = {"ab_dtype": "tfloat32_t" if ab == "na" else ab,
-           "acc_dtype": "float" if acc == "na" else acc, "k": int(k)}
-    atom = cute.make_mma_atom(MMA_OPS[op](cfg))
+    mma = c["mma"]
+    atom_layout, perm = mma[4], mma[5]
+    cfg = atom_cfg(mma[:4] + mma[6:])
+    atom = cute.make_mma_atom(make_any_mma_op(cfg))
     tmma = cute.make_tiled_mma(atom, parse_layout(atom_layout),
                               parse_tiled_mma_perm(None if perm == "na" else perm))
     layouts = {x: parse_layout(c[x] or c["c"]) for x in ("a", "b", "c", "d")}
-    tensors = {x: cute.make_rmem_tensor(l, DTYPES[cfg["ab_dtype"] if x in ("a", "b") else cfg["acc_dtype"]])
-               for x, l in layouts.items()}
+
+    def operand_tensor(x, layout):
+        smem, dtype = operand_space(cfg, "C" if x in ("c", "d") else x.upper())
+        if not smem:
+            return cute.make_rmem_tensor(layout, DTYPES[dtype])
+        # A WGMMA SMEM operand is a descriptor tensor. Build one descriptor
+        # iterator from an SMEM atom block, then view it with the case layout.
+        shape = int(atom.shape_mnk[0 if x == "a" else 1]), int(atom.shape_mnk[2])
+        block = cute.make_tensor(cute.make_ptr(DTYPES[dtype], 0, cute.AddressSpace.smem, assumed_align=128),
+                                 cute.make_layout((shape, 1, 1)))
+        frag = getattr(atom, "make_fragment_" + x.upper())(block)
+        return cute.make_tensor(frag.iterator, layout)
+
+    tensors = {x: operand_tensor(x, l) for x, l in layouts.items()}
     # Exercise the real API as well as the operand views below. The combined
     # generator traces IR; it does not execute arithmetic or assert issue order.
     if c.get("expect_error"):
@@ -1004,6 +1085,13 @@ SECTIONS = [
     ("mma_atom", run_mma_atom),
     ("warpgroup_mma_atom", run_warpgroup_mma_atom),
     ("warpgroup_tiled_mma", run_warpgroup_tiled_mma),
+    # The same consumer runners, traced in the SM90a worker for WGMMA cases.
+    ("warpgroup_partition_abc", run_partition_abc),
+    ("warpgroup_partition_shape_abc", run_partition_shape_abc),
+    ("warpgroup_make_fragment_abc", run_make_fragment_abc),
+    ("warpgroup_gemm", run_gemm),
+    ("warpgroup_make_tiled_copy_ab", run_make_tiled_copy_ab),
+    ("warpgroup_partition_sd", run_partition_sd),
     ("tiled_mma", run_tiled_mma),
     ("make_tiled_copy_ab", run_make_tiled_copy_ab),
     ("tma_atom", run_tma_atom),

@@ -469,21 +469,33 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
         throw new Error(`fragment differs from CuTeDSL ${r.fragment.str}`);
     }, pshpPanes);
   }
-  step('partition_shape draws the input shape column-major, as CuTe reads it', () => {
+  step('partition_shape grid 1 is one TiledMMA tile, the block partition_A draws', () => {
     ctx.setPshp(TAB, 'C', 'f16bf16', 'half_t', 'float', 16, '(2, 2, 1)', '', '(64, 32, 2)');
     const tileModes = ctx.pshpState[TAB].tileMode;
     tileModes.clear(); tileModes.add('value');
     ctx.renderPartitionShapeABC(TAB);
     const svg = els.get(`${TAB}-pshp-tile-svg`).innerHTML;
     const input = ctx.pshpState[TAB].inputLayout;
-    const oracle = partitionRef.partition_shape_abc;
     if (ctx.formatLayoutStr(input.shape, input.stride) !== '(64,32,2):(1,64,2048)') throw new Error('input is not column-major');
-    if (!svg.includes(`make_layout((64,32,2)) = <b style="color:#93c5fd">(64,32,2):(1,64,2048)</b>`))
-      throw new Error('header does not state make_layout(shape)');
-    if (!svg.includes('>64</text>') || !svg.includes('>2047</text>') || svg.includes('>2048</text>'))
-      throw new Error('drawn plane is not slice 0 of the column-major layout');
-    if (!svg.includes('stroke-width="2"')) throw new Error('warp-tile boundaries are missing');
-    if (oracle.C_2x2x1.input.str !== '(64,32):(1,64)') throw new Error('oracle input changed');
+    if (partitionRef.partition_shape_abc.C_2x2x1.input.str !== '(64,32):(1,64)') throw new Error('oracle input changed');
+    if (!svg.includes('make_layout((64,32,2)) = (64,32,2):(1,64,2048)')) throw new Error('header does not state make_layout(shape)');
+    // C over (2,2,1) warps of m16n8: a 32x16 tile, every cell owned by one T/V.
+    if (ctx.pshpState[TAB].tile.tile.join('x') !== '32x16' || !svg.includes('>511</text>') || svg.includes('>512</text>'))
+      throw new Error('grid 1 is not one 32x16 TiledMMA tile');
+    if (!/>T\d+</.test(svg) || !/>V\d+</.test(svg)) throw new Error('grid 1 lost its T/V ownership');
+    // Same constructor and shape, no permutation: partition_C's grid 1 is the same block.
+    ctx.setPABC(TAB, 'C', 'f16bf16', 'half_t', 'float', 16, '(2, 2, 1)', '', '', '(64, 32):(32, 1)');
+    if (ctx.pabcState[TAB].blockExtents.join('x') !== '32x16') throw new Error('partition_C block differs');
+    // WGMMA: C is 128x64 over two warpgroups; a shared-memory A is a uniform descriptor block.
+    ctx.setPshp(TAB, 'C', 'wg_f16bf16', 'half_t', 'float', 16, '(2,1,1)', '', '(256, 128)', 64, 'SMEM', 'K', 'K', 'half_t');
+    if (ctx.pshpState[TAB].tile.tile.join('x') !== '128x64') throw new Error('WGMMA C tile');
+    ctx.setPshp(TAB, 'A', 'wg_f16bf16', 'half_t', 'float', 16, '(2,1,1)', '', '(256, 128)', 64, 'SMEM', 'K', 'K', 'half_t');
+    const desc = els.get(`${TAB}-pshp-tile-svg`).innerHTML;
+    if (ctx.pshpState[TAB].tile.tile.join('x') !== '128x16' || !desc.includes('#a7f3d0') || /<text[^>]*>T\d+</.test(desc))
+      throw new Error('WGMMA SMEM A should be one uniform 128x16 descriptor tile');
+    // permutation_mnk is ignored: the tile is still the unpermuted one.
+    ctx.setPshp(TAB, 'A', 'f16bf16', 'half_t', 'float', 16, '(2, 2, 1)', '(64,32,32)', '(128, 64)');
+    if (ctx.pshpState[TAB].tile.tile.join('x') !== '32x16') throw new Error('permutation leaked into the tile');
   }, pshpPanes);
   step('partition_shape groups the TiledMMA and the shape into numbered sections', () => {
     const panel = html.slice(html.indexOf(`id="${TAB}-tab-partition_shape_abc"`), html.indexOf(`id="${TAB}-tab-make_fragment_abc"`));
@@ -1238,7 +1250,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
   step('gemm input groups use the shared numbered collapsible sections', () => {
     for (const [key,title,ids] of [
       ['mma','1. TiledMMA',['gemm-mma-summary']],
-      ['fragments','2. Per-thread RMEM fragments',['gemm-a-input','gemm-b-input','gemm-c-input','gemm-d-input']]
+      ['fragments','2. Per-thread fragments',['gemm-a-input','gemm-b-input','gemm-c-input','gemm-d-input']]
     ]) {
       const opening = `<details class="cuo-section" id="${TAB}-gemm-${key}-section" open>`;
       const start = html.indexOf(opening);
@@ -1399,14 +1411,13 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
       // Source-dependent major options must be rebuilt before MN is assigned.
       ctx.mmaImportAtom(TAB,'mma','renderMakeMmaAtom','?key=make_mma_atom-wg_f16bf16-half_t-float-16-64-SMEM-MN-MN-half_t');
       if (ctx.mmaState[TAB].aMajor !== 'MN') throw new Error('SMEM major mode was assigned before options');
+      // Every MMA consumer accepts the same atom family and keeps every field.
       for (const p of ['mfrag','pabc','pshp','gemm-mma','mcab','psd-manual-mma']) {
-        const fields = ['op','ab','acc','k'];
-        const previous = fields.map(key => els.get(`${TAB}-${p}-${key}-input`).value);
-        let rejected = false;
-        try { ctx.mmaAssignAtomInputs(TAB,p,exported.slice(1)); } catch (_) { rejected = true; }
-        if (!rejected || JSON.stringify(previous) !== JSON.stringify(fields.map(key => els.get(`${TAB}-${p}-${key}-input`).value)))
-          throw new Error('Warp-only consumer accepted a WGMMA atom or changed controls');
-        if (els.get(`${TAB}-${p}-op-input`).innerHTML.includes('warpgroup.')) throw new Error('Warp-only picker exposes WGMMA');
+        const previous = ctx.mmaReadAtomInputs(TAB,p);
+        ctx.mmaAssignAtomInputs(TAB,p,exported.slice(1));
+        if (JSON.stringify(ctx.mmaReadAtomInputs(TAB,p)) !== JSON.stringify(exported.slice(1)))
+          throw new Error(`${p} lost WGMMA atom fields`);
+        ctx.mmaAssignAtomInputs(TAB,p,previous);
       }
       ctx.setMMA(TAB,'wg_int8','int8_t','int32_t',32,24,'SMEM','K','K','uint8_t');
       if (ctx.mmaState[TAB].n !== 24) throw new Error('INT8 lost its N input');
@@ -1501,9 +1512,12 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
         let rejected=false;try{ctx.mtmImportConstructor(TAB,bad);}catch(_){rejected=true;}
         if(!rejected || JSON.stringify(ctx.mtmReadConstructorControls(TAB,'mtm'))!==before) throw new Error('Invalid import changed constructor fields');
       }
-      for(const p of ['pabc','mcab','gemm-mma','psd-manual-mma']) {
-        let rejected=false;try{ctx.mtmWriteConstructorControls(TAB,p,exported.slice(1));}catch(_){rejected=true;}
-        if(!rejected)throw new Error('Unsupported downstream consumer accepted WGMMA');
+      for(const p of ['pabc','pshp','mcab','gemm-mma','psd-manual-mma']) {
+        const previous=ctx.mtmReadConstructorControls(TAB,p);
+        ctx.mtmWriteConstructorControls(TAB,p,exported.slice(1));
+        if(JSON.stringify(ctx.mtmReadConstructorControls(TAB,p))!==JSON.stringify(exported.slice(1)))
+          throw new Error(`${p} lost WGMMA constructor fields`);
+        ctx.mtmWriteConstructorControls(TAB,p,previous);
       }
       els.get(`${TAB}-mtm-perm-input`).value='(128,48,32)';
       ctx.renderMakeTiledMma(TAB);
@@ -2044,6 +2058,138 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
   },[],{expectError:/scalar integer offset/});
   step('Composed Layout recovers after invalid input',()=>ctx.setCL(TAB,'(4,4):(4,1)','0','swizzle','2,0,2'),
     ['src','extra','dst'].map(side=>`${TAB}-cl-${side}-svg`));
+
+  // ── Every MMA tab offers every MMA atom family ─────────────────────────────
+  // A new atom family is added to MMA_ALL_OPS once, and every MMA tab must
+  // pick it up: decoding, rendering, handoffs and deep links. These steps fail
+  // when an editor narrows the Op list or a tab only works for one family.
+  const fmtL = L => ctx.formatLayoutStr(L.shape, L.stride);
+  const urlRoundTrip = (exportFn) => {
+    const realExport = ctx.exportURL, realSwitch = ctx.switchInnerTab;
+    let exported, switched = '';
+    ctx.exportURL = (btn, feature, ...inputs) => { exported = [feature, ...inputs]; };
+    try { exportFn(); } finally { ctx.exportURL = realExport; }
+    ctx.location.search = `?key=${encodeURIComponent(exported.join('-'))}`;
+    ctx.switchInnerTab = (_, mode) => { switched = mode; };
+    try { ctx.applyKeyParam(TAB); } finally { ctx.switchInnerTab = realSwitch; ctx.location.search = ''; }
+    return { exported, switched };
+  };
+  const WG_SS = [64, 'SMEM', 'K', 'K', 'half_t'], WG_RS = [64, 'RMEM', 'K', 'K', 'half_t'];
+
+  step('every MMA editor offers exactly MMA_ALL_OPS', () => {
+    const want = JSON.stringify(Object.keys(ctx.MMA_ALL_OPS));
+    const pickers = [...html.matchAll(/<select id="([^"]+-op-input)"[^>]*>([\s\S]*?)<\/select>/g)]
+      .filter(m => /warp\.Mma/.test(m[2]));
+    const prefixes = pickers.map(m => m[1].slice(TAB.length + 1, -'-op-input'.length));
+    for (const p of ['mma', 'mtm', 'pabc', 'pshp', 'mfrag', 'gemm-mma', 'mcab', 'psd-manual-mma'])
+      if (!prefixes.includes(p)) throw new Error(`${p} has no MMA Op picker`);
+    for (const [, id, body] of pickers) {
+      const got = JSON.stringify([...body.matchAll(/<option value="([^"]+)"/g)].map(x => x[1]));
+      if (got !== want) throw new Error(`${id} offers ${got}, expected ${want}`);
+    }
+  });
+
+  step('partition_A/B/C: WGMMA SMEM descriptor operand, make_fragment handoff and URL round trip', () => {
+    ctx.setPABC(TAB, 'A', 'wg_f16bf16', 'half_t', 'float', 16, '(2,1,1)', '', '5', '(128, 32):(32, 1)', '', ...WG_SS);
+    const s = ctx.pabcState[TAB];
+    if (s.space !== 'SMEM' || fmtL(s.partition) !== '((64,16),1,2):((32,1),0,16)' || fmtL(s.fragment) !== '(1,1,2):(0,0,2)')
+      throw new Error(`WGMMA partition_A gave ${fmtL(s.partition)} / ${fmtL(s.fragment)}`);
+    if (!els.get(`${TAB}-pabc-tiled-result`).innerHTML.includes('descriptor')) throw new Error('descriptor operand not explained');
+    const want = JSON.stringify(ctx.mtmReadConstructorControls(TAB, 'pabc'));
+    const { switched } = urlRoundTrip(() => ctx.exportPABC(TAB));
+    if (switched !== 'partition_abc' || JSON.stringify(ctx.mtmReadConstructorControls(TAB, 'pabc')) !== want)
+      throw new Error('partition_A URL lost the WGMMA constructor');
+    const realSwitch = ctx.switchInnerTab;
+    ctx.switchInnerTab = () => {};
+    try { ctx.pabcOpenFragment(TAB); } finally { ctx.switchInnerTab = realSwitch; }
+    if (!ctx.mfragState[TAB].descriptor || els.get(`${TAB}-mfrag-space`).textContent !== 'SMEM' ||
+        JSON.stringify(ctx.mmaReadAtomInputs(TAB, 'mfrag')) !== JSON.stringify(['wg_f16bf16', 'half_t', 'float', '16', ...WG_SS.map(String)]))
+      throw new Error('make_fragment handoff lost the WGMMA atom or its descriptor');
+    ctx.setPABC(TAB, 'C', 'wg_f16bf16', 'half_t', 'float', 16, '(2,1,1)', '', '130', '(128, 128):(128, 1)', '', ...WG_RS);
+    if (ctx.pabcState[TAB].space !== 'RMEM' || fmtL(ctx.pabcState[TAB].fragment) !== '((2,2,8),1,2):((1,2,4),0,32)')
+      throw new Error('WGMMA C is a register fragment');
+  }, [`${TAB}-pabc-tile-svg`, `${TAB}-pabc-sweep-svg`, `${TAB}-mfrag-svg`]);
+
+  step('partition_shape: WGMMA descriptor operands have no shape fragment; URL round trip keeps the tail', () => {
+    ctx.setPshp(TAB, 'A', 'wg_f16bf16', 'half_t', 'float', 16, '(2,1,1)', '', '(128, 64)', ...WG_SS);
+    if (ctx.pshpState[TAB].shapeStr !== '((64,16),1,4)' || ctx.pshpState[TAB].fragment !== null) throw new Error('WGMMA partition_shape_A');
+    if (!els.get(`${TAB}-pshp-result`).innerHTML.includes('not available') || !els.get(`${TAB}-pshp-make-fragment`).disabled)
+      throw new Error('descriptor shape fragment was offered');
+    const realSwitch = ctx.switchInnerTab;
+    let switched = false;
+    ctx.switchInnerTab = () => { switched = true; };
+    try { ctx.pshpOpenFragment(TAB); } finally { ctx.switchInnerTab = realSwitch; }
+    if (switched || !/descriptor/.test(els.get(`${TAB}-pshp-error`).textContent)) throw new Error('descriptor handoff was not refused');
+    ctx.setPshpOperand(TAB, 'C');
+    if (ctx.pshpState[TAB].shapeStr !== '((2,2,8),1,1)' || !ctx.pshpState[TAB].fragment || els.get(`${TAB}-pshp-make-fragment`).disabled)
+      throw new Error('WGMMA C shape fragment');
+    const want = JSON.stringify(ctx.mtmReadConstructorControls(TAB, 'pshp'));
+    urlRoundTrip(() => ctx.exportPshp(TAB));
+    if (ctx.pshpState[TAB].which !== 'C' || JSON.stringify(ctx.mtmReadConstructorControls(TAB, 'pshp')) !== want)
+      throw new Error('partition_shape URL lost the WGMMA constructor');
+  }, pshpPanes);
+
+  step('make_fragment: WGMMA descriptor tensor view and URL round trip', () => {
+    ctx.setMfrag(TAB, 'A', 'wg_f16bf16', 'half_t', 'float', 16, '((64,16),2,4):((64,1),4096,16)', 0, ...WG_SS);
+    const s = ctx.mfragState[TAB];
+    if (!s.descriptor || fmtL(s.fragment) !== '(1,2,4):(0,512,2)' || !els.get(`${TAB}-mfrag-svg`).innerHTML.includes('desc +512'))
+      throw new Error('WGMMA descriptor fragment view');
+    const want = JSON.stringify(ctx.mmaReadAtomInputs(TAB, 'mfrag'));
+    urlRoundTrip(() => ctx.exportMfrag(TAB));
+    if (JSON.stringify(ctx.mmaReadAtomInputs(TAB, 'mfrag')) !== want || !ctx.mfragState[TAB].descriptor)
+      throw new Error('make_fragment URL lost the WGMMA atom');
+    ctx.setMfrag(TAB, 'C', 'wg_f16bf16', 'half_t', 'float', 16, '((2,2,8),2,2):((128,8,1024),8192,64)', 3, ...WG_SS);
+    if (ctx.mfragState[TAB].descriptor || els.get(`${TAB}-mfrag-space`).textContent !== 'RMEM') throw new Error('WGMMA C must be RMEM');
+  }, [`${TAB}-mfrag-svg`]);
+
+  const gemmPanes = ['a', 'b', 'tile'].map(x => `${TAB}-gemm-${x}-svg`);
+  step('gemm: WGMMA descriptor and register operands, memory badges and URL round trip', () => {
+    ctx.setGemm(TAB, ctx.GEMM_WGMMA_SS, '(1,2,4):(0,1024,2)', '(1,2,4):(0,512,2)', '((2,2,8),2,2):((1,2,4),32,64)', '', 1);
+    const r = ctx.gemmState[TAB].result;
+    if (r.dispatch !== 5 || [r.M, r.N, r.K].join() !== '2,2,4') throw new Error('WGMMA SS gemm');
+    const badge = x => els.get(`${TAB}-gemm-${x}-space`).textContent;
+    if (badge('a') !== 'SMEM' || badge('b') !== 'SMEM' || badge('c') !== 'RMEM') throw new Error('gemm badges must follow operand spaces');
+    const want = JSON.stringify(ctx.mtmReadConstructorControls(TAB, 'gemm-mma'));
+    urlRoundTrip(() => ctx.exportGemm(TAB));
+    if (JSON.stringify(ctx.mtmReadConstructorControls(TAB, 'gemm-mma')) !== want || els.get(`${TAB}-gemm-k-input`).value !== '1')
+      throw new Error('gemm URL lost the WGMMA constructor or K');
+    ctx.setGemm(TAB, ctx.GEMM_WGMMA_RS, '((2,2,2),2,4):((1,2,4),8,16)', '(1,2,4):(0,512,2)', '((2,2,8),2,2):((1,2,4),32,64)', '', 0);
+    if (badge('a') !== 'RMEM' || badge('b') !== 'SMEM') throw new Error('register A badge');
+  }, gemmPanes);
+  step('gemm: a register fragment passed for a WGMMA SMEM operand is rejected',
+    () => ctx.setGemm(TAB, ctx.GEMM_WGMMA_SS, '(8,2,4):(1,8,16)', '(1,2,4):(0,512,2)', '((2,2,8),2,2):((1,2,4),32,64)', '', 0),
+    [], { expectError: /descriptor tensor/ });
+
+  step('make_tiled_copy_A: WGMMA register A, warp-group focus and URL round trip', () => {
+    ctx.setMCAB(TAB, 'A', 'wg_f16bf16', 'half_t', 'float', 16, '(2,1,1)', '', 'ldmatrix', 4, 0, 16, 'warpgroup', '1', 'src_dst', ...WG_RS);
+    const s = ctx.mcabState[TAB];
+    if (s.mode !== 'warpgroup' || s.focus !== 1 || s.mma.threads !== 256 || els.get(`${TAB}-mcab-group-mode-btn`).style.display !== '')
+      throw new Error('WGMMA make_tiled_copy_A state');
+    if (!els.get(`${TAB}-mcab-dst-svg`).innerHTML.includes('WG1')) throw new Error('warp-group labels missing');
+    const want = JSON.stringify(ctx.mtmReadConstructorControls(TAB, 'mcab'));
+    urlRoundTrip(() => ctx.exportMCAB(TAB));
+    if (JSON.stringify(ctx.mtmReadConstructorControls(TAB, 'mcab')) !== want || ctx.mcabState[TAB].mode !== 'warpgroup')
+      throw new Error('make_tiled_copy_A URL lost the WGMMA constructor');
+  }, mcabPanes);
+  step('make_tiled_copy_B: a WGMMA shared-memory operand is explained, not drawn', () => {
+    els.get(`${TAB}-mcab-operand-input`).value = 'B';
+    ctx.renderMakeTiledCopyAB(TAB);
+    if (els.get(`${TAB}-mcab-dst-svg`).innerHTML) throw new Error('descriptor operand drew a copy');
+  }, [], { expectError: /descriptor/ });
+  step('make_tiled_copy_A/B recovers to a warp MMA preset',
+    () => ctx.setMCAB(TAB, 'A', 'f16bf16', 'half_t', 'float', 16, '(2,2,1)', '(32,32,16)', 'ldmatrix', 4, 0, 16), mcabPanes);
+
+  step('partition_S/D: a WGMMA make_tiled_copy_A URL fills the MMA-derived manual constructor', () => {
+    const url = '?key=make_tiled_copy_ab-A-wg_f16bf16-half_t-float-16-(2,1,1)-na-ldmatrix-4-0-16-warp-na-src_dst-' + WG_RS.join('-');
+    els.get(`${TAB}-psd-tensor-input`).value = '(128,32,2):(32,1,4096)';
+    ctx.psdImportTiledCopy(TAB, url);
+    const constructor = ctx.mtmReadConstructorControls(TAB, 'psd-manual-mma');
+    if (JSON.stringify(constructor) !== JSON.stringify(['wg_f16bf16', 'half_t', 'float', '16', '(2,1,1)', 'na', ...WG_RS.map(String)]))
+      throw new Error(`manual TiledMMA = ${constructor}`);
+    const manual = ctx.mtcReadManualConstructor(TAB, 'psd-manual');
+    const a = ctx.mtcDecodeURL(manual), b = ctx.mtcDecodeURL(ctx.parsePastedKeyParam(url));
+    if (fmtL(a.tv) !== fmtL(b.tv) || a.dtype !== 'half_t') throw new Error('manual WGMMA TiledCopy diverged from its URL');
+  }, psdPanes);
 
   // ── URL round-trip: every ?key= form must parse ──────────────────────────
   for (const key of [

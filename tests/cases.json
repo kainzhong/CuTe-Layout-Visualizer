@@ -8041,6 +8041,908 @@
    "gpu": false
   }
  ],
+ "_comment_warpgroup_consumers": "WGMMA through every MMA consumer tab. Traced in the SM90a worker (warpgroup_* prefix). `atom` is the make_mma_atom URL field list: op, ab, acc, K, N, A source, A major, B major, B dtype. SMEM operands are partitioned/fragmented as SMEM tensors of their real element type, so make_fragment returns descriptor tensors.",
+ "warpgroup_partition_abc": [
+  {
+   "id": "A_ss_2x1x1",
+   "which": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(2,1,1)",
+   "perm": null,
+   "tensor": "(128, 32):(32, 1)"
+  },
+  {
+   "id": "B_ss_2x1x1",
+   "which": "B",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(2,1,1)",
+   "perm": null,
+   "tensor": "(64, 32):(32, 1)"
+  },
+  {
+   "id": "C_ss_2x1x1",
+   "which": "C",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(2,1,1)",
+   "perm": null,
+   "tensor": "(128, 128):(128, 1)"
+  },
+  {
+   "id": "A_rs_k_loop",
+   "which": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "RMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(2,1,1)",
+   "perm": null,
+   "tensor": "(128, 32, 2):(32, 1, 4096)"
+  },
+  {
+   "id": "A_rs_perm",
+   "which": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "RMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(1,1,1)",
+   "perm": "(128,64,16)",
+   "tensor": "(128, 32):(32, 1)"
+  },
+  {
+   "id": "A_mn_major",
+   "which": "A",
+   "atom": [
+    "wg_f16bf16",
+    "bfloat16_t",
+    "float",
+    "16",
+    "32",
+    "SMEM",
+    "MN",
+    "MN",
+    "bfloat16_t"
+   ],
+   "atom_layout": "(1,2,1)",
+   "perm": null,
+   "tensor": "(64, 32):(1, 64)"
+  },
+  {
+   "id": "B_mn_major",
+   "which": "B",
+   "atom": [
+    "wg_f16bf16",
+    "bfloat16_t",
+    "float",
+    "16",
+    "32",
+    "SMEM",
+    "MN",
+    "MN",
+    "bfloat16_t"
+   ],
+   "atom_layout": "(1,2,1)",
+   "perm": null,
+   "tensor": "(64, 32):(1, 64)"
+  },
+  {
+   "id": "B_fp8_mixed",
+   "which": "B",
+   "atom": [
+    "wg_fp8",
+    "float_e4m3_t",
+    "float",
+    "32",
+    "32",
+    "RMEM",
+    "K",
+    "K",
+    "float_e5m2_t"
+   ],
+   "atom_layout": "(2,1,1)",
+   "perm": null,
+   "tensor": "(32, 64):(64, 1)"
+  },
+  {
+   "id": "C_fp8_split_k",
+   "which": "C",
+   "atom": [
+    "wg_fp8",
+    "float_e4m3_t",
+    "float",
+    "32",
+    "32",
+    "RMEM",
+    "K",
+    "K",
+    "float_e5m2_t"
+   ],
+   "atom_layout": "(1,1,2)",
+   "perm": null,
+   "tensor": "(64, 64):(1, 64)"
+  },
+  {
+   "id": "A_int8",
+   "which": "A",
+   "atom": [
+    "wg_int8",
+    "int8_t",
+    "int32_t",
+    "32",
+    "24",
+    "SMEM",
+    "K",
+    "K",
+    "uint8_t"
+   ],
+   "atom_layout": "(1,2,1)",
+   "perm": null,
+   "tensor": "(64, 64):(64, 1)"
+  },
+  {
+   "id": "C_int8",
+   "which": "C",
+   "atom": [
+    "wg_int8",
+    "int8_t",
+    "int32_t",
+    "32",
+    "24",
+    "SMEM",
+    "K",
+    "K",
+    "uint8_t"
+   ],
+   "atom_layout": "(1,2,1)",
+   "perm": null,
+   "tensor": "(64, 48):(48, 1)"
+  }
+ ],
+ "warpgroup_partition_shape_abc": [
+  {
+   "id": "A_ss",
+   "which": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(2,1,1)",
+   "perm": null,
+   "shape": "(128, 64)"
+  },
+  {
+   "id": "B_ss_stage",
+   "which": "B",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(2,1,1)",
+   "perm": null,
+   "shape": "(128, 64, 3)"
+  },
+  {
+   "id": "C_ss",
+   "which": "C",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(2,1,1)",
+   "perm": null,
+   "shape": "(256, 128)"
+  },
+  {
+   "id": "A_rs_stage",
+   "which": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "RMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(2,1,1)",
+   "perm": null,
+   "shape": "(128, 64, 3)"
+  },
+  {
+   "id": "C_round_up",
+   "which": "C",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(1,1,1)",
+   "perm": null,
+   "shape": "(32, 64)"
+  },
+  {
+   "id": "C_perm_ignored",
+   "which": "C",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "RMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(1,1,1)",
+   "perm": "(128,64,16)",
+   "shape": "(128, 128)"
+  },
+  {
+   "id": "A_int8",
+   "which": "A",
+   "atom": [
+    "wg_int8",
+    "int8_t",
+    "int32_t",
+    "32",
+    "24",
+    "SMEM",
+    "K",
+    "K",
+    "uint8_t"
+   ],
+   "atom_layout": "(1,2,1)",
+   "perm": null,
+   "shape": "(64, 96)"
+  },
+  {
+   "id": "C_reject",
+   "which": "C",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(1,1,1)",
+   "perm": null,
+   "shape": "(96, 64)",
+   "expect_error": true
+  }
+ ],
+ "warpgroup_make_fragment_abc": [
+  {
+   "id": "C_acc",
+   "which": "C",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "partition": "((2,2,8),2,2):((128,8,1024),8192,64)"
+  },
+  {
+   "id": "C_fp8_half",
+   "which": "C",
+   "atom": [
+    "wg_fp8",
+    "float_e4m3_t",
+    "half_t",
+    "32",
+    "32",
+    "SMEM",
+    "K",
+    "K",
+    "float_e4m3_t"
+   ],
+   "partition": "((2,2,4),2,2):((64,8,512),4096,32)"
+  },
+  {
+   "id": "A_rs_row",
+   "which": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "RMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "partition": "((2,2,2),2,4):((128,8,1024),8192,16)"
+  },
+  {
+   "id": "A_rs_col",
+   "which": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "RMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "partition": "((2,2,2),2,4):((1,1024,8),64,16384)"
+  },
+  {
+   "id": "A_desc_k",
+   "which": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "partition": "((64,16),2,4):((64,1),4096,16)"
+  },
+  {
+   "id": "A_desc_mn",
+   "which": "A",
+   "atom": [
+    "wg_f16bf16",
+    "bfloat16_t",
+    "float",
+    "16",
+    "32",
+    "SMEM",
+    "MN",
+    "MN",
+    "bfloat16_t"
+   ],
+   "partition": "((64,16),2,2):((1,128),64,2048)"
+  },
+  {
+   "id": "B_desc_fp8",
+   "which": "B",
+   "atom": [
+    "wg_fp8",
+    "float_e4m3_t",
+    "float",
+    "32",
+    "32",
+    "RMEM",
+    "K",
+    "K",
+    "float_e5m2_t"
+   ],
+   "partition": "((32,32),2,4):((32,1),1024,32)"
+  },
+  {
+   "id": "B_desc_int8",
+   "which": "B",
+   "atom": [
+    "wg_int8",
+    "int8_t",
+    "int32_t",
+    "32",
+    "24",
+    "SMEM",
+    "K",
+    "K",
+    "uint8_t"
+   ],
+   "partition": "((24,32),2,2):((32,1),768,4096)"
+  },
+  {
+   "id": "A_desc_odd_stride",
+   "which": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "partition": "((64,16),2,2):((1,64),3,2048)"
+  },
+  {
+   "id": "A_desc_nested",
+   "which": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "partition": "((64,16),(2,2),3):((1,64),(1024,4096),8192)"
+  },
+  {
+   "id": "A_desc_stage_slice",
+   "which": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "partition": "((64,16),2,4,3):((64,1),4096,16,8192)",
+   "slice": [
+    null,
+    null,
+    null,
+    1
+   ]
+  }
+ ],
+ "warpgroup_gemm": [
+  {
+   "id": "ss_full",
+   "mma": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "(2,1,1)",
+    "na",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "a": "(1,2,4):(0,1024,2)",
+   "b": "(1,2,4):(0,512,2)",
+   "c": "((2,2,8),2,2):((1,2,4),32,64)",
+   "d": ""
+  },
+  {
+   "id": "ss_k_slice",
+   "mma": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "(2,1,1)",
+    "na",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "a": "(1,2):(0,1024)",
+   "b": "(1,2):(0,512)",
+   "c": "((2,2,8),2,2):((1,2,4),32,64)",
+   "d": ""
+  },
+  {
+   "id": "rs_full",
+   "mma": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "(2,1,1)",
+    "na",
+    "64",
+    "RMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "a": "((2,2,2),2,4):((1,2,4),8,16)",
+   "b": "(1,2,4):(0,512,2)",
+   "c": "((2,2,8),2,2):((1,2,4),32,64)",
+   "d": ""
+  },
+  {
+   "id": "fp8_ss_mixed",
+   "mma": [
+    "wg_fp8",
+    "float_e4m3_t",
+    "float",
+    "32",
+    "(1,2,1)",
+    "na",
+    "32",
+    "SMEM",
+    "K",
+    "K",
+    "float_e5m2_t"
+   ],
+   "a": "(1,1,2):(0,0,2)",
+   "b": "(1,2,2):(0,256,2)",
+   "c": "((2,2,4),1,2):((1,2,4),0,16)",
+   "d": ""
+  },
+  {
+   "id": "int8_ss",
+   "mma": [
+    "wg_int8",
+    "int8_t",
+    "int32_t",
+    "32",
+    "(1,1,1)",
+    "na",
+    "24",
+    "SMEM",
+    "K",
+    "K",
+    "uint8_t"
+   ],
+   "a": "(1,2,2):(0,256,4)",
+   "b": "(1,1,2):(0,0,4)",
+   "c": "((2,2,3),2,1):((1,2,4),12,0)",
+   "d": ""
+  },
+  {
+   "id": "err_desc_v2",
+   "mma": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "(2,1,1)",
+    "na",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "a": "(2,2,4):(1,2,4)",
+   "b": "(1,2,4):(0,512,2)",
+   "c": "((2,2,8),2,2):((1,2,4),32,64)",
+   "d": "",
+   "expect_error": true
+  },
+  {
+   "id": "err_rank1",
+   "mma": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "(2,1,1)",
+    "na",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "a": "(1):(0)",
+   "b": "(1):(0)",
+   "c": "((2,2,8)):((1,2,4))",
+   "d": "",
+   "expect_error": true
+  },
+  {
+   "id": "err_m_mismatch",
+   "mma": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "(2,1,1)",
+    "na",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "a": "(1,3,4):(0,1024,2)",
+   "b": "(1,2,4):(0,512,2)",
+   "c": "((2,2,8),2,2):((1,2,4),32,64)",
+   "d": "",
+   "expect_error": true
+  }
+ ],
+ "warpgroup_make_tiled_copy_ab": [
+  {
+   "id": "A_rs_x4",
+   "operand": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "RMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(2,1,1)",
+   "perm": null,
+   "copy_op": "ldmatrix",
+   "num_matrices": 4,
+   "transpose": false,
+   "bits": 16
+  },
+  {
+   "id": "A_rs_x2",
+   "operand": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "RMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(2,1,1)",
+   "perm": null,
+   "copy_op": "ldmatrix",
+   "num_matrices": 2,
+   "transpose": false,
+   "bits": 16
+  },
+  {
+   "id": "A_rs_x1",
+   "operand": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "RMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(2,1,1)",
+   "perm": null,
+   "copy_op": "ldmatrix",
+   "num_matrices": 1,
+   "transpose": false,
+   "bits": 16
+  },
+  {
+   "id": "A_rs_s2r",
+   "operand": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "RMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(2,1,1)",
+   "perm": null,
+   "copy_op": "s2r",
+   "num_matrices": 1,
+   "transpose": false,
+   "bits": 32
+  },
+  {
+   "id": "A_rs_perm",
+   "operand": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "RMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(1,1,1)",
+   "perm": "(128,64,16)",
+   "copy_op": "ldmatrix",
+   "num_matrices": 4,
+   "transpose": false,
+   "bits": 16
+  },
+  {
+   "id": "A_rs_fp8_s2r",
+   "operand": "A",
+   "atom": [
+    "wg_fp8",
+    "float_e4m3_t",
+    "float",
+    "32",
+    "32",
+    "RMEM",
+    "K",
+    "K",
+    "float_e5m2_t"
+   ],
+   "atom_layout": "(1,1,1)",
+   "perm": null,
+   "copy_op": "s2r",
+   "num_matrices": 1,
+   "transpose": false,
+   "bits": 32
+  },
+  {
+   "id": "A_rs_fp8_16x16",
+   "operand": "A",
+   "atom": [
+    "wg_fp8",
+    "float_e4m3_t",
+    "float",
+    "32",
+    "32",
+    "RMEM",
+    "K",
+    "K",
+    "float_e5m2_t"
+   ],
+   "atom_layout": "(1,1,1)",
+   "perm": null,
+   "copy_op": "ldmatrix16x16x8b",
+   "num_matrices": 1,
+   "transpose": true,
+   "bits": 8
+  },
+  {
+   "id": "A_ss_descriptor",
+   "operand": "A",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "SMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(1,1,1)",
+   "perm": null,
+   "copy_op": "ldmatrix",
+   "num_matrices": 4,
+   "transpose": false,
+   "bits": 16
+  },
+  {
+   "id": "B_descriptor",
+   "operand": "B",
+   "atom": [
+    "wg_f16bf16",
+    "half_t",
+    "float",
+    "16",
+    "64",
+    "RMEM",
+    "K",
+    "K",
+    "half_t"
+   ],
+   "atom_layout": "(1,1,1)",
+   "perm": null,
+   "copy_op": "ldmatrix",
+   "num_matrices": 4,
+   "transpose": false,
+   "bits": 16
+  }
+ ],
+ "warpgroup_partition_sd": [
+  {
+   "id": "url_wg_rs_A_S",
+   "copy_url": "?key=make_tiled_copy_ab-A-wg_f16bf16-half_t-float-16-(2,1,1)-na-ldmatrix-4-0-16-warp-na-src_dst-64-RMEM-K-K-half_t",
+   "side": "S",
+   "tensor": "(128,32,2):(32,1,4096)"
+  },
+  {
+   "id": "url_wg_rs_A_D",
+   "copy_url": "?key=make_tiled_copy_ab-A-wg_f16bf16-half_t-float-16-(2,1,1)-na-ldmatrix-4-0-16-warp-na-src_dst-64-RMEM-K-K-half_t",
+   "side": "D",
+   "tensor": "(128,32,2):(32,1,4096)"
+  }
+ ],
  "smem_layout": [
   {
    "id": "a_row_major_8",

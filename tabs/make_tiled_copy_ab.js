@@ -42,6 +42,15 @@ function mcabSideLayout(tv, tile, copyAtom, side) {
 function mcabComputeTiledCopy(mma, operand, copyAtom) {
   if (operand !== 'A' && operand !== 'B') throw new Error('Operand must be A or B.');
   const opnd = mma[operand];
+  // A WGMMA shared-memory operand is read by the instruction through a
+  // descriptor; there is no register fragment for an SMEM -> RMEM copy to fill.
+  // (CuTeDSL still builds a degenerate TiledCopy in which every thread of a
+  // warpgroup receives the whole tile; this view does not present that.)
+  if (opnd.space === 'SMEM')
+    throw new Error(`WGMMA reads operand ${operand} directly from shared memory through a descriptor, so ` +
+      `make_tiled_copy_${operand} has no register fragment to fill. ` +
+      (operand === 'A' ? 'Set the WGMMA A source to RMEM (register A) to load A with a TiledCopy.'
+                       : 'WGMMA B is always a shared-memory operand; choose operand A with A source RMEM.'));
   const tv = opnd.tv;
   const values = product(tv.shape[1]);
   if (mma.threads % copyAtom.threads)
@@ -90,6 +99,7 @@ function generateMakeTiledCopyABTabContent(id) {
           <div class="seg-control" id="${id}-mcab-mode-btns">
             <button class="mode-btn" onclick="setMcabMode('${id}','tv')">Show TVs</button>
             <button class="mode-btn active" onclick="setMcabMode('${id}','warp')">Show Warps</button>
+            <button class="mode-btn" id="${id}-mcab-group-mode-btn" style="display:none" onclick="setMcabMode('${id}','warpgroup')">Show Warp Groups</button>
           </div>
         </div>
         <div class="form-group">
@@ -135,6 +145,8 @@ function generateMakeTiledCopyABTabContent(id) {
           <button class="preset-btn" onclick="setMCAB('${id}','B','fp8','float_e4m3_t','float',32,'(2,2,1)','(32,32,32)','ldmatrix16x8x8b',4,1,8)">B — FP8, permuted 8-bit load</button>
           <button class="preset-btn" onclick="setMCAB('${id}','A','fp8','float_e4m3_t','float',32,'(2,2,1)','(32,32,32)','ldmatrix16x16x8b',2,1,8)">A — FP8, 16×16 load</button>
           <button class="preset-btn" onclick="setMCAB('${id}','A','tf32',null,null,8,'(2,2,1)','','s2r',1,0,32)">A — TF32, scalar SIMT load</button>
+          <button class="preset-btn" onclick="setMCAB('${id}','A','wg_f16bf16','half_t','float',16,'(2,1,1)','','ldmatrix',4,0,16,'warpgroup','na','src_dst',64,'RMEM','K','K','half_t')">WGMMA register A — .x4, two warpgroups</button>
+          <button class="preset-btn" onclick="setMCAB('${id}','A','wg_fp8','float_e4m3_t','float',32,'(1,1,1)','','ldmatrix',4,0,16,'tv','na','mma_copy',64,'RMEM','K','K','float_e4m3_t')">WGMMA FP8 register A — MMA/COPY</button>
         </div></div>
         <div class="hint">
           SRC names the lanes supplying shared-memory row addresses; DST names the lanes receiving register values. Values can cross lanes inside ldmatrix. Ignored address lanes are omitted from SRC.<br><br>
@@ -183,14 +195,9 @@ function mcabImportConstructor(tabId, feature, text) {
   renderMakeTiledCopyAB(tabId);
 }
 
-async function mcabDecodePasteboard(tabId, feature) {
-  const pasted = await readPasteboardText(`Paste the ${feature} URL or its query string:`);
-  if (pasted === null || pasted === undefined) return;
-  try {
-    mcabImportConstructor(tabId, feature, pasted);
-  } catch (e) {
-    showErr(`${tabId}-mcab-error`, e.message);
-  }
+function mcabDecodePasteboard(tabId, feature) {
+  return decodeFromPasteboard({tabId, errorId: `${tabId}-mcab-error`, sources: [feature],
+    message: `Paste the ${feature} URL or its query string:`, importFn: text => mcabImportConstructor(tabId, feature, text)});
 }
 
 function mcabSyncCopyControls(tabId, p = 'mcab') {
@@ -210,28 +217,21 @@ function renderMakeTiledCopyAB(tabId) {
   try {
     const read = key => document.getElementById(`${tabId}-mcab-${key}-input`).value;
     const operand = read('operand');
-    const opKey = read('op');
-    if (!MMA_WARP_OPS[opKey]) throw new Error(`Unknown MMA Op "${opKey}".`);
-    const op = MMA_WARP_OPS[opKey];
-    mmaSyncControls(tabId, opKey, 'mcab');
+    // The shared constructor reader/decoder: every MMA Op is offered here.
+    const { atom, tiled: mma } = mtmDecodeConstructor(mtmReadConstructorControls(tabId, 'mcab'));
+    const op = atom.op, k = atom.k;
     mcabSyncCopyControls(tabId);
-    const k = Number(read('k'));
-    const ab = op.ab ? read('ab') : 'tfloat32_t';
-    const acc = op.acc ? read('acc') : 'float';
-    if (ab === 'bfloat16_t' && acc !== 'float') throw new Error('BF16 MMA requires a float accumulator.');
-    const atom = mmaWarpAtom(opKey, k);
-    const atomLayout = mtmParseAtomLayout(read('atomlayout'));
-    const perm = mtmParsePerm(read('perm'));
-    const mma = mtmComputeTiledMma(atom, atomLayout, perm);
+    const ab = atom.dtypes[operand], acc = atom.dtypes.C;
     const copyAtom = mcabCopyAtom(read('copy'), ab, Number(read('nm')), read('trans') === '1', Number(read('bits')));
     const result = mcabComputeTiledCopy(mma, operand, copyAtom);
     if (product(result.tile) > MAX_CELLS) throw new Error(`Operand tile exceeds ${MAX_CELLS} cells.`);
     const prev = mcabState[tabId] || {};
-    const mode = prev.mode || 'warp';
-    const focusState = mtmReadFocus(tabId, mode, mma.warps, mma.threads, 'mcab');
-    mcabState[tabId] = { mode, compare: prev.compare || 'src_dst', ...focusState, mma, result, ab, acc, copyAtom };
-    mtmSyncFocusField(tabId, mode, 'mcab', 'Focus one warp or thread across both panes. Blank shows all participants.');
-    mmaRenderOpParams(tabId, op, k, ab, acc, 'mcab');
+    let mode = prev.mode || 'warp';
+    if (mode === 'warpgroup' && !atom.warpgroup) mode = 'warp';
+    const focusState = mtmReadFocus(tabId, mode, mma.warps, mma.threads, 'mcab', mma.atomGroups);
+    mcabState[tabId] = { mode, compare: prev.compare || 'src_dst', ...focusState, mma, result, ab, acc, copyAtom, atom };
+    mtmSyncFocusField(tabId, mode, 'mcab', 'Focus one warp, warpgroup or thread across both panes. Blank shows all participants.');
+    mmaRenderOpParams(tabId, op, k, atom.dtypes.A, acc, 'mcab', atom);
     const fmt = L => formatLayoutStr(L.shape, L.stride);
     document.getElementById(`${tabId}-mcab-atom-result`).innerHTML =
       `<div class="cuo-result-line"><b>${copyAtom.label}</b> — ${ab}, unpack_bits=None</div>` +
@@ -261,7 +261,10 @@ function mcabRenderViz(tabId) {
   const [rows, cols] = r.tile;
   const axes = r.operand === 'A' ? 'M×K' : 'N×K';
   document.getElementById(`${tabId}-mcab-mode-btns`).querySelectorAll('.mode-btn').forEach(b =>
-    b.classList.toggle('active', b.textContent.trim() === (s.mode === 'tv' ? 'Show TVs' : 'Show Warps')));
+    b.classList.toggle('active', b.textContent.trim() ===
+      ({tv: 'Show TVs', warp: 'Show Warps', warpgroup: 'Show Warp Groups'}[s.mode])));
+  const groupBtn = document.getElementById(`${tabId}-mcab-group-mode-btn`);
+  if (groupBtn) groupBtn.style.display = s.atom.warpgroup ? '' : 'none';
   const copyKey = document.getElementById(`${tabId}-mcab-copy-input`).value;
   const [srcSpace, dstSpace] = COPY_OP_MOVES[copyKey][0];
   const compareMma = s.compare === 'mma_copy';
@@ -282,7 +285,9 @@ function mcabRenderViz(tabId) {
   };
   for (const [key, grid] of Object.entries(views)) {
     const svg = `${tabId}-mcab-${key}-svg`;
-    document.getElementById(svg).innerHTML = mtmBuildSVG(grid, rows, cols, { mode: s.mode, focus: s.focus });
+    document.getElementById(svg).innerHTML = mtmBuildSVG(grid, rows, cols, {
+      mode: s.mode, focus: s.focus, atomThreads: s.mma.atomThreads,
+      groupPrefix: s.mode === 'warpgroup' ? 'WG' : 'W' });
     applyZoomState(svg);
   }
 
@@ -298,16 +303,13 @@ function setMcabMode(tabId, mode) {
   renderMakeTiledCopyAB(tabId);
 }
 
-function setMCAB(tabId, operand, opKey, ab, acc, k, atomLayout, perm, copyKey, nm, transpose, bits, mode, focus, compare) {
+/** URL field order; `...tail` is the atom's Op-specific constructor tail
+ *  (WGMMA: N, A source, A/B major, B dtype), after the optional fields. */
+function setMCAB(tabId, operand, opKey, ab, acc, k, atomLayout, perm, copyKey, nm, transpose, bits, mode, focus, compare, ...tail) {
   const write = (key, value) => { document.getElementById(`${tabId}-mcab-${key}-input`).value = String(value); };
+  mtmWriteConstructorControls(tabId, 'mcab', mtmJoinConstructor(
+    [opKey, ab || 'na', acc || 'na', String(k), atomLayout, perm || 'na'], tail));
   write('operand', operand);
-  write('op', opKey);
-  mmaSyncControls(tabId, opKey, 'mcab');
-  if (ab && ab !== 'na') write('ab', ab);
-  if (acc && acc !== 'na') write('acc', acc);
-  write('k', k);
-  write('atomlayout', atomLayout);
-  write('perm', perm === 'na' ? '' : perm);
   write('copy', copyKey);
   mcabSyncCopyControls(tabId);
   write('nm', nm);
@@ -320,8 +322,14 @@ function setMCAB(tabId, operand, opKey, ab, acc, k, atomLayout, perm, copyKey, n
 
 function exportMCAB(tabId) {
   const read = key => document.getElementById(`${tabId}-mcab-${key}-input`).value;
-  exportURL(`${tabId}-mcab-export`, 'make_tiled_copy_ab', read('operand'), read('op'),
-    read('ab') || 'na', read('acc') || 'na', read('k'), read('atomlayout') || '(1,1,1)',
-    read('perm') || 'na', read('copy'), read('nm') || '1', read('trans'), read('bits'),
-    (mcabState[tabId] || {}).mode || 'warp', read('focus') || 'na', (mcabState[tabId] || {}).compare || 'src_dst');
+  const { head, tail } = mtmSplitConstructor(mtmReadConstructorControls(tabId, 'mcab'));
+  head[4] = head[4] || '(1,1,1)';
+  exportURL(`${tabId}-mcab-export`, 'make_tiled_copy_ab', read('operand'), ...head,
+    read('copy'), read('nm') || '1', read('trans'), read('bits'),
+    (mcabState[tabId] || {}).mode || 'warp', read('focus') || 'na', (mcabState[tabId] || {}).compare || 'src_dst', ...tail);
+}
+
+/** make_tiled_copy_ab URL fields -> TiledMMA constructor (tail after compare). */
+function mcabConstructorFromURL(a) {
+  return mtmJoinConstructor(a.slice(1, 7), a.slice(14));
 }

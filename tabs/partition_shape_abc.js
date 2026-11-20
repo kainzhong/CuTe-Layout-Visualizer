@@ -77,7 +77,7 @@ function pshpComputeShape(atom, atomLayout, perm, which, shapeIn) {
     throw new Error(
       `The ${spec.axes[i]} extent ${e} is neither a multiple nor a divisor of the ` +
       `${cover[i]} ${spec.axes[i]} one Rest position covers (atom ${atomExt[i]} × ` +
-      `${warps[i]} warp${warps[i] === 1 ? '' : 's'} along ${spec.axes[i]}). CuTeDSL rejects ` +
+      `${warps[i]} ${atom.warpgroup ? 'warpgroup' : 'warp'}${warps[i] === 1 ? '' : 's'} along ${spec.axes[i]}). CuTeDSL rejects ` +
       `it: "failed to partition ... with tiled_mma".`);
   });
   const trailing = modes.slice(2);
@@ -86,21 +86,29 @@ function pshpComputeShape(atom, atomLayout, perm, which, shapeIn) {
   // Strides come from the consumer. make_fragment_X(shape) reads the shape as
   // CuTe's make_layout(shape) does — compact column-major — and then applies
   // its own rule, which is pabcMakeFragment's, shared with partition_A/B/C.
-  const fragment = pabcMakeFragment(new Layout(shape, autoStride(shape)), which);
+  // A WGMMA SMEM operand has no register fragment: its make_fragment_X builds a
+  // descriptor from an SMEM tensor, and CuTeDSL rejects a bare shape there.
+  const descriptor = (atom[which] || {}).space === 'SMEM';
+  const fragment = descriptor ? null : pabcMakeFragment(new Layout(shape, autoStride(shape)), which);
 
   // The input as CuTe reads a bare shape — make_layout(shape), compact
   // column-major (a size-1 mode gets stride 0, as CuTe prints it). This is the
-  // dummy layout C++'s partition_shape partitions. The tab draws its first two
-  // modes: the operand plane, at every later mode's index 0.
+  // dummy layout C++'s partition_shape partitions; the tab prints it.
   const inputLayout = new Layout(modes, mtmCompactStride(modes));
-  const planeLayout = new Layout([modes[0], modes[1]], [inputLayout.stride[0], inputLayout.stride[1]]);
+
+  // The tile partition_shape steps across the shape: the TiledMMA operand
+  // WITHOUT permutation_mnk (which this op ignores), i.e. exactly the block
+  // one Rest position covers. Grid 1 draws it with its T/V ownership, the same
+  // region partition_A/B/C's level-1 grid shows when there is no permutation.
+  const tile = (perm.some(Boolean) ? mtmComputeTiledMma(atom, atomLayout, [null, null, null]) : tiled)[which];
 
   return {
     which, spec, shape, shapeStr: pshpFormatShape(shape),
-    input: modes, inputStr: pshpFormatShape(modes), inputLayout, planeLayout,
+    input: modes, inputStr: pshpFormatShape(modes), inputLayout, tile,
     frgShape, frgSize: product(frgShape),
     atomExt, warps, cover, extents, rest, roundedUp, trailing,
-    fragment, threads: tiled.threads, thrLayoutVmnk: tiled.thrVmnk, tileMNK: tiled.tileMNK,
+    fragment, descriptor, threads: tiled.threads, thrLayoutVmnk: tiled.thrVmnk, tileMNK: tiled.tileMNK,
+    unit: atom.warpgroup ? 'warpgroup' : 'warp',
     // permutation_mnk changes partition_X but not this — say so when present.
     permIgnored: perm.some(Boolean),
   };
@@ -164,6 +172,8 @@ function generatePartitionShapeABCTabContent(id) {
             <button class="preset-btn" onclick="setPshp('${id}','A','f16bf16','half_t','float',16,'(2, 2, 1)','((2,32):(32,1), 32, 16)','(128, 48)')">Permuting layout &mdash; Rest stays flat, unlike partition_A</button>
             <button class="preset-btn" onclick="setPshp('${id}','A','f16bf16','half_t','float',16,'(2, 2, 1)','','(16, 64)')">M smaller than one warp tile &mdash; rounds up to 1</button>
             <button class="preset-btn" onclick="setPshp('${id}','A','tf32','na','na',8,'(2, 2, 1)','','(64, 32)')">MmaTF32Op, m16n8k8</button>
+            <button class="preset-btn" onclick="setPshp('${id}','C','wg_f16bf16','half_t','float',16,'(2, 1, 1)','','(256, 128)',64,'SMEM','K','K','half_t')">WGMMA C &mdash; sizing a 256&times;128 accumulator</button>
+            <button class="preset-btn" onclick="setPshp('${id}','A','wg_f16bf16','half_t','float',16,'(2, 1, 1)','','(128, 64, 3)',64,'SMEM','K','K','half_t')">WGMMA SMEM A &mdash; a shape, but no register fragment</button>
           </div>
         </div>
 
@@ -179,9 +189,9 @@ function generatePartitionShapeABCTabContent(id) {
           compact column-major, like <code>make_layout(shape)</code>. The result
           box shows that fragment; <b>make_fragment</b> opens it in the register
           view.<br><br>
-          <b>Modes 1 and 2 are counted in warp tiles, and permutation_mnk does
+          <b>Modes 1 and 2 are counted in TiledMMA tiles (grid 1), and permutation_mnk does
           not enter.</b> Each is <code>shape_div(extent, atom &times; warps)</code>:
-          an extent smaller than one warp tile rounds up to 1, and one that is
+          an extent smaller than one tile rounds up to 1, and one that is
           neither a multiple nor a divisor is rejected. With a permuting layout
           <code>partition_A</code> returns a nested Rest such as
           <code>(2,2)</code>; <code>partition_shape_A</code> returns its flat
@@ -193,16 +203,17 @@ function generatePartitionShapeABCTabContent(id) {
       <div class="comp-results" style="grid-template-columns:1fr">
         ${layoutVisualization({
           hostId: `${id}-pshp-tile-svg`,
-          title: 'The input shape as make_layout(shape)',
+          title: 'One TiledMMA tile',
           titleId: `${id}-pshp-tile-title`,
           onMode: mode => `setPshpMode('${id}','tile','${mode}')`,
           beforeGrid: `<div class="cuo-viz-desc" id="${id}-pshp-tile-desc">
-            <b>The argument, read the way CuTe reads a bare shape:</b>
-            <code>make_layout(shape)</code>, compact column-major. This is the
-            layout C++ CuTe's <code>partition_shape</code> partitions internally.
-            Each element is coloured by the warp tile it falls in, matching the
-            Rest grid below, and outlined at warp-tile boundaries. Only the
-            first two modes are drawn; later modes repeat this plane.
+            <b>The unit partition_shape steps across the shape:</b> one TiledMMA
+            tile without <code>permutation_mnk</code> &mdash; the atom times the
+            warps (or warpgroups) along each axis &mdash; with the
+            <code>T</code>/<code>V</code> that owns each cell, as in
+            partition_A/B/C's first grid. Mode 0 of the result is one thread's
+            share of this tile. A WGMMA shared-memory operand is one uniform
+            descriptor block. Grid 2 shows how many of these tiles cover the shape.
           </div>`,
         })}
         ${layoutVisualization({
@@ -212,8 +223,7 @@ function generatePartitionShapeABCTabContent(id) {
           onMode: mode => `setPshpMode('${id}','sweep','${mode}')`,
           beforeGrid: `<div class="cuo-viz-desc" id="${id}-pshp-sweep-desc">
             <b>Modes 1 and 2 of the returned shape, one cell per Rest position.</b>
-            Each cell is one warp tile &mdash; the atom times the warps along
-            that axis &mdash; and the grid is that Rest shape read
+            Each cell is one copy of grid 1's TiledMMA tile, and the grid is that Rest shape read
             column-major: <code>value</code> is the Rest index a fragment walks,
             <code>coord</code> its (i, j). The last line is the element where the
             tile starts. Mode 0 is listed above the grid, not drawn: it is what
@@ -243,11 +253,17 @@ function renderPartitionShapeABC(tabId) {
   try {
     const inp = pshpReadInputs(tabId);
     const r = pshpComputeShape(inp.atom, inp.atomLayout, inp.perm, which, inp.shape);
-    const fragStr = formatLayoutStr(r.fragment.shape, r.fragment.stride);
     document.getElementById(`${tabId}-pshp-result`).innerHTML =
       `<div class="cuo-result-line">partition_shape_${which}(${r.inputStr}) = <b>${r.shapeStr}</b></div>` +
-      `<div class="cuo-result-line">make_fragment_${which}(shape) = <b>${fragStr}</b>` +
-      `<span style="color:#9ca3af"> &mdash; the strides a consumer chooses</span></div>`;
+      (r.descriptor
+        ? `<div class="cuo-result-line">make_fragment_${which}(shape): <b>not available</b>` +
+          `<span style="color:#9ca3af"> &mdash; ${which} is a WGMMA SMEM descriptor operand; its fragment is ` +
+          `built from a partitioned SMEM tensor (partition_${which} &rarr; make_fragment), and CuTeDSL rejects a bare shape.</span></div>`
+        : `<div class="cuo-result-line">make_fragment_${which}(shape) = ` +
+          `<b>${formatLayoutStr(r.fragment.shape, r.fragment.stride)}</b>` +
+          `<span style="color:#9ca3af"> &mdash; the strides a consumer chooses</span></div>`);
+    const makeFragmentBtn = document.getElementById(`${tabId}-pshp-make-fragment`);
+    if (makeFragmentBtn) makeFragmentBtn.disabled = r.descriptor;
 
     document.getElementById(`${tabId}-pshp-tiled-result`).innerHTML =
       `<div class="cuo-result-line">thr_layout_vmnk = <b>` +
@@ -255,7 +271,7 @@ function renderPartitionShapeABC(tabId) {
       `${r.threads} threads</div>` +
       `<div class="cuo-result-line">One Rest position = <b>${r.cover.join('&times;')}</b> ` +
       `(${r.spec.axes.join(', ')})<span style="color:#9ca3af"> &mdash; atom ` +
-      `${r.atomExt.join('&times;')} &times; warps ${r.warps.join('&times;')}</span></div>`;
+      `${r.atomExt.join('&times;')} &times; ${r.unit}s ${r.warps.join('&times;')}</span></div>`;
 
     const notes = [];
     if (inp.hadStride) notes.push('The strides you entered are ignored: partition_shape takes only the shape.');
@@ -267,8 +283,7 @@ function renderPartitionShapeABC(tabId) {
     if (notes.length) showWarn(`${tabId}-pshp-warning`, notes.join(' '));
 
     pshpState[tabId] = {
-      ...r, which, opKey: inp.atom.opKey, k: inp.atom.k,
-      abDtype: inp.constructor[1], accDtype: inp.constructor[2],
+      ...r, which, constructor: inp.constructor,
       mode: prev.mode instanceof Set ? prev.mode : new Set(['coord']),
       tileMode: prev.tileMode instanceof Set ? prev.tileMode : new Set(['value']),
     };
@@ -289,49 +304,43 @@ function renderPartitionShapeABC(tabId) {
   }
 }
 
-/** The input plane, make_layout(shape) at every later mode's index 0. Cells
- *  carry the shared value/index/coord labels; the colour is the warp tile the
- *  element falls in (the Rest grid's colour), with tile boundaries drawn once
- *  by the overlay rather than as doubled per-cell strokes. */
+/** One TiledMMA tile (no permutation_mnk): the block a single Rest position
+ *  covers, with the T/V that owns each cell — the ownership comes from the
+ *  shared mtmOperandGrid / mtmTvLines, so it matches make_tiled_mma and
+ *  partition_A/B/C. The shared value/index/coord labels read the tile as a
+ *  column-major layout of its own. A WGMMA descriptor operand is uniform. */
 function pshpRenderTileViz(tabId) {
   const s = pshpState[tabId];
-  if (!s || !s.planeLayout) return;
+  if (!s || !s.tile) return;
   const modes = s.tileMode instanceof Set ? s.tileMode : new Set(['value']);
-  const [E0, E1] = s.extents;
-  const [C0, C1] = s.cover;
-  const R0 = s.rest[0];
-  const P = s.planeLayout;
-  const line = (x1, y1, x2, y2) =>
-    `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#1e3a5f" stroke-width="2"/>`;
-  const svg = buildColoredLayoutSVG(P.shape, P.stride, modes, (m, n, value, index) => ({
-    bg: colorHighlight(Math.floor(m / C0) + Math.floor(n / C1) * R0),
-    text: buildCellLines(modes, value, index, `(${m},${n})`),
-  }), {
-    overlay: ({ cs, margin }) => {
-      let out = '';
-      for (let i = 0; i <= Math.ceil(E0 / C0); i++) {
-        const y = margin + Math.min(i * C0, E0) * cs;
-        out += line(margin, y, margin + E1 * cs, y);
-      }
-      for (let j = 0; j <= Math.ceil(E1 / C1); j++) {
-        const x = margin + Math.min(j * C1, E1) * cs;
-        out += line(x, margin, x, margin + E0 * cs);
-      }
-      return out;
-    },
+  const [M, N] = s.tile.tile;
+  const smem = s.tile.space === 'SMEM';
+  const grid = mtmOperandGrid(s.tile);
+  const svg = buildColoredLayoutSVG([M, N], [1, M], modes, (m, n, value, index) => {
+    const labels = buildCellLines(modes, value, index, `(${m},${n})`);
+    const entries = grid[m][n].entries;
+    if (smem) return { bg: '#a7f3d0', text: labels };
+    if (!entries.length) return { bg: '#f0f0f0', text: ['—'] };
+    return { bg: colorTV(entries[0].t), text: [...mtmTvLines(entries, null), ...labels] };
   });
+  const axes = s.spec.axes;
   const full = formatLayoutStr(s.inputLayout.shape, s.inputLayout.stride);
   const head =
     `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
-    `make_layout(${s.inputStr}) = <b style="color:#93c5fd">${full}</b>` +
-    (s.trailing.length
-      ? `<br>drawn: modes 0-1 at index 0 of ${s.trailing.map(pshpFormatShape).join(', ')}; ` +
-        `each later index is this plane again, offset by its stride`
-      : '') +
+    `one TiledMMA tile = <b style="color:#93c5fd">${M}&times;${N}</b> (${axes.join(', ')}): atom ` +
+    `${s.atomExt.join('&times;')} &times; ${s.unit}s ${s.warps.join('&times;')}` +
+    (smem ? ` &mdash; a shared-memory descriptor block, the same for every thread of a warpgroup`
+          : ` &mdash; each thread holds <b>${pshpFormatShape(s.frgShape)}</b> of it (mode 0)`) +
+    `<br>partition_shape_${s.which} steps it ${s.rest.join('&times;')} times over ` +
+    `make_layout(${s.inputStr}) = ${full} (grid 2)` +
+    s.roundedUp.map((up, i) => up
+      ? `<br><b style="color:#fbbf24">${axes[i]} = ${s.extents[i]}</b> is smaller than this tile's ${s.cover[i]}, ` +
+        `so only part of it lies inside the shape` : '').join('') +
+    (s.permIgnored ? '<br>permutation_mnk is ignored by partition_shape; this is the tile without it.' : '') +
     `</div>`;
   renderLayoutVisualization({ hostId: `${tabId}-pshp-tile-svg`, modes, svg: head + svg });
   document.getElementById(`${tabId}-pshp-tile-title`).textContent =
-    `${s.which}: the (${s.spec.axes.join(', ')}) shape as make_layout — ${E0}×${E1}`;
+    `${s.which}: one TiledMMA tile — ${M}×${N} (${axes.join(', ')})`;
 }
 
 /** Modes 1-2 as a grid, one cell per Rest position. The grid IS a layout —
@@ -352,7 +361,7 @@ function pshpRenderSweepViz(tabId) {
     `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
     `<b style="color:#93c5fd">${s.shapeStr}</b> = mode 0 <b>${pshpFormatShape(s.frgShape)}</b> ` +
     `(${s.frgSize} values per thread per tile) + this <b>${R0}&times;${R1}</b> grid of ` +
-    `${s.cover.join('&times;')} warp tiles over the ${s.extents.join('&times;')} ` +
+    `${s.cover.join('&times;')} TiledMMA tiles (grid 1) over the ${s.extents.join('&times;')} ` +
     `(${s.spec.axes.join(', ')}) shape` +
     (s.trailing.length
       ? ` + <b>${s.trailing.map(pshpFormatShape).join(', ')}</b> passed through unchanged`
@@ -398,24 +407,18 @@ function setPshpOp(tabId) {
   renderPartitionShapeABC(tabId);
 }
 
-function setPshp(tabId, which, opKey, ab, acc, k, atomLayout, perm, shape) {
-  pshpState[tabId] = Object.assign(pshpState[tabId] || {}, { which });
-  document.getElementById(`${tabId}-pshp-op-input`).value = opKey;
-  mmaSyncControls(tabId, opKey, 'pshp');    // options BEFORE values, or the assign is a no-op
-  if (ab  && ab  !== 'na') document.getElementById(`${tabId}-pshp-ab-input`).value  = ab;
-  if (acc && acc !== 'na') document.getElementById(`${tabId}-pshp-acc-input`).value = acc;
-  document.getElementById(`${tabId}-pshp-k-input`).value = String(k);
-  document.getElementById(`${tabId}-pshp-atomlayout-input`).value = atomLayout;
-  document.getElementById(`${tabId}-pshp-perm-input`).value = perm === 'na' ? '' : perm;
-  document.getElementById(`${tabId}-pshp-shape-input`).value = shape;
-  renderPartitionShapeABC(tabId);
+/** Presets use the URL field order; `...tail` is the atom's Op-specific
+ *  constructor tail (WGMMA: N, A source, A/B major, B dtype). */
+function setPshp(tabId, which, opKey, ab, acc, k, atomLayout, perm, shape, ...tail) {
+  pshpApplyKey(tabId, [which, opKey, ab || 'na', acc || 'na', String(k), atomLayout, perm || 'na', shape, ...tail]);
 }
 
-/** Deep link: operand, the six TiledMMA constructor fields, shape. The
- *  constructor is validated before any control changes. */
+/** Deep link: operand, the six TiledMMA constructor fields, shape, then the
+ *  atom's Op-specific tail. The constructor is validated before any control
+ *  changes. */
 function pshpApplyKey(tabId, inputs) {
   if (!PABC_OPERAND[inputs[0]]) throw new Error(`Unknown operand "${inputs[0]}".`);
-  mtmWriteConstructorControls(tabId, 'pshp', inputs.slice(1, 7));
+  mtmWriteConstructorControls(tabId, 'pshp', mtmJoinConstructor(inputs.slice(1, 7), inputs.slice(8)));
   pshpState[tabId] = Object.assign(pshpState[tabId] || {}, { which: inputs[0] });
   document.getElementById(`${tabId}-pshp-shape-input`).value = inputs[7];
   renderPartitionShapeABC(tabId);
@@ -430,18 +433,16 @@ function pshpImportTiledMma(tabId, text) {
   renderPartitionShapeABC(tabId);
 }
 
-async function pshpDecodePasteboard(tabId) {
-  const text = await readPasteboardText('Paste the make_tiled_mma URL or its query string:');
-  if (text === null || text === undefined) return;
-  try { pshpImportTiledMma(tabId, text); }
-  catch (e) { showErr(`${tabId}-pshp-error`, e.message); }
+function pshpDecodePasteboard(tabId) {
+  return decodeFromPasteboard({tabId, errorId: `${tabId}-pshp-error`, sources: ['make_tiled_mma'],
+    message: 'Paste the make_tiled_mma URL or its query string:', importFn: text => pshpImportTiledMma(tabId, text)});
 }
 
 function exportPshp(tabId) {
+  const { head, tail } = mtmSplitConstructor(mtmReadConstructorControls(tabId, 'pshp'));
   exportURL(`${tabId}-pshp-export`, 'partition_shape_abc',
-    (pshpState[tabId] && pshpState[tabId].which) || 'A',
-    ...mtmReadConstructorControls(tabId, 'pshp'),
-    document.getElementById(`${tabId}-pshp-shape-input`).value);
+    (pshpState[tabId] && pshpState[tabId].which) || 'A', ...head,
+    document.getElementById(`${tabId}-pshp-shape-input`).value, ...tail);
 }
 
 /** Hand the returned SHAPE to make_fragment_A/B/C, which reads it column-major
@@ -451,6 +452,12 @@ function pshpOpenFragment(tabId) {
   renderPartitionShapeABC(tabId);
   const s = pshpState[tabId];
   if (!s || !s.shape) return;
-  setMfrag(tabId, s.which, s.opKey, s.abDtype, s.accDtype, s.k, s.shapeStr, 0);
+  if (s.descriptor) {
+    showErr(`${tabId}-pshp-error`, `make_fragment_${s.which}(shape) is not defined for a WGMMA SMEM descriptor operand. ` +
+      `Partition an SMEM tensor in partition_${s.which} and use its make_fragment button instead.`);
+    return;
+  }
+  const c = s.constructor;
+  setMfrag(tabId, s.which, ...c.slice(0, 4), s.shapeStr, 0, ...mtmSplitConstructor(c).tail);
   switchInnerTab(tabId, 'make_fragment_abc');
 }

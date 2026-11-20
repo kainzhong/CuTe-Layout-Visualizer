@@ -1851,7 +1851,7 @@ const FEATURE_SPEC = {
   make_smem_layout_a: {inputs: 5},
   make_smem_layout_b: {inputs: 5},
   make_smem_layout_epi: {inputs: 5, optional: 2},
-  gemm: { inputs: 11, optional: 1 }, // MMA constructor (6), A/B/C/D, selected K [, view]
+  gemm: { inputs: 11, optional: 6 }, // MMA constructor (6), A/B/C/D, selected K [, view [, WGMMA N, A source, A/B major, B dtype]]
   index:          { inputs: 2 },
   layout:         { inputs: 1 },
   tv:             { inputs: 2, methods: ['1', '2'] },
@@ -1872,12 +1872,12 @@ const FEATURE_SPEC = {
   partition_sd:        { inputs: 4, methods: ['url'], legacyInputs: 8 },  // url: side, encoded copy URL, thread, tensor; legacy constructor fields remain accepted
   swizzle:         { inputs: 2 },
   make_mma_atom:   { inputs: 4, optional: 5 },  // warpgroup adds N, A source, A/B major modes, B dtype
-  make_tiled_copy_ab: { inputs: 12, optional: 2 }, // operand, MMA op/ab/acc/K, atom layout, perm, copy Op/nm/trans/bits, view [, focus, compare]
+  make_tiled_copy_ab: { inputs: 12, optional: 7 }, // operand, MMA op/ab/acc/K, atom layout, perm, copy Op/nm/trans/bits, view [, focus, compare [, WGMMA N, A source, A/B major, B dtype]]
   make_tiled_mma:  { inputs: 6, optional: 5 },  // legacy constructor; WGMMA appends N/source/major modes/B dtype
   retile: { inputs: 6 }, // tiled TV, tiler, atom values, dtype, RMEM input, thread
-  partition_abc:   { inputs: 9, optional: 1 },  // operand, op, ab, acc, K, atom_layout_mnk, perm, thr, tensor [, fragment slice]
-  partition_shape_abc: { inputs: 8 },  // operand, op, ab, acc, K, atom_layout_mnk, perm, shape
-  make_fragment_abc: { inputs: 6, optional: 1 }, // operand, op, ab, acc, K, partitioned layout [, thread]
+  partition_abc:   { inputs: 9, optional: 6 },  // operand, op, ab, acc, K, atom_layout_mnk, perm, thr, tensor [, fragment slice [, WGMMA N, A source, A/B major, B dtype]]
+  partition_shape_abc: { inputs: 8, optional: 5 },  // operand, op, ab, acc, K, atom_layout_mnk, perm, shape [, WGMMA N, A source, A/B major, B dtype]
+  make_fragment_abc: { inputs: 6, optional: 6 }, // operand, op, ab, acc, K, partitioned layout [, thread [, WGMMA N, A source, A/B major, B dtype]]
 };
 
 function parseKeyParam(search = location.search) {
@@ -1917,6 +1917,107 @@ function parsePastedKeyParam(text) {
 async function readPasteboardText(message) {
   try { return await navigator.clipboard.readText(); }
   catch (e) { return prompt(message); }
+}
+
+/** Tabs whose Export URL a Decode from Pasteboard button can consume, as
+ *  [scope, tab label, inner-tab key]. Keyed by FEATURE_SPEC feature name. */
+const DECODE_SOURCE_TABS = {
+  tv: ['BASICS', 'TV Layout', 'tv'],
+  make_copy_atom: ['COPY', 'make_copy_atom', 'make_copy_atom'],
+  make_tiled_copy: ['COPY', 'make_tiled_copy', 'make_tiled_copy'],
+  make_tiled_copy_tv: ['COPY', 'make_tiled_copy_tv', 'make_tiled_copy_tv'],
+  make_tiled_copy_ab: ['COPY', 'make_tiled_copy_A / B', 'make_tiled_copy_ab'],
+  make_mma_atom: ['MMA', 'make_mma_atom', 'make_mma_atom'],
+  make_tiled_mma: ['MMA', 'make_tiled_mma', 'make_tiled_mma'],
+  make_fragment_abc: ['MMA', 'make_fragment_A / B / C', 'make_fragment_abc'],
+};
+const TILED_COPY_SOURCES = ['make_tiled_copy', 'make_tiled_copy_tv', 'make_tiled_copy_ab'];
+
+/** DOM-free text of a rejected pasteboard decode: why, and where to export. */
+function decodeFailureMessage(sources, reason) {
+  const names = sources.map(k => {
+    const s = DECODE_SOURCE_TABS[k];
+    if (!s) throw new Error(`Unknown decode source "${k}".`);
+    return `${s[0]} → ${s[1]}`;
+  });
+  const where = names.length < 2 ? names[0] : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
+  return {
+    title: 'Invalid pasteboard input',
+    reason: String(reason || 'The pasteboard does not contain a supported URL.'),
+    hint: `Open ${where}, click Export URL, then Decode from Pasteboard again.`,
+  };
+}
+
+let decodeFailurePopupEl = null;
+
+function closeDecodeFailurePopup() {
+  if (decodeFailurePopupEl) decodeFailurePopupEl.remove();
+  decodeFailurePopupEl = null;
+  document.removeEventListener('keydown', decodeFailureEscHandler);
+}
+
+function decodeFailureEscHandler(e) {
+  if (e.key === 'Escape') closeDecodeFailurePopup();
+}
+
+/** Modal popup for a failed decode, with buttons that open each source tab. */
+function showDecodeFailurePopup(tabId, sources, reason) {
+  closeDecodeFailurePopup();
+  const msg = decodeFailureMessage(sources, reason);
+  const make = (tag, cls, text) => {
+    const el = document.createElement(tag);
+    if (cls) el.className = cls;
+    if (text !== undefined) el.textContent = text;
+    return el;
+  };
+  const overlay = make('div', 'decode-error-overlay');
+  overlay.id = 'decode-error-popup';
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeDecodeFailurePopup(); });
+  const box = make('div', 'decode-error-box');
+  box.setAttribute('role', 'alertdialog');
+  box.setAttribute('aria-modal', 'true');
+  box.setAttribute('aria-labelledby', 'decode-error-title');
+  const title = make('h2', 'decode-error-title', msg.title);
+  title.id = 'decode-error-title';
+  box.appendChild(title);
+  box.appendChild(make('p', 'decode-error-reason', msg.reason));
+  box.appendChild(make('p', 'decode-error-hint', msg.hint));
+  const actions = make('div', 'decode-error-actions');
+  for (const key of sources) {
+    const btn = make('button', 'btn', `Open ${DECODE_SOURCE_TABS[key][1]}`);
+    btn.type = 'button';
+    btn.addEventListener('click', () => { closeDecodeFailurePopup(); switchInnerTab(tabId, DECODE_SOURCE_TABS[key][2]); });
+    actions.appendChild(btn);
+  }
+  const close = make('button', 'btn decode-error-close', 'Close');
+  close.type = 'button';
+  close.addEventListener('click', closeDecodeFailurePopup);
+  actions.appendChild(close);
+  box.appendChild(actions);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  decodeFailurePopupEl = overlay;
+  document.addEventListener('keydown', decodeFailureEscHandler);
+  if (close.focus) close.focus();
+}
+
+/** Shared Decode from Pasteboard flow. `importFn` must validate before it
+ *  changes controls, so a rejected paste leaves the previous constructor; the
+ *  failure is reported inline in `errorId` and in a popup naming `sources`. */
+async function decodeFromPasteboard({ tabId, errorId, sources, message, importFn }) {
+  let text;
+  try { text = await readPasteboardText(message); }
+  catch (e) { text = ''; }
+  if (text === null || text === undefined) return false;  // prompt cancelled
+  try {
+    if (!String(text).trim()) throw new Error('The pasteboard is empty.');
+    importFn(text);
+    return true;
+  } catch (e) {
+    showErr(errorId, e.message);
+    showDecodeFailurePopup(tabId, sources, e.message);
+    return false;
+  }
 }
 
 /** Embedded constructor URLs must escape hyphens used by the outer key. */
@@ -1982,7 +2083,7 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
       }
       break;
     case 'gemm':
-      setGemm(tabId, inputs.slice(0,6), inputs[6], inputs[7], inputs[8], inputs[9] === 'same' ? '' : inputs[9], Number(inputs[10]), inputs[11] === 'mk_kn_mn');
+      setGemm(tabId, gemmConstructorFromURL(inputs), inputs[6], inputs[7], inputs[8], inputs[9] === 'same' ? '' : inputs[9], Number(inputs[10]), inputs[11] === 'mk_kn_mn');
       switchInnerTab(tabId, 'gemm');
       break;
     case 'composed_layout':
@@ -2089,21 +2190,10 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
       break;
     }
     case 'partition_abc': {
-      // The operand toggle lives in pabcState, not the DOM, and the per-Op
-      // selects must be repopulated BEFORE their values are assigned.
-      pabcState[tabId] = Object.assign(pabcState[tabId] || {}, { which: inputs[0] });
-      document.getElementById(`${tabId}-pabc-op-input`).value = inputs[1];
-      mmaSyncControls(tabId, inputs[1], 'pabc');
-      if (inputs[2] !== 'na') document.getElementById(`${tabId}-pabc-ab-input`).value  = inputs[2];
-      if (inputs[3] !== 'na') document.getElementById(`${tabId}-pabc-acc-input`).value = inputs[3];
-      document.getElementById(`${tabId}-pabc-k-input`).value          = inputs[4];
-      document.getElementById(`${tabId}-pabc-atomlayout-input`).value = inputs[5];
-      document.getElementById(`${tabId}-pabc-perm-input`).value       = inputs[6] === 'na' ? '' : inputs[6];
-      document.getElementById(`${tabId}-pabc-thr-input`).value        = inputs[7];
-      document.getElementById(`${tabId}-pabc-tensor-input`).value     = inputs[8];
-      document.getElementById(`${tabId}-pabc-fragment-slice-input`).value = inputs[9] && inputs[9] !== 'na' ? inputs[9] : '';
+      // setPABC validates the constructor (including a WGMMA tail after the
+      // optional fragment selector) and rebuilds dependent selects first.
       switchInnerTab(tabId, 'partition_abc');
-      renderPartitionABC(tabId);
+      setPABC(tabId, ...inputs.slice(0, 9), inputs[9] || '', ...inputs.slice(10));
       break;
     }
     case 'partition_shape_abc': {
@@ -2113,7 +2203,7 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
     }
     case 'make_fragment_abc': {
       setMfrag(tabId, inputs[0], inputs[1], inputs[2], inputs[3], inputs[4], inputs[5],
-               inputs[6] === undefined ? 0 : inputs[6]);
+               inputs[6] === undefined ? 0 : inputs[6], ...inputs.slice(7));
       switchInnerTab(tabId, 'make_fragment_abc');
       break;
     }

@@ -1,6 +1,15 @@
-// GEMM invocation coverage over already partitioned RMEM fragments.
+// GEMM invocation coverage over already partitioned fragments: RMEM register
+// fragments, or WGMMA shared-memory descriptor tensors for SMEM A/B.
 const GEMM_DEFAULT_MMA = ['f16bf16', 'half_t', 'half_t', '16', '(2,2,1)', '(32,32,16)'];
+const GEMM_WGMMA_SS = ['wg_f16bf16', 'half_t', 'float', '16', '(2,1,1)', 'na', '64', 'SMEM', 'K', 'K', 'half_t'];
+const GEMM_WGMMA_RS = ['wg_f16bf16', 'half_t', 'float', '16', '(2,1,1)', 'na', '64', 'RMEM', 'K', 'K', 'half_t'];
 const gemmState = {};
+
+/** gemm URL fields -> TiledMMA constructor: six legacy fields first, the
+ *  atom's Op-specific tail after the optional view field. */
+function gemmConstructorFromURL(a) {
+  return mtmJoinConstructor(a.slice(0, 6), a.slice(12));
+}
 
 
 // Dispatch according to algorithm.py's rank rules, then enumerate logical
@@ -12,18 +21,23 @@ function gemmCompute(mmaInputs, aText, bText, cText, dText) {
   const ar = A.rank(), cr = C.rank();
   if (ar !== B.rank()) throw new Error('A and B must have the same rank.');
   if (cr !== D.rank()) throw new Error('C and D must have the same rank.');
-  if (ar === 1) throw new Error('CuTeDSL warp gemm requires A/B rank 2 or 3. For one invocation, use (V,1) A/B and (V,1,1) C/D fragments.');
+  if (ar === 1) throw new Error('CuTeDSL gemm requires A/B rank 2 or 3. For one invocation, use (V,1) A/B and (V,1,1) C/D fragments.');
   let dispatch;
   if (ar === 2 && cr === 2) dispatch = 3;
   else if (ar === 2 && cr === 3) dispatch = 4;
   else if (ar === 3 && cr === 3) dispatch = 5;
   else throw new Error('Unsupported gemm ranks. Pass (V,M)/(V,N) or (V,M,K)/(V,N,K) fragments with matching C/D.');
   if (dispatch === 3)
-    throw new Error(`Dispatch [${dispatch}] has implicit V=1, which does not match this warp MMA. Include the per-instruction V mode from partition/make_fragment.`);
+    throw new Error(`Dispatch [${dispatch}] has implicit V=1, which does not match this MMA's C/D accumulator. Include the per-instruction V mode from partition/make_fragment.`);
   const modeSize = (L, i) => product(Array.isArray(L.shape) ? L.shape[i] : L.shape);
   for (const [name, L, which] of [['A', A, 'A'], ['B', B, 'B'], ['C', C, 'C'], ['D', D, 'C']]) {
-    if (modeSize(L, 0) !== mma.atom[which].numVal)
-      throw new Error(`${name} V mode has ${modeSize(L, 0)} values; this MMA expects ${mma.atom[which].numVal}. Pass a register fragment, not an unpartitioned matrix.`);
+    // A WGMMA SMEM operand is a tensor of descriptors, one per atom block: V = 1.
+    const descriptor = mma.atom[which].space === 'SMEM';
+    const want = descriptor ? 1 : mma.atom[which].numVal;
+    if (modeSize(L, 0) !== want)
+      throw new Error(descriptor
+        ? `${name} is a WGMMA shared-memory operand: pass its descriptor tensor from make_fragment_${which} (V mode of size 1), got ${modeSize(L, 0)}.`
+        : `${name} V mode has ${modeSize(L, 0)} values; this MMA expects ${want}. Pass a register fragment, not an unpartitioned matrix.`);
   }
   const M = modeSize(A, 1);
   const N = modeSize(B, 1);
@@ -109,7 +123,7 @@ function gemmDispatchRulesMarkup(id) {
       </tr>`;
       }).join('')}</tbody>
     </table></div>
-    <div class="hint">Use [4] for one K slice, or [5] to reduce over an explicit K mode inside gemm. V is the per-thread value mode for one MMA instruction; its size can differ for A, B and C/D. Rule [1] is rejected by the current CuTeDSL warp backend. Rules [2] and [3] assume V=1 and do not match the warp MMA atoms offered here.</div>
+    <div class="hint">Use [4] for one K slice, or [5] to reduce over an explicit K mode inside gemm. V is the per-thread value mode for one MMA instruction; its size can differ for A, B and C/D (a WGMMA shared-memory A/B is one descriptor, V = 1). Rule [1] is rejected by the current CuTeDSL backend. Rules [2] and [3] assume V=1 for C/D too, which no offered MMA atom's accumulator has.</div>
   </div>`;
 }
 
@@ -131,13 +145,13 @@ function generateGemmTabContent(id) {
       <details class="cuo-section" id="${id}-gemm-mma-section" open>
         <summary>1. TiledMMA</summary>
         <div class="cuo-section-body">
-          <button class="btn btn-render btn-decode" onclick="gemmDecodePasteboard('${id}')">Decode from Pasteboard</button>
+          <button class="btn btn-render btn-decode" id="${id}-gemm-decode" onclick="gemmDecodePasteboard('${id}')">Decode from Pasteboard</button>
           ${mtmManualConstructorMarkup({id,p:'gemm-mma',render:'renderGemm',errorPrefix:'gemm',atomLayout:'(2,2,1)',perm:'(32,32,16)',k:16})}
           <div id="${id}-gemm-mma-summary" class="comp-result-box visible" style="white-space:pre-wrap"></div>
         </div>
       </details>
       <details class="cuo-section" id="${id}-gemm-fragments-section" open>
-        <summary>2. Per-thread RMEM fragments</summary>
+        <summary>2. Per-thread fragments</summary>
         <div class="cuo-section-body">
           ${layoutInputField({id:`${id}-gemm-a-input`,label:'A layout',value:'((2,2,2),4):((1,2,4),16)'})}
           ${layoutInputField({id:`${id}-gemm-b-input`,label:'B layout',value:'((2,2),8):((1,2),8)'})}
@@ -154,11 +168,13 @@ function generateGemmTabContent(id) {
         <button class="preset-btn" onclick="setGemm('${id}',GEMM_DEFAULT_MMA,'((2,2,2),4,2):((1,2,4),16,8)','((2,2),8,2):((1,2),8,4)','((2,2),4,8):((1,2),4,16)','',0)">Full fragments: 4 × 8 × 2</button>
         <button class="preset-btn" onclick="setGemm('${id}',GEMM_DEFAULT_MMA,'(8,1):(1,0)','(4,1):(1,0)','(4,1,1):(1,0,0)','',0)">Single invocation</button>
         <button class="preset-btn" onclick="setGemm('${id}',GEMM_DEFAULT_MMA,'(8,2):(1,8)','(4,3):(1,4)','(4,2,3):(1,4,8)','',0)">Rectangular GEMM: 2 × 3</button>
+        <button class="preset-btn" onclick="setGemm('${id}',GEMM_WGMMA_SS,'(1,2,4):(0,1024,2)','(1,2,4):(0,512,2)','((2,2,8),2,2):((1,2,4),32,64)','',0)">WGMMA SS — SMEM descriptors, two warpgroups</button>
+        <button class="preset-btn" onclick="setGemm('${id}',GEMM_WGMMA_RS,'((2,2,2),2,4):((1,2,4),8,16)','(1,2,4):(0,512,2)','((2,2,8),2,2):((1,2,4),32,64)','',0)">WGMMA RS — register A, SMEM B</button>
       </div></div>
       <div class="hint">Each A/B cell is an operand block for one TiledMMA unit; each C/D cell accumulates the products along K.
       Axes are fragment repetition indices, not matrix coordinates. permutation_mnk controls placement within the matrix.
       This shows coverage, not instruction scheduling.
-      Final dimensions count scalar elements; permutation_mnk controls their placement. D follows C. All fragments are RMEM.</div>
+      Final dimensions count scalar elements; permutation_mnk controls their placement. D follows C. C/D are RMEM; A/B are RMEM register fragments, or SMEM descriptor tensors for a WGMMA shared-memory operand.</div>
     </div>
     <div class="comp-results" id="${id}-gemm-results">
       ${gemmDispatchRulesMarkup(id)}
@@ -169,7 +185,7 @@ function generateGemmTabContent(id) {
       <div class="mma-group">
         <div class="mma-q-spacer"></div>
         ${['a','b','c'].map(which => `<div class="comp-viz-item" data-q="${which}">
-          <div class="comp-viz-header"><span class="comp-viz-title"><span id="${id}-gemm-${which}-title">${which.toUpperCase()}</span> <span class="memory-space-badge" data-space="RMEM">RMEM</span></span></div>
+          <div class="comp-viz-header"><span class="comp-viz-title"><span id="${id}-gemm-${which}-title">${which.toUpperCase()}</span> ${memorySpaceBadge(`${id}-gemm-${which}-space`, 'RMEM')}</span></div>
           <div class="viz-box"><div id="${id}-gemm-${which === 'c' ? 'tile' : which}-svg"></div></div>
         </div>`).join('')}
       </div>
@@ -220,6 +236,7 @@ function renderGemm(tabId) {
         ? `Highlighted K = ${k}: A[:,${k}] × ${altView ? `B[${k},:]` : `B[:,${k}]`} updates every C/D cell. Each C/D cell accumulates ${r.K} products.`
         : 'Each C/D cell receives one A × B product; this dispatch has no explicit K mode.');
     for (const which of ['a','b','c']) {
+      setMemorySpaceBadge(`${p}-${which}-space`, r.mma.atom[which.toUpperCase()].space || 'RMEM');
       const grid = gemmCoverageGrid(r, which, altView, k);
       document.getElementById(`${p}-${which}-title`).textContent = `${which === 'c' ? 'C/D' : which.toUpperCase()} — ${grid.axes.join(' × ')} (${grid.shape.join(' × ')}); rows ${grid.axes[0]}, columns ${grid.axes[1]}`;
       document.getElementById(hosts[which]).innerHTML = buildColoredLayoutSVG(grid.shape, grid.stride, new Set(['value']),
@@ -247,11 +264,9 @@ function gemmImportMma(tabId, text) {
   renderGemm(tabId);
 }
 
-async function gemmDecodePasteboard(tabId) {
-  const text = await readPasteboardText('Paste the make_tiled_mma URL or its query string:');
-  if (text === null || text === undefined) return;
-  try { gemmImportMma(tabId, text); }
-  catch (e) { showErr(`${tabId}-gemm-error`, e.message); }
+function gemmDecodePasteboard(tabId) {
+  return decodeFromPasteboard({tabId, errorId: `${tabId}-gemm-error`, sources: ['make_tiled_mma'],
+    message: 'Paste the make_tiled_mma URL or its query string:', importFn: text => gemmImportMma(tabId, text)});
 }
 
 function setGemm(tabId, mmaInputs, a, b, c, d, k, altView) {
@@ -265,10 +280,11 @@ function setGemm(tabId, mmaInputs, a, b, c, d, k, altView) {
 
 function exportGemm(tabId) {
   const state = gemmState[tabId] || {mmaInputs: GEMM_DEFAULT_MMA};
-  exportURL(`${tabId}-gemm-export`, 'gemm', ...mtmReadConstructorControls(tabId, 'gemm-mma'),
+  const { head, tail } = mtmSplitConstructor(mtmReadConstructorControls(tabId, 'gemm-mma'));
+  exportURL(`${tabId}-gemm-export`, 'gemm', ...head,
     ...['a','b','c'].map(x => document.getElementById(`${tabId}-gemm-${x}-input`).value),
     'same',
-    document.getElementById(`${tabId}-gemm-k-input`).value, state.altView ? 'mk_kn_mn' : 'mk_nk_mn');
+    document.getElementById(`${tabId}-gemm-k-input`).value, state.altView ? 'mk_kn_mn' : 'mk_nk_mn', ...tail);
 }
 
 

@@ -112,6 +112,8 @@ object the way function declarations do. It also fails loudly on a duplicate top
 lexical name across files — in the browser that would silently shadow, which is the
 load-order hazard [`docs/architecture.md`](../docs/architecture.md) warns about.
 
+`tests/decode_popup.js` clicks every Decode from Pasteboard button in the real templates with rejected pastes and checks the inline error, the popup naming the correct source tab(s), its Open/Close/Escape behavior, and that controls are unchanged. It runs in `npm test` and with `node tests/run.js decode_popup`.
+
 `tests/variables.js` exercises the named-variable drawer, clipboard and storage fallbacks, rename/delete/preview/visualize actions, TV Layout import, and layout-valued URL extraction against the existing CuTeDSL oracle. It runs in `npm test` and with `node tests/run.js variables`.
 
 `node tests/run.js decoding` runs pure JavaScript cross-API round trips. It uses the production URL encoder and consumer decoders, checks layout maps against the committed CuTeDSL oracle, and rejects any access to the DOM, clipboard, or localStorage. Coverage includes MMAAtom → TiledMMA → partition_A/B/C → make_fragment, CopyAtom + TiledMMA → TiledCopy, nested TiledCopy URLs → partition_S/D, TV Layout → make_tiled_copy_tv, and fragment/Layout → retile. It also covers full URLs, query strings, optional fields, transpose/matrix counts, and invalid or incompatible inputs. Rendering tests remain separate in dom_smoke.
@@ -128,8 +130,8 @@ broadcast thread mode and every logical operand value separately.
 
 DOM smoke coverage includes mixed warp/WGMMA presets, default and matrix views,
 memory badges, highlight/value controls, source-dependent options, mixed input
-types, editable-field exports, clipboard and deep-link round trips, and rejection
-by warp-only consumers without mutating their controls.
+types, editable-field exports, clipboard and deep-link round trips, and acceptance
+of the complete WGMMA atom by every MMA consumer editor.
 
 On a Hopper H100/H200 node, run:
 
@@ -144,6 +146,19 @@ against NumPy. `--case <substring>` narrows the corpus during debugging.
 Execution validated with CuTeDSL 4.8.0 on NVIDIA H100 PCIe: all 303 offered
 WGMMA configurations compiled and executed with exact agreement against NumPy.
 
+## WGMMA in every MMA consumer
+
+Every MMA tab offers every MMA Op, so each consumer has a WGMMA oracle section, traced
+in the same SM90a worker: `warpgroup_partition_abc`, `warpgroup_partition_shape_abc`,
+`warpgroup_make_fragment_abc`, `warpgroup_gemm`, `warpgroup_make_tiled_copy_ab` and
+`warpgroup_partition_sd` (a WGMMA make_tiled_copy_A URL). Cases carry the make_mma_atom
+URL fields as `atom`; `run.js` runs them through the same checks as the warp sections
+plus descriptor-specific ones (descriptor offsets, the `make_fragment_X(shape)` rejection,
+V = 1 descriptor GEMM operands, and the broadcast TiledCopy of a descriptor operand,
+which the tab refuses). WGMMA TiledCopy side maps are recorded over their full domain,
+since 256 threads exceed `EVAL_CAP`. dom_smoke checks that every MMA picker lists
+exactly `MMA_ALL_OPS`, and renders, hands off and round-trips WGMMA in each tab.
+
 ## WGMMA TiledMMA
 
 `warpgroup_tiled_mma` adds 22 focused CuTeDSL cases for M/N/K replication, group
@@ -153,7 +168,8 @@ entire atom corpus by every tiling. RMEM partitions compare every thread/value;
 SMEM partitions compare each group leader's complete values plus all broadcast
 thread offsets. Node tests also cover all three display modes, real memory badges,
 both orientations, atom and tiled decoding, invalid-import preservation, exports,
-deep links, named-variable previews and warp-only downstream rejection.
+deep links, named-variable previews and complete constructor round trips through
+every downstream MMA consumer.
 
 ```bash
 python3 tests/gpu_check.py --warpgroup --tiled

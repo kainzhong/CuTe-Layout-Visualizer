@@ -772,8 +772,8 @@ function mtcDecodeURL(parsed) {
   const parse = raw => { const p = parseLayout(raw); return new Layout(p.shape,p.stride); };
   const a = parsed.inputs;
   if (parsed.feature === 'make_tiled_copy_ab') {
-    const mma = mtmComputeTiledMma(mmaWarpAtom(a[1], Number(a[4])), mtmParseAtomLayout(a[5]), mtmParsePerm(a[6] === 'na' ? '' : a[6]));
-    const dtype = a[2] === 'na' ? 'tfloat32_t' : a[2];
+    const { atom: mmaAtom, tiled: mma } = mtmDecodeConstructor(mcabConstructorFromURL(a));
+    const dtype = mmaAtom.dtypes[a[0]] || mmaAtom.dtypes.A;
     const atom = mcabCopyAtom(a[7], dtype, Number(a[8]), a[9] === '1', Number(a[10]));
     const copy = mcabComputeTiledCopy(mma, a[0], atom);
     return { tv: copy.tv, tile: copy.tile, tiler: copy.tile.map(n => new Layout(n)),
@@ -864,8 +864,10 @@ function mtcReadManualConstructor(tabId, p) {
   const read = key => document.getElementById(`${tabId}-${p}-${key}-input`).value;
   const feature = read('kind');
   if (feature === 'make_tiled_copy_ab') {
-    const mma = mtmReadConstructorControls(tabId, `${p}-mma`);
-    return {feature, inputs: [read('operand'), ...mma, read('atom-copy'), read('atom-nm'), read('atom-trans'), read('atom-bits'), 'warp']};
+    const { head, tail } = mtmSplitConstructor(mtmReadConstructorControls(tabId, `${p}-mma`));
+    // make_tiled_copy_ab URL order: the Op-specific TiledMMA tail goes last.
+    return {feature, inputs: [read('operand'), ...head, read('atom-copy'), read('atom-nm'), read('atom-trans'), read('atom-bits'), 'warp',
+      ...(tail.length ? ['na', 'src_dst', ...tail] : [])]};
   }
   return {feature, inputs: [read('atom-copy'), read('atom-bits'), read('dtype'),
     ...(feature === 'make_tiled_copy' ? [read('tv'), read('tiler')] : [read('thr'), read('val')])]};
@@ -874,13 +876,13 @@ function mtcReadManualConstructor(tabId, p) {
 function mtcWriteManualConstructor(tabId, p, parsed, sourceURL) {
   const decoded = mtcDecodeURL(parsed);
   mtcDecodedSummary(decoded); // Validate both sides before changing controls.
-  if (parsed.feature === 'make_tiled_copy_ab') mtmDecodeConstructor(parsed.inputs.slice(1,7));
+  if (parsed.feature === 'make_tiled_copy_ab') mtmDecodeConstructor(mcabConstructorFromURL(parsed.inputs));
   const write = (key, value) => { document.getElementById(`${tabId}-${p}-${key}-input`).value = String(value); };
   const a = parsed.inputs;
   write('kind', parsed.feature);
   mtcSyncManualConstructor(tabId, p);
   if (parsed.feature === 'make_tiled_copy_ab') {
-    mtmWriteConstructorControls(tabId, `${p}-mma`, a.slice(1,7));
+    mtmWriteConstructorControls(tabId, `${p}-mma`, mcabConstructorFromURL(a));
     write('operand', a[0]); write('atom-copy', a[7]);
     mtcSyncManualConstructor(tabId, p);
     write('atom-nm', a[8]); write('atom-trans', a[9]); write('atom-bits', a[10]);

@@ -54,7 +54,7 @@ function runDecodingTests(V, T) {
       check(op,'typed clipboard classification',choice.type,'MMAAtom');
       check(op,'typed clipboard copies URL',choice.value,url);
       check(op,'preview uses decoded traits',V.variablesPreviewText(choice).includes(atom.C.str),true);
-      rejects(op+'/warp-only tiled consumer',()=>V.mtmDecodeConstructor([...inputs.slice(0,4),'(1,1,1)','na']));
+      rejects(op+'/TiledMMA without the WGMMA tail is incomplete',()=>V.mtmDecodeConstructor([...inputs.slice(0,4),'(1,1,1)','na']));
     });
     for (const tail of [[],['64'],['64','SMEM','K','K','half_t','extra']])
       rejects('WGMMA rejects incomplete or extra fields/'+tail.length,()=>V.mmaDecodeAtomInputs(['wg_f16bf16','half_t','float','16',...tail]));
@@ -65,7 +65,7 @@ function runDecodingTests(V, T) {
       const atom=decoded(exported('make_mma_atom',...atomInputs)).inputs;
       const inputs=[...atom.slice(0,4),c.atom_layout,c.perm||'na',...atom.slice(4)];
       const url=exported('make_tiled_mma',...inputs);
-      const parsed=decoded(url), mma=V.mtmDecodeConstructor(parsed.inputs,{warpgroup:true});
+      const parsed=decoded(url), mma=V.mtmDecodeConstructor(parsed.inputs);
       check(id,'all constructor parameters survive',json(parsed.inputs),json(inputs));
       check(id,'tile matches CuTeDSL',json(mma.tiled.tileMNK),json(refs.warpgroup_tiled_mma[id].tile_mnk));
       check(id,'thread layout matches CuTeDSL',fmt(V,mma.tiled.thrVmnk),refs.warpgroup_tiled_mma[id].thr_layout_vmnk);
@@ -73,7 +73,17 @@ function runDecodingTests(V, T) {
       check(id,'typed clipboard classification',choice.type,'TiledMMA');
       check(id,'typed clipboard preserves URL',choice.value,url);
       check(id,'preview includes actual Op',V.variablesPreviewText(choice).includes(mma.atom.op.label),true);
-      rejects(id+'/warp-only consumer rejects full WGMMA constructor',()=>V.mtmDecodeConstructor(parsed.inputs));
+      // Every MMA consumer decodes the constructor from its own URL position.
+      const head=parsed.inputs.slice(0,6), tail=parsed.inputs.slice(6);
+      for (const [feature,consumer,back] of [
+        ['partition_abc',['A',...head,'0','(128,64)','na',...tail],a=>V.mtmJoinConstructor(a.slice(1,7),a.slice(10))],
+        ['partition_shape_abc',['A',...head,'(128,64)',...tail],a=>V.mtmJoinConstructor(a.slice(1,7),a.slice(8))],
+        ['gemm',[...head,'a','b','c','same','0','mk_nk_mn',...tail],a=>V.gemmConstructorFromURL(a)],
+        ['make_tiled_copy_ab',['A',...head,'ldmatrix','4','0','16','warp','na','src_dst',...tail],a=>V.mcabConstructorFromURL(a)],
+      ]) {
+        const round=decoded(exported(feature,...consumer)).inputs;
+        check(id,feature+' carries the complete TiledMMA',json(back(round)),json(parsed.inputs));
+      }
     });
 
     // The atom exported by one API becomes a tiled constructor, whose exported
@@ -90,7 +100,7 @@ function runDecodingTests(V, T) {
       const raw=V.variablesClipboardChoices(partURL)[0];
       check(c.id,'partition clipboard type',raw.type,'Layout');
       equalLayout(c.id+'/raw partition consumer',layout(raw.value),refs.partition_abc[c.id].layout);
-      const fragment=V.mfragCompute(layout(raw.value),c.which,c.op,c.k,c.ab||'tfloat32_t',c.acc||'float').fragment;
+      const fragment=V.mfragCompute(layout(raw.value),c.which,[c.op,c.ab||'na',c.acc||'na',String(c.k)]).fragment;
       equalLayout(c.id+'/fragment',fragment,refs.partition_abc[c.id].fragment);
       const fragURL=exported('make_fragment_abc',c.which,c.op,c.ab||'na',c.acc||'na',c.k,raw.value,0);
       equalLayout(c.id+'/fragment URL consumer',layout(V.variablesClipboardChoices(fragURL)[0].value),refs.partition_abc[c.id].fragment);

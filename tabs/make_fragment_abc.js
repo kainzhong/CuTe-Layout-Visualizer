@@ -1,5 +1,7 @@
-// Warp MMA make_fragment_A/B/C: the register tensor made from an ALREADY
-// partitioned operand. The layout math lives in pabcMakeFragment so the
+// make_fragment_A/B/C: the fragment made from an ALREADY partitioned operand,
+// for every MMA Op the MMA tabs offer. RMEM operands (warp MMA, WGMMA C and
+// register A) get a register tensor; WGMMA SMEM operands get a descriptor
+// tensor. The layout math lives in mmaMakeFragment / pabcMakeFragment so the
 // partition tab and this tab cannot disagree.
 
 const MFRAG_MAX_REGS = 512;
@@ -11,17 +13,29 @@ const MFRAG_DEFAULT_PARTITIONS = {
 const mfragState = {};
 
 /** Register word -> ordered scalar slots -> positions in the input partition.
- * No values are read: a layout tells us addresses, not runtime contents. */
-function mfragCompute(partition, which, opKey, k, abDtype, accDtype) {
+ * No values are read: a layout tells us addresses, not runtime contents.
+ * `atomInputs` are the make_mma_atom URL fields: [op, ab, acc, K, ...tail]. */
+function mfragCompute(partition, which, atomInputs) {
   if (!PABC_OPERAND[which]) throw new Error(`Unknown MMA operand ${which}.`);
-  const atom = mmaWarpAtom(opKey, k);
+  const { atom } = mmaDecodeAtomInputs(atomInputs);
+  const opKey = atom.opKey, k = atom.k;
   if (partition.rank() < 3)
     throw new Error(`make_fragment_${which} expects an already-partitioned layout of rank at least 3 (value mode plus two Rest modes).`);
   const want = atom[which].numVal;
   if (product(partition.shape[0]) !== want)
-    throw new Error(`Partition mode 0 has ${product(partition.shape[0])} values; ${opKey} m16n8k${k} expects ${want} for operand ${which}. Pass the result of partition_${which}.`);
-  const dtype = which === 'C' ? accDtype : abDtype;
-  const bits = DTYPE_BITS[dtype] || (/^float_e[45]m[23]_t$/.test(dtype) ? 8 : 0);
+    throw new Error(`Partition mode 0 has ${product(partition.shape[0])} values; ${atom.op.label} ` +
+      `${atom.shapeMNK.join('x')} expects ${want} for operand ${which}. Pass the result of partition_${which}.`);
+  const dtype = atom.dtypes[which];
+  if (atom[which].space === 'SMEM') {
+    // A descriptor tensor: one 64-bit matrix descriptor per Rest position,
+    // offsets in 128-bit units. CuTeDSL requires an SMEM source tensor.
+    const fragment = mmaMakeFragment(partition, which, atom);
+    const count = product(fragment.shape);
+    if (count > MAX_CELLS) throw new Error(`This fragment has ${count} descriptors; the view supports at most ${MAX_CELLS}.`);
+    return { partition, fragment, descriptor: true, registers: [], dtype, bits: mmaDtypeBits(dtype),
+             which, opKey, k, atom };
+  }
+  const bits = mmaDtypeBits(dtype);
   if (!bits || bits > 32 || 32 % bits)
     throw new Error(`Cannot show ${dtype} as 32-bit MMA registers.`);
   const pack = 32 / bits;
@@ -46,7 +60,37 @@ function mfragCompute(partition, which, opKey, k, abDtype, accDtype) {
     if (reg.slots[slot] === null) reg.slots[slot] = { source: crd2idx(coord, partition.shape, partition.stride), coord };
     reg.group = group;
   }
-  return { partition, fragment, registers, dtype, bits, pack, which, opKey, k };
+  return { partition, fragment, descriptor: false, registers, dtype, bits, pack, which, opKey, k, atom };
+}
+
+/** One cell per descriptor: rows are Rest mode 1, columns flatten later modes.
+ *  Each cell records the descriptor offset (128-bit units) and the SMEM element
+ *  where its atom block starts in the partitioned source. */
+function mfragDescriptorGrid(result) {
+  const { partition, fragment } = result;
+  const rows = product(fragment.shape[1]);
+  const tailShape = fragment.shape.slice(2);
+  const cols = product(tailShape);
+  const cells = [];
+  for (let n = 0; n < cols; n++) {
+    const tail = unflatten(n, tailShape);
+    for (let m = 0; m < rows; m++) {
+      const coord = [0, unflatten(m, fragment.shape[1]), ...tail];
+      const pcoord = [unflatten(0, partition.shape[0]), unflatten(m, partition.shape[1]), ...tail];
+      cells.push({ rest: m + n * rows, desc: crd2idx(coord, fragment.shape, fragment.stride),
+                   source: crd2idx(pcoord, partition.shape, partition.stride) });
+    }
+  }
+  return { rows, cols, cells };
+}
+
+function mfragBuildDescriptorSVG(result) {
+  const grid = mfragDescriptorGrid(result);
+  return buildColoredLayoutSVG([grid.rows, grid.cols], [1, grid.rows], '', (m, n) => {
+    const cell = grid.cells[m + n * grid.rows];
+    return { bg: colorHighlight(cell.rest), stroke: '#1e3a5f', sw: 1.5,
+             text: [`(${m},${n})`, `desc +${cell.desc}`, `@${cell.source}`] };
+  });
 }
 
 /** One grid cell per scalar value in the partition domain. Keep the atom
@@ -140,12 +184,15 @@ function generateMakeFragmentABCTabContent(id) {
         <button class="btn btn-render" onclick="renderMakeFragmentABC('${id}')">Render</button>
         <button class="btn btn-render" style="margin-top:6px;background:#111827" id="${id}-mfrag-export" onclick="exportMfrag('${id}')">Export URL</button>
         <div id="${id}-mfrag-result" class="cuo-result"></div>
-        <div class="hint">Each outlined, colored block is one Rest position from partition_A/B/C's second grid. Its smaller cells show that thread's <code>T#V#</code> values and their 32-bit register <code>R#</code>. Repeated register labels mean values share a word. These are logical labels, not runtime numerical values. This warp MMA view covers RMEM fragments only.</div>
+        <div class="hint">Each outlined, colored block is one Rest position from partition_A/B/C's second grid. Its smaller cells show that thread's <code>T#V#</code> values and their 32-bit register <code>R#</code>. Repeated register labels mean values share a word. These are logical labels, not runtime numerical values. WGMMA C and register A are register fragments too; a WGMMA shared-memory A/B operand instead becomes a tensor of descriptors, one per Rest position.</div>
         <div class="presets"><h3>Presets</h3><div class="preset-list">
           <button class="preset-btn" onclick="setMfrag('${id}','A','f16bf16','half_t','float',16,'((2,2,2),2,3):((1,384,8),1536,16)')">A — row-major source</button>
           <button class="preset-btn" onclick="setMfrag('${id}','A','f16bf16','half_t','float',16,'((2,2,2),2,3):((64,8,512),32,1024)')">A — column-major source</button>
           <button class="preset-btn" onclick="setMfrag('${id}','B','f16bf16','half_t','float',16,'((2,2),2,3):((1,8),768,16)')">B — row-major source</button>
           <button class="preset-btn" onclick="setMfrag('${id}','C','f16bf16','half_t','float',16,'((2,2),2,2):((1,256),1024,16)')">C — accumulator</button>
+          <button class="preset-btn" onclick="setMfrag('${id}','C','wg_f16bf16','half_t','float',16,'((2,2,8),2,2):((128,8,1024),8192,64)',0,64,'SMEM','K','K','half_t')">WGMMA C — 64×64 accumulator, 128 threads</button>
+          <button class="preset-btn" onclick="setMfrag('${id}','A','wg_f16bf16','half_t','float',16,'((2,2,2),2,4):((128,8,1024),8192,16)',0,64,'RMEM','K','K','half_t')">WGMMA register A (RS)</button>
+          <button class="preset-btn" onclick="setMfrag('${id}','A','wg_f16bf16','half_t','float',16,'((64,16),2,4):((64,1),4096,16)',0,64,'SMEM','K','K','half_t')">WGMMA SMEM A — descriptor tensor</button>
         </div></div>
       </div>
       <div class="comp-results" style="grid-template-columns:1fr">
@@ -170,29 +217,43 @@ function renderMakeFragmentABC(tabId) {
   try {
     const which = (mfragState[tabId] || {}).which || 'A';
     const opKey = document.getElementById(`${tabId}-mfrag-op-input`).value;
-    const op = MMA_WARP_OPS[opKey];
-    if (!op) throw new Error(`Unknown MMA Op ${opKey}.`);
     mmaSyncControls(tabId, opKey, 'mfrag');
-    const k = Number(document.getElementById(`${tabId}-mfrag-k-input`).value);
-    const ab = op.ab ? document.getElementById(`${tabId}-mfrag-ab-input`).value : 'tfloat32_t';
-    const acc = op.acc ? document.getElementById(`${tabId}-mfrag-acc-input`).value : 'float';
-    if (ab === 'bfloat16_t' && acc !== 'float') throw new Error('bfloat16_t requires a float accumulator.');
-    mmaRenderOpParams(tabId,op,k,ab,acc,'mfrag');
+    const atomInputs = mmaReadAtomInputs(tabId, 'mfrag');
+    const { atom, op } = mmaDecodeAtomInputs(atomInputs);
+    mmaRenderOpParams(tabId, op, atom.k, atom.dtypes.A, atom.dtypes.C, 'mfrag', atom);
     const raw = document.getElementById(`${tabId}-mfrag-partition-input`).value;
     const thrRaw = document.getElementById(`${tabId}-mfrag-thr-input`).value.trim();
     if (!/^\d+$/.test(thrRaw)) throw new Error('Thread ID must be a nonnegative whole number.');
     const thread = Number(thrRaw);
     if (!Number.isSafeInteger(thread)) throw new Error('Thread ID is too large.');
     const p = parseLayout(raw);
-    const s = mfragCompute(new Layout(p.shape, p.stride), which, opKey, k, ab, acc);
-    mfragState[tabId] = { ...(mfragState[tabId] || {}), ...s, which, thread };
+    const s = mfragCompute(new Layout(p.shape, p.stride), which, atomInputs);
+    mfragState[tabId] = { ...(mfragState[tabId] || {}), ...s, which, thread, atomInputs };
     const str = formatLayoutStr(s.fragment.shape, s.fragment.stride);
+    const axes = PABC_OPERAND[which].axes;
+    setMemorySpaceBadge(`${tabId}-mfrag-space`, s.descriptor ? 'SMEM' : 'RMEM');
+    if (s.descriptor) {
+      const n = product(s.fragment.shape);
+      document.getElementById(`${tabId}-mfrag-result`).innerHTML =
+        `<div class="cuo-result-line">make_fragment_${which} = <b>${str}</b></div>` +
+        `<div class="cuo-result-line">${n} WGMMA shared-memory descriptor${n === 1 ? '' : 's'}; ` +
+        `offsets in 128-bit units (${128 / s.bits} ${s.dtype} elements). The source must be an SMEM tensor.</div>`;
+      document.getElementById(`${tabId}-mfrag-title`).textContent =
+        `${which} — ${n} descriptor${n === 1 ? '' : 's'} over SMEM`;
+      document.getElementById(`${tabId}-mfrag-desc`).innerHTML =
+        `<code>${str}</code> &mdash; one descriptor per (${axes[0]}, ${axes[1]}) Rest position, matching ` +
+        `partition_${which}'s second grid. Each addresses the whole ${s.atom.shapeMNK.join('x')} atom's ${which} ` +
+        `block for all 128 threads; <code>desc +</code> is its offset and <code>@</code> the block's first SMEM element.`;
+      host.innerHTML = mfragBuildDescriptorSVG(s);
+      applyZoomState(`${tabId}-mfrag-svg`);
+      updateOuterTabLabel(tabId, `make_fragment_${which}:${str}`);
+      return;
+    }
     document.getElementById(`${tabId}-mfrag-result`).innerHTML =
       `<div class="cuo-result-line">make_fragment_${which} = <b>${str}</b></div>` +
       `<div class="cuo-result-line">${s.registers.length} × 32-bit registers; ${s.pack} ${s.dtype} value${s.pack === 1 ? '' : 's'} per register</div>`;
     document.getElementById(`${tabId}-mfrag-title`).textContent =
       `${which} — ${product(s.fragment.shape)} values in ${s.registers.length} registers`;
-    const axes = PABC_OPERAND[which].axes;
     document.getElementById(`${tabId}-mfrag-desc`).innerHTML =
       `<code>${str}</code> &mdash; each colored block is one (${axes[0]}, ${axes[1]}) Rest position, matching partition_${which}'s second grid. Smaller cells show its atom values${s.fragment.rank() > 3 ? '; later Rest modes repeat the grid' : ''}.`;
     host.innerHTML = mfragBuildValueSVG(s, thread);
@@ -220,13 +281,12 @@ function setMfragOp(tabId) {
   renderMakeFragmentABC(tabId);
 }
 
-function setMfrag(tabId, which, opKey, ab, acc, k, partition, thread = 0) {
+/** URL field order; `...tail` is the atom's Op-specific tail (WGMMA: N,
+ *  A source, A/B major, B dtype), validated before any control changes. */
+function setMfrag(tabId, which, opKey, ab, acc, k, partition, thread = 0, ...tail) {
+  const atomInputs = [opKey, ab || 'na', acc || 'na', String(k), ...(MMA_WARPGROUP_OPS[opKey] ? tail.slice(0, 5) : [])];
+  mmaAssignAtomInputs(tabId, 'mfrag', atomInputs);
   mfragState[tabId] = { ...(mfragState[tabId] || {}), which };
-  document.getElementById(`${tabId}-mfrag-op-input`).value = opKey;
-  mmaSyncControls(tabId, opKey, 'mfrag');
-  if (ab && ab !== 'na') document.getElementById(`${tabId}-mfrag-ab-input`).value = ab;
-  if (acc && acc !== 'na') document.getElementById(`${tabId}-mfrag-acc-input`).value = acc;
-  document.getElementById(`${tabId}-mfrag-k-input`).value = String(k);
   document.getElementById(`${tabId}-mfrag-partition-input`).value = partition;
   document.getElementById(`${tabId}-mfrag-thr-input`).value = String(thread);
   const group = document.getElementById(`${tabId}-mfrag-operand-btns`);
@@ -235,14 +295,18 @@ function setMfrag(tabId, which, opKey, ab, acc, k, partition, thread = 0) {
   renderMakeFragmentABC(tabId);
 }
 
+/** make_fragment_abc URL fields -> make_mma_atom fields. */
+function mfragAtomInputsFromURL(a) {
+  // Legacy links spelled a fixed accumulator as `na`; it resolves to float.
+  const op = MMA_ALL_OPS[a[1]], acc = a[3] === 'na' && op && op.acc ? 'float' : a[3];
+  return [a[1], a[2], acc, a[4], ...(MMA_WARPGROUP_OPS[a[1]] ? a.slice(7, 12) : [])];
+}
+
 function exportMfrag(tabId) {
-  const op = MMA_WARP_OPS[document.getElementById(`${tabId}-mfrag-op-input`).value];
+  mmaSyncControls(tabId, document.getElementById(`${tabId}-mfrag-op-input`).value, 'mfrag');
+  const atomInputs = mmaReadAtomInputs(tabId, 'mfrag');
   exportURL(`${tabId}-mfrag-export`, 'make_fragment_abc',
-    (mfragState[tabId] || {}).which || 'A',
-    document.getElementById(`${tabId}-mfrag-op-input`).value,
-    op && op.ab ? document.getElementById(`${tabId}-mfrag-ab-input`).value : 'na',
-    op && op.acc ? document.getElementById(`${tabId}-mfrag-acc-input`).value : 'na',
-    document.getElementById(`${tabId}-mfrag-k-input`).value,
+    (mfragState[tabId] || {}).which || 'A', ...atomInputs.slice(0, 4),
     document.getElementById(`${tabId}-mfrag-partition-input`).value,
-    document.getElementById(`${tabId}-mfrag-thr-input`).value);
+    document.getElementById(`${tabId}-mfrag-thr-input`).value, ...atomInputs.slice(4));
 }

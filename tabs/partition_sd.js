@@ -808,11 +808,9 @@ function psdImportTiledCopy(tabId,text) {
   renderPartitionSD(tabId);
 }
 
-async function psdDecodePasteboard(tabId) {
-  const text = await readPasteboardText('Paste the TiledCopy URL or its query string:');
-  if (text === null || text === undefined) return;
-  try { psdImportTiledCopy(tabId,text); }
-  catch(e) { showErr(`${tabId}-psd-error`,e.message); }
+function psdDecodePasteboard(tabId) {
+  return decodeFromPasteboard({tabId, errorId:`${tabId}-psd-error`, sources:TILED_COPY_SOURCES,
+    message:'Paste the TiledCopy URL or its query string:', importFn:text => psdImportTiledCopy(tabId,text)});
 }
 
 function exportPSD(tabId) {

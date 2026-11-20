@@ -93,6 +93,12 @@ function guard(id, fn) {
   }
 }
 
+/** Warp cases name `op`/`k`; WGMMA cases carry the make_mma_atom URL fields
+ *  as `atom`. Every MMA consumer section runs both through the same checks. */
+function mmaAtomOf(c) {
+  return c.atom ? V.mmaDecodeAtomInputs(c.atom).atom : V.mmaWarpAtom(c.op, c.k);
+}
+
 function refFor(sectionName, id) {
   const r = (REF[sectionName] || {})[id];
   if (!r) {
@@ -180,9 +186,9 @@ function runLayoutOps(sectionName, basis) {
   }
 }
 
-if (section('gemm')) {
-  for (const c of CASES.gemm) {
-    const ref = refFor('gemm', c.id);
+for (const name of ['gemm', 'warpgroup_gemm']) if (section(name)) {
+  for (const c of CASES[name]) {
+    const ref = refFor(name, c.id);
     if (!ref) continue;
     guard(c.id, () => {
       if (ref.error) {
@@ -550,14 +556,25 @@ if (section('tiled_mma')) {
 }
 
 // make_tiled_copy_A/B: constructor, atom traits, and every tiled SRC/DST point.
-if (section('make_tiled_copy_ab')) {
-  for (const c of CASES.make_tiled_copy_ab) {
-    const ref = refFor('make_tiled_copy_ab', c.id);
+for (const name of ['make_tiled_copy_ab', 'warpgroup_make_tiled_copy_ab']) if (section(name)) {
+  for (const c of CASES[name]) {
+    const ref = refFor(name, c.id);
     if (!ref) continue;
     guard(c.id, () => {
-      const mma = V.mtmComputeTiledMma(V.mmaWarpAtom(c.op, c.k),
+      const mmaAtom = mmaAtomOf(c);
+      const mma = V.mtmComputeTiledMma(mmaAtom,
         V.mtmParseAtomLayout(c.atom_layout), V.mtmParsePerm(c.perm || ''));
-      const atom = V.mcabCopyAtom(c.copy_op, c.ab_dtype, c.num_matrices, c.transpose, c.bits);
+      const dtype = c.atom ? mmaAtom.dtypes[c.operand] : c.ab_dtype;
+      const atom = V.mcabCopyAtom(c.copy_op, dtype, c.num_matrices, c.transpose, c.bits);
+      if (ref.descriptor) {
+        // CuTeDSL builds a degenerate copy for a descriptor operand: every
+        // thread of a warpgroup receives the whole tile. The tab refuses it.
+        check(c.id, 'CuTeDSL TiledCopy broadcasts across the warpgroup', ref.warpgroup_broadcast, true);
+        let rejected = false;
+        try { V.mcabComputeTiledCopy(mma, c.operand, atom); } catch (_) { rejected = true; }
+        check(c.id, 'descriptor operand rejected by the tab', rejected, true);
+        return;
+      }
       const r = V.mcabComputeTiledCopy(mma, c.operand, atom);
       check(c.id, 'tile', r.tile.join(','), ref.tile.join(','));
       check(c.id, 'tiler_mn', `(${r.tile.map(n => `${n}:1`).join(',')})`, ref.tiler_mn);
@@ -715,9 +732,9 @@ if (section('local_tile')) {
 //  all of them leaves nothing of tidfrg unchecked.
 // ═══════════════════════════════════════════════════════
 
-if (section('partition_sd')) {
-  for (const c of CASES.partition_sd) {
-    const ref = refFor('partition_sd', c.id);
+for (const name of ['partition_sd', 'warpgroup_partition_sd']) if (section(name)) {
+  for (const c of CASES[name]) {
+    const ref = refFor(name, c.id);
     if (!ref) continue;
     guard(c.id, () => {
       const decoded = c.copy_url ? V.mtcDecodeURL(V.parsePastedKeyParam(c.copy_url)) : null;
@@ -762,12 +779,12 @@ if (section('partition_sd')) {
 //  only thing that catches either drifting.
 // ═══════════════════════════════════════════════════════
 
-if (section('partition_abc')) {
-  for (const c of CASES.partition_abc) {
-    const ref = refFor('partition_abc', c.id);
+for (const name of ['partition_abc', 'warpgroup_partition_abc']) if (section(name)) {
+  for (const c of CASES[name]) {
+    const ref = refFor(name, c.id);
     if (!ref) continue;
     guard(c.id, () => {
-      const atom = V.mmaWarpAtom(c.op, c.k);
+      const atom = mmaAtomOf(c);
       const atomLayout = V.mtmParseAtomLayout(c.atom_layout);
       const perm = V.mtmParsePerm(c.perm || '');
       const tensor = parseExact(V, c.tensor);
@@ -801,12 +818,12 @@ if (section('partition_abc')) {
   }
 }
 
-if (section('partition_shape_abc')) {
-  for (const c of CASES.partition_shape_abc) {
-    const ref = refFor('partition_shape_abc', c.id);
+for (const name of ['partition_shape_abc', 'warpgroup_partition_shape_abc']) if (section(name)) {
+  for (const c of CASES[name]) {
+    const ref = refFor(name, c.id);
     if (!ref) continue;
     guard(c.id, () => {
-      const atom = V.mmaWarpAtom(c.op, c.k);
+      const atom = mmaAtomOf(c);
       const atomLayout = V.mtmParseAtomLayout(c.atom_layout);
       const perm = V.mtmParsePerm(c.perm || '');
       const shape = V.pshpParseShape(c.shape).shape;
@@ -819,8 +836,10 @@ if (section('partition_shape_abc')) {
       const r = V.pshpComputeShape(atom, atomLayout, perm, c.which, shape);
       checkLayout(`${c.id}/input`, r.inputLayout, ref.input);   // make_layout(shape)
       check(c.id, `partition_shape_${c.which}`, r.shapeStr, ref.shape);
-      // make_fragment_X(shape): where the strides a shape lacks come from.
-      checkLayout(`${c.id}/fragment`, r.fragment, ref.fragment);
+      // make_fragment_X(shape): where the strides a shape lacks come from. A
+      // WGMMA descriptor operand has none: CuTeDSL rejects a bare shape.
+      if (ref.fragment_error) check(c.id, 'no fragment of a shape for a descriptor operand', r.fragment === null && r.descriptor, true);
+      else checkLayout(`${c.id}/fragment`, r.fragment, ref.fragment);
     });
   }
 }
@@ -847,9 +866,9 @@ if (section('retile')) {
   }
 }
 
-if (section('make_fragment_abc')) {
-  for (const c of CASES.make_fragment_abc) {
-    const ref = refFor('make_fragment_abc', c.id);
+for (const name of ['make_fragment_abc', 'warpgroup_make_fragment_abc']) if (section(name)) {
+  for (const c of CASES[name]) {
+    const ref = refFor(name, c.id);
     if (!ref) continue;
     guard(c.id, () => {
       let p = parseExact(V, c.partition);
@@ -859,8 +878,24 @@ if (section('make_fragment_abc')) {
         check(c.id, 'source slice offset', selected.offset, ref.source_offset);
         p = selected.layout;
       }
-      const r = V.mfragCompute(p, c.which, c.op, c.k, c.ab, c.acc);
+      const r = V.mfragCompute(p, c.which, c.atom || [c.op, c.ab || 'na', c.acc || 'na', String(c.k)]);
       checkLayout(c.id, r.fragment, ref);
+      if (r.descriptor) {
+        // One cell per descriptor, in the fragment's own column-major order.
+        const grid = V.mfragDescriptorGrid(r);
+        check(c.id, 'descriptor cells', grid.cells.length, ref.eval.length);
+        for (let i = 0; i < grid.cells.length; i++) {
+          check(c.id, `descriptor ${i} offset`, grid.cells[i].desc, Number(ref.eval[i]));
+        }
+        // When every Rest stride is a whole number of 128-bit units, a
+        // descriptor offset is exactly its block's first SMEM element, recast.
+        const factor = 128 / r.bits;
+        const restStrides = V.flatten(p.stride.slice(1));
+        if (restStrides.every(d => d % factor === 0))
+          check(c.id, 'descriptor offsets address their block starts',
+            grid.cells.every(cell => cell.source === cell.desc * factor), true);
+        return;
+      }
       const covered = r.registers.flatMap(reg => reg.slots.filter(Boolean));
       check(c.id, 'register slots', covered.length, p.size());
       for (const slot of covered)
@@ -947,6 +982,12 @@ if (section('dom_smoke')) {
   results.pass += r.pass;
   results.fail += r.fail;
   for (const f of r.failures) results.failures.push(`dom_smoke/${f}`);
+}
+
+if (section('decode_popup')) {
+  const r = await require('./decode_popup').runDecodePopupTests();
+  results.pass += r.pass; results.fail += r.fail;
+  for (const failure of r.failures) { results.failures.push(`decode_popup/${failure}`); console.log(`  FAIL ${failure}`); }
 }
 
 if (section('variables')) {

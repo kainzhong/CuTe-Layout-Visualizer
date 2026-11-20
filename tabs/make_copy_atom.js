@@ -859,9 +859,7 @@ function mcaImportAtom(tabId,p,render,text) {
   globalThis[render](tabId);
 }
 
-async function mcaDecodeAtomPasteboard(tabId,p,render,errorPrefix=p) {
-  const text = await readPasteboardText('Paste the make_copy_atom URL or its query string:');
-  if (text === null || text === undefined) return;
-  try { mcaImportAtom(tabId,p,render,text); }
-  catch (e) { showErr(`${tabId}-${errorPrefix}-error`,e.message); }
+function mcaDecodeAtomPasteboard(tabId,p,render,errorPrefix=p) {
+  return decodeFromPasteboard({tabId, errorId:`${tabId}-${errorPrefix}-error`, sources:['make_copy_atom'],
+    message:'Paste the make_copy_atom URL or its query string:', importFn:text => mcaImportAtom(tabId,p,render,text)});
 }

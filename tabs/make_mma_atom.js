@@ -22,7 +22,10 @@
 // because the instruction reads two operands and accumulates into a third.
 //
 // SCOPE: three dense warp Op families and three dense Hopper warpgroup
-// families. The warp traits remain shared with warp-only downstream tabs.
+// families, registered together in MMA_ALL_OPS and offered by EVERY MMA tab
+// (make_tiled_mma, partition_A/B/C, partition_shape_A/B/C, make_fragment_A/B/C,
+// gemm, make_tiled_copy_A/B, and the MMA-derived TiledCopy editor). A new atom
+// family must be supported by all of them in the same change.
 // WGMMA uses separate traits and constructor controls, with SMEM operands
 // displayed as uniform logical tiles instead of per-thread registers.
 // Execution gate: tests/gpu_check.py --warpgroup (Hopper SM90a required).
@@ -134,6 +137,46 @@ const MMA_WARPGROUP_A_RMEM = {
   32: '((4,8,4),(4,2,2)):((256,1,16),(64,8,1024))',
 };
 
+// Every MMA Op that any MMA tab offers. Consumers never keep their own subset:
+// a new atom family is added here (with its traits and oracle cases) and every
+// MMA tab's picker, decoder and URL picks it up. dom_smoke asserts that each
+// MMA editor lists exactly these keys.
+const MMA_ALL_OPS = { ...MMA_WARP_OPS, ...MMA_WARPGROUP_OPS };
+
+/** Operand dtypes named by atom URL fields: `[op, ab, acc, k, ...tail]`.
+ *  TF32 spells its implied types `na`; WGMMA's B may differ from A. */
+function mmaOperandDtypes(inputs) {
+  const [opKey, ab, acc] = inputs;
+  const a = ab === 'na' || !ab ? 'tfloat32_t' : ab;
+  return { A: a, B: MMA_WARPGROUP_OPS[opKey] ? (inputs[8] || a) : a, C: acc === 'na' || !acc ? 'float' : acc };
+}
+
+/** Element width, including the FP8 encodings DTYPE_BITS does not list. */
+function mmaDtypeBits(dtype) {
+  return DTYPE_BITS[dtype] || (/^float_e[45]m[23]_t$/.test(dtype) ? 8 : 0);
+}
+
+/** `MmaAtom.make_fragment_X` of a descriptor (SMEM) operand: CuTeDSL keeps the
+ *  partition's Rest modes, recast to 128-bit descriptor units, and collapses the
+ *  atom's value mode to `1:0`. One descriptor addresses the whole atom block.
+ *  The recast uses ceil semantics without a divisibility check, as CuTeDSL 4.8
+ *  does (e.g. a 3-element half_t stride becomes 1). */
+function mmaDescriptorFragment(partition, bits) {
+  if (!bits || 128 % bits) throw new Error(`Cannot address ${bits}-bit elements in 128-bit descriptor units.`);
+  const factor = 128 / bits;
+  const visit = (shape, stride) => {
+    if (Array.isArray(shape)) {
+      const parts = shape.map((sh, i) => visit(sh, stride[i]));
+      return { shape: parts.map(p => p.shape), stride: parts.map(p => p.stride) };
+    }
+    if (stride === 0) return { shape, stride };
+    const d = Math.abs(stride);
+    return { shape: Math.ceil(shape / Math.ceil(factor / d)), stride: Math.sign(stride) * Math.ceil(d / factor) };
+  };
+  const rest = visit(partition.shape.slice(1), partition.stride.slice(1));
+  return new Layout([1, ...rest.shape], [0, ...rest.stride]);
+}
+
 function mmaWarpgroupNs(opKey) {
   return Array.from({length: 32}, (_, i) => (i + 1) * 8)
     .filter(n => opKey !== 'wg_int8' || n === 8 || n === 24 || n % 16 === 0);
@@ -211,9 +254,9 @@ function mmaWarpAtom(opKey, k) {
     opKey, op, k,
     shapeMNK: [MMA_M, MMA_N, k],
     thrId: { shape: 32, stride: 1 },        // Layout<_32>; CuTeDSL prints 32:1
-    A: mk(t.A, MMA_M, k),
-    B: mk(t.B, MMA_N, k),
-    C: mk(MMA_C_LAYOUT, MMA_M, MMA_N),
+    A: { ...mk(t.A, MMA_M, k), space: 'RMEM' },
+    B: { ...mk(t.B, MMA_N, k), space: 'RMEM' },
+    C: { ...mk(MMA_C_LAYOUT, MMA_M, MMA_N), space: 'RMEM' },
   };
 }
 
@@ -249,7 +292,7 @@ function generateMakeMmaAtomTabContent(id) {
         <details class="cuo-section" open>
           <summary>1. MMAAtom</summary>
           <div class="cuo-section-body">
-            ${mmaAtomEditorMarkup({id,p:'mma',render:'renderMakeMmaAtom',setOp:'setMmaOp',warpgroup:true})}
+            ${mmaAtomEditorMarkup({id,p:'mma',render:'renderMakeMmaAtom',setOp:'setMmaOp'})}
             <div id="${id}-mma-op-params" class="cuo-result"></div>
           </div>
         </details>
@@ -359,7 +402,7 @@ function renderMakeMmaAtom(tabId) {
  *  repopulate-then-assign order is easier to keep right than two. */
 function mmaSyncControls(tabId, opKey, p) {
   p = p || 'mma';
-  const wg = ['mma', 'mtm'].includes(p) && MMA_WARPGROUP_OPS[opKey];
+  const wg = MMA_WARPGROUP_OPS[opKey];
   const op = wg || MMA_WARP_OPS[opKey] || MMA_WARP_OPS.f16bf16;
   const fill = (sel, values, labelFn) => {
     if (!sel || !values.length) return;
@@ -381,7 +424,7 @@ function mmaSyncControls(tabId, opKey, p) {
   fill(document.getElementById(`${tabId}-${p}-acc-input`), op.acc || []);
   fill(document.getElementById(`${tabId}-${p}-k-input`), op.kDomain,
        v => wg ? `K = ${v}` : `(16, 8, ${v})   —   m16n8k${v}`);
-  if (['mma', 'mtm'].includes(p)) {
+  {
     document.getElementById(`${tabId}-${p}-ab-label`).textContent = wg && opKey !== 'wg_f16bf16' ? 'a_dtype' : 'ab_dtype';
     document.getElementById(`${tabId}-${p}-shape-label`).textContent = wg ? 'instruction_shape (K; M = 64, N below)' : 'shape_mnk';
     fill(document.getElementById(`${tabId}-${p}-b-input`), op.ab || []);
@@ -551,21 +594,21 @@ function mmaDecodeAtomInputs(inputs) {
   const [opKey, ab, acc, k, n, aSrc, aMajor, bMajor, bDtype] = inputs;
   if (MMA_WARPGROUP_OPS[opKey]) {
     if (inputs.length !== 9) throw new Error('Warpgroup MMAAtom requires N, operand source, major modes and B dtype.');
-    return {
-      atom: mmaWarpgroupAtom(opKey, ab, acc, Number(k), Number(n), aSrc, aMajor, bMajor, bDtype),
-      op: MMA_WARPGROUP_OPS[opKey]
-    };
+    const atom = mmaWarpgroupAtom(opKey, ab, acc, Number(k), Number(n), aSrc, aMajor, bMajor, bDtype);
+    atom.dtypes = mmaOperandDtypes(inputs);
+    return { atom, op: MMA_WARPGROUP_OPS[opKey] };
   }
+  if (!MMA_WARP_OPS[opKey]) throw new Error(`Unknown MMA Op "${opKey}".`);
   if (inputs.length !== 4) throw new Error('Unexpected warp MMAAtom parameters.');
   const atom = mmaWarpAtom(opKey, Number(k)), op = MMA_WARP_OPS[opKey];
   if (op.ab && (!op.ab.includes(ab) || !op.acc.includes(acc))) throw new Error('Unsupported MMAAtom dtype.');
   if (op.ab && ab === 'bfloat16_t' && acc !== 'float') throw new Error('bfloat16_t requires a float accumulator.');
+  atom.dtypes = mmaOperandDtypes(inputs);
   return {atom, op};
 }
 
 function mmaAssignAtomInputs(tabId, p, inputs) {
   const {atom} = mmaDecodeAtomInputs(inputs);
-  if (!['mma', 'mtm'].includes(p) && atom.warpgroup) throw new Error('This consumer supports warp MMA atoms only.');
   const [op,ab,acc,k,n,aSrc,aMajor,bMajor,bDtype] = inputs;
   const write = (key,value) => { document.getElementById(`${tabId}-${p}-${key}-input`).value = String(value); };
   write('op',op);
@@ -583,21 +626,22 @@ function mmaAssignAtomInputs(tabId, p, inputs) {
 // `nested` omits the decoder and folded wrapper: inside an enclosing constructor's
 // Manual construction, the atom fields sit beside its other parameters and the
 // enclosing constructor's own decoder is the only import path.
-function mmaAtomEditorMarkup({id,p,render,setOp,k=null,errorPrefix=p,warpgroup=false,nested=false}) {
+// Every editor offers MMA_ALL_OPS; no consumer narrows the Op family.
+function mmaAtomEditorMarkup({id,p,render,setOp,k=null,errorPrefix=p,nested=false}) {
   const fields = `
       <div class="form-group"><label>Op</label>
         <select id="${id}-${p}-op-input" onchange="${setOp || render}('${id}')">
-          ${Object.entries(warpgroup ? {...MMA_WARP_OPS, ...MMA_WARPGROUP_OPS} : MMA_WARP_OPS).map(([key,op]) => `<option value="${key}">${op.label}</option>`).join('')}
+          ${Object.entries(MMA_ALL_OPS).map(([key,op]) => `<option value="${key}">${op.label}</option>`).join('')}
         </select>
       </div>
       <div class="form-group" id="${id}-${p}-ab-group"><label id="${id}-${p}-ab-label">ab_dtype</label><select id="${id}-${p}-ab-input" onchange="${render}('${id}')"></select></div>
       <div class="form-group" id="${id}-${p}-acc-group"><label>acc_dtype</label><select id="${id}-${p}-acc-input" onchange="${render}('${id}')"></select></div>
       <div class="form-group"><label id="${id}-${p}-shape-label">shape_mnk</label><select id="${id}-${p}-k-input" onchange="${render}('${id}')">${k === null ? '' : `<option value="${k}">(16, 8, ${k})</option>`}</select></div>
-      ${warpgroup ? `<div class="form-group" id="${id}-${p}-n-group"><label>N</label><input type="number" id="${id}-${p}-n-input" value="64" min="8" max="256" step="8" onchange="${render}('${id}')"></div>` : ''}
-      ${warpgroup ? [
+      ${`<div class="form-group" id="${id}-${p}-n-group"><label>N</label><input type="number" id="${id}-${p}-n-input" value="64" min="8" max="256" step="8" onchange="${render}('${id}')"></div>`}
+      ${[
         ['b','b_dtype',[]], ['asrc','A source',['SMEM','RMEM']],
         ['amajor','A major mode',['K','MN']], ['bmajor','B major mode',['K','MN']]
-      ].map(([key,label,values]) => `<div class="form-group" id="${id}-${p}-${key}-group"><label>${label}</label><select id="${id}-${p}-${key}-input" onchange="${render}('${id}')">${values.map(v => `<option value="${v}">${v}</option>`).join('')}</select></div>`).join('') : ''}`;
+      ].map(([key,label,values]) => `<div class="form-group" id="${id}-${p}-${key}-group"><label>${label}</label><select id="${id}-${p}-${key}-input" onchange="${render}('${id}')">${values.map(v => `<option value="${v}">${v}</option>`).join('')}</select></div>`).join('')}`;
   if (nested) return fields;
   return `<button class="btn btn-render btn-decode" id="${id}-${p}-decode-atom" onclick="mmaDecodeAtomPasteboard('${id}','${p}','${render}','${errorPrefix}')">Decode from Pasteboard</button>
     <details class="cuo-section" id="${id}-${p}-atom-manual-construction"><summary>Manual construction</summary><div class="cuo-section-body">${fields}
@@ -612,14 +656,12 @@ function mmaImportAtom(tabId, p, render, text) {
     document.getElementById(`${tabId}-mtm-atomlayout-input`).value,
     document.getElementById(`${tabId}-mtm-perm-input`).value || 'na',
     ...parsed.inputs.slice(4)
-  ], {warpgroup: true});
+  ]);
   mmaAssignAtomInputs(tabId, p, parsed.inputs);
   globalThis[render](tabId);
 }
 
-async function mmaDecodeAtomPasteboard(tabId,p,render,errorPrefix=p) {
-  const text = await readPasteboardText('Paste the make_mma_atom URL or its query string:');
-  if (text === null || text === undefined) return;
-  try { mmaImportAtom(tabId,p,render,text); }
-  catch (e) { showErr(`${tabId}-${errorPrefix}-error`,e.message); }
+function mmaDecodeAtomPasteboard(tabId,p,render,errorPrefix=p) {
+  return decodeFromPasteboard({tabId, errorId:`${tabId}-${errorPrefix}-error`, sources:['make_mma_atom'],
+    message:'Paste the make_mma_atom URL or its query string:', importFn:text => mmaImportAtom(tabId,p,render,text)});
 }

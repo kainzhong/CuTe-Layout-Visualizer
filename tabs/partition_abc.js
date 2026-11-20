@@ -134,11 +134,21 @@ function pabcMakeFragment(L, which) {
   return new Layout([shape0, ...restShape], [stride0New, ...restStride.map(scale)]);
 }
 
+/** `MmaAtom.make_fragment_X` for any offered atom: a register tensor for an
+ *  RMEM operand (warp MMA, WGMMA C and register A), and a descriptor tensor
+ *  for a WGMMA SMEM operand. The descriptor recast needs the operand's element
+ *  width, which `mmaDecodeAtomInputs` records on the atom as `dtypes`. */
+function mmaMakeFragment(partition, which, atom) {
+  if ((atom[which] || {}).space !== 'SMEM') return pabcMakeFragment(partition, which);
+  const dtype = atom.dtypes && atom.dtypes[which];
+  if (!dtype) throw new Error(`The ${which} descriptor fragment needs the operand dtype.`);
+  return mmaDescriptorFragment(partition, mmaDtypeBits(dtype));
+}
 
 /** `tiled_mma.get_slice(thr).partition_X(tensor)` plus everything the three
  *  grids need.
  *
- *  `atom` is a `mmaWarpAtom(...)` result, `atomLayout` a rank-3 Layout, `perm`
+ *  `atom` is an `mmaDecodeAtomInputs(...).atom` (warp MMA or WGMMA), `atomLayout` a rank-3 Layout, `perm`
  *  a 3-element array of Layout-or-null, `which` one of 'A' / 'B' / 'C'. */
 function pabcComputePartition(atom, atomLayout, perm, which, tensor, thrIdx) {
   const spec = PABC_OPERAND[which];
@@ -175,7 +185,7 @@ function pabcComputePartition(atom, atomLayout, perm, which, tensor, thrIdx) {
   if (thrIdx !== null && thrIdx >= overTile.threads)
     throw new Error(
       `Thread index ${thrIdx} is out of range — this TiledMMA has ${overTile.threads} threads ` +
-      `(${overTile.warps} warp${overTile.warps === 1 ? '' : 's'} of ${MTM_ATOM_THREADS}), ` +
+      `(${overTile.atomGroups} atom${overTile.atomGroups === 1 ? '' : 's'} of ${overTile.atomThreads} threads), ` +
       `so 0..${overTile.threads - 1}.`);
 
   // The derivation over the real tensor, and the same one over the COMPACT
@@ -197,7 +207,11 @@ function pabcComputePartition(atom, atomLayout, perm, which, tensor, thrIdx) {
   // grid said 4x2. The block is derived, never assumed: gather every
   // (thread, value) cell at Rest 0 and see what region they form.
   const blockCells = new Map();          // compact flat position -> entries
-  for (let t = 0; t < nThr; t++) {
+  // A WGMMA SMEM operand is one descriptor shared by the atom's 128 threads:
+  // visit one representative per atom, exactly as mtmOperandGrid does, rather
+  // than 128 identical copies of every cell.
+  const smem = opT.space === 'SMEM';
+  for (let t = 0; t < nThr; t += smem ? opT.atomThreads : 1) {
     const tOff = opPos.thr.call(t);
     for (let v = 0; v < frg; v++) {
       const pos = tOff + opPos.val.call(v);
@@ -233,15 +247,14 @@ function pabcComputePartition(atom, atomLayout, perm, which, tensor, thrIdx) {
 
   return {
     which, spec, thrIdx, threads: overTile.threads, warps: overTile.warps,
+    atomThreads: overTile.atomThreads, atomGroups: overTile.atomGroups,
+    space: opT.space, major: opT.major, warpgroup: !!atom.warpgroup,
     atomLayoutMNK: overTile.atomLayoutMNK, tileMNK: overTile.tileMNK,
     thrLayoutVmnk: overTile.thrVmnk, divExtents,
     tensorExtents: tExt,
     partition: opT.partition,
-    // What the thread actually declares in registers.
-    fragment: pabcMakeFragment(opT.partition, which),
-    fragColMajor: formatLayoutStr(pabcMakeFragment(opT.partition, which).shape,
-                                  pabcMakeFragment(opT.partition, which).stride) ===
-                  formatLayoutStr(opT.partition.shape, mtmCompactStride(opT.partition.shape)),
+    // What the thread declares: registers, or a WGMMA descriptor tensor.
+    fragment: mmaMakeFragment(opT.partition, which, atom),
     // null when no thread is selected. The LAYOUT is thread-independent —
     // `thrfrg_X`'s thread mode is a separate mode, which is why every thread of
     // a TiledMMA gets the same static fragment type — so only this is per-thread.
@@ -304,7 +317,8 @@ function pabcInputSections({ id, p, fn, render, setOp, setOperand, decodeMma }) 
                 thread instead: the layout <code>${fn}_A</code> returns is the same
                 for all of them, so a thread id only changes which cells are highlighted
                 and where the fragment starts. Threads are numbered across the whole
-                TiledMMA &mdash; warp <i>w</i> owns <code>32w .. 32w+31</code>.
+                TiledMMA &mdash; warp <i>w</i> owns <code>32w .. 32w+31</code>, and a
+                WGMMA warpgroup <i>g</i> owns <code>128g .. 128g+127</code>.
               </div>
             </div>
           </div>
@@ -357,6 +371,9 @@ ${pabcInputSections({ id, p: 'pabc', fn: 'partition', render: 'renderPartitionAB
             <button class="preset-btn" onclick="setPABC('${id}','A','f16bf16','half_t','float',16,'(2, 2, 1)','((2,32):(32,1), 32, 16)','2','(128, 48):(48, 1)')">Permuting layout &mdash; Rest mode 0 comes back a TUPLE</button>
             <button class="preset-btn" onclick="setPABC('${id}','C','f16bf16','half_t','float',16,'(2, 2, 2)','','3','(64, 32):(32, 1)')">C with K-warps &mdash; several warps hold partial sums of a cell</button>
             <button class="preset-btn" onclick="setPABC('${id}','A','tf32','na','na',8,'(2, 2, 1)','','0','(64, 32):(32, 1)')">MmaTF32Op, m16n8k8</button>
+            <button class="preset-btn" onclick="setPABC('${id}','A','wg_f16bf16','half_t','float',16,'(2, 1, 1)','','5','(128, 32, 2):(32, 1, 4096)','',64,'SMEM','K','K','half_t')">WGMMA SMEM A &mdash; each warpgroup addresses a whole 64&times;16 descriptor block</button>
+            <button class="preset-btn" onclick="setPABC('${id}','A','wg_f16bf16','half_t','float',16,'(2, 1, 1)','','5','(128, 32, 2):(32, 1, 4096)','',64,'RMEM','K','K','half_t')">WGMMA register A (RS) &mdash; 128-thread register fragment</button>
+            <button class="preset-btn" onclick="setPABC('${id}','C','wg_f16bf16','half_t','float',16,'(2, 1, 1)','','130','(128, 128):(128, 1)','',64,'SMEM','K','K','half_t')">WGMMA C &mdash; two warpgroups, 256 threads</button>
           </div>
         </div>
 
@@ -496,21 +513,11 @@ const pabcState = {};
  *  across the grids (partition_sd's reason). There is nothing it could
  *  truthfully say, so the warning box carries real diagnostics instead. */
 function pabcReadInputs(tabId, p) {
-  const opKey = document.getElementById(`${tabId}-${p}-op-input`).value;
-  const op = MMA_WARP_OPS[opKey] || MMA_WARP_OPS.f16bf16;
-  mmaSyncControls(tabId, opKey, p);          // options BEFORE values are read
-
-  const k = parseInt(document.getElementById(`${tabId}-${p}-k-input`).value, 10);
-  const abDtype  = op.ab  ? document.getElementById(`${tabId}-${p}-ab-input`).value  : 'tfloat32_t';
-  const accDtype = op.acc ? document.getElementById(`${tabId}-${p}-acc-input`).value : 'float';
-  if (op.ab && abDtype === 'bfloat16_t' && accDtype !== 'float')
-    throw new Error(
-      `${op.label} requires acc_dtype = float when ab_dtype is bfloat16_t ` +
-      `(there is no bf16 MMA with an f16 accumulator).`);
-
-  const atom       = mmaWarpAtom(opKey, k);
-  const atomLayout = mtmParseAtomLayout(document.getElementById(`${tabId}-${p}-atomlayout-input`).value);
-  const perm       = mtmParsePerm(document.getElementById(`${tabId}-${p}-perm-input`).value);
+  // The shared TiledMMA reader/decoder: every MMA tab offers the same Ops.
+  const constructor = mtmReadConstructorControls(tabId, p);   // syncs options first
+  const { atom, atomLayout, perm } = mtmDecodeConstructor(constructor);
+  const opKey = atom.opKey, op = atom.op, k = atom.k;
+  const abDtype = atom.dtypes.A, accDtype = atom.dtypes.C;
 
   const tP = parseLayout(document.getElementById(`${tabId}-${p}-tensor-input`).value);
   const tS = stripTrivialTrailing(tP.shape, tP.stride);
@@ -523,7 +530,7 @@ function pabcReadInputs(tabId, p) {
     throw new Error(
       `Thread index must be a whole number, or empty for all threads — got "${thrStr}".`);
 
-  return { opKey, op, k, abDtype, accDtype, atom, atomLayout, perm, tensor,
+  return { opKey, op, k, abDtype, accDtype, atom, atomLayout, perm, tensor, constructor,
            thrIdx: thrStr === '' ? null : parseInt(thrStr, 10) };
 }
 
@@ -546,7 +553,13 @@ function renderPartitionABC(tabId) {
     document.getElementById(`${tabId}-pabc-tiled-result`).innerHTML =
       `<div class="cuo-result-line">thr_layout_vmnk = <b>` +
       `${formatLayoutStr(r.thrLayoutVmnk.shape, r.thrLayoutVmnk.stride)}</b> &mdash; ` +
-      `${r.warps} warp${r.warps === 1 ? '' : 's'}, ${r.threads} threads</div>` +
+      `${r.warps} warp${r.warps === 1 ? '' : 's'}, ${r.threads} threads` +
+      `${r.warpgroup ? `; ${r.atomGroups} warpgroup${r.atomGroups === 1 ? '' : 's'}` : ''}</div>` +
+      (r.space === 'SMEM'
+        ? `<div class="cuo-result-line">${which} is a WGMMA shared-memory descriptor operand: ` +
+          `each thread's mode 0 is the whole ${formatLayoutStr(r.frgLayout.shape, r.frgLayout.stride)} atom block, ` +
+          `broadcast across its warpgroup. Partition an SMEM tensor (sA/sB).</div>`
+        : '') +
       `<div class="cuo-result-line">Tile Shape MNK = <b>(${r.tileMNK.join(', ')})</b>` +
       `<span style="color:#9ca3af"> &rarr; ${which} divides by ` +
       `${r.divExtents.join('&times;')} (${r.spec.axes.join(', ')})</span></div>`;
@@ -554,7 +567,7 @@ function renderPartitionABC(tabId) {
     const prevState = pabcState[tabId] || {};
     pabcState[tabId] = {
       ...r, which, ...inp,
-      dtype: which === 'C' ? accDtype : abDtype,
+      dtype: inp.atom.dtypes[which],
       tileMode:  (prevState.tileMode  instanceof Set) ? prevState.tileMode  : new Set(),
       sweepMode: (prevState.sweepMode instanceof Set) ? prevState.sweepMode : new Set(),
       extraMode: (prevState.extraMode instanceof Set) ? prevState.extraMode : new Set(),
@@ -586,7 +599,7 @@ function pabcRenderTileViz(tabId) {
   const holes = s.blockGrid.reduce((n, row) => n + row.filter(c => !c.entries.length).length, 0);
 
   const svg = mtmBuildSVG(s.blockGrid, M, N, {
-    mode: 'tv', focus: s.thrIdx, dimRest: false,
+    mode: 'tv', focus: s.thrIdx, dimRest: false, space: s.space,
     sum: s.spec.sum, showValue: modes.has('value'),
   });
 
@@ -595,7 +608,9 @@ function pabcRenderTileViz(tabId) {
     `<b style="color:#93c5fd">${formatLayoutStr(s.frgLayout.shape, s.frgLayout.stride)}</b>` +
     ` per thread &mdash; block ${M}&times;${N} (${s.spec.axes.join(', ')}) of ${s.dtype}, ` +
     `${s.threads} threads, ` +
-    (s.thrIdx === null ? `every thread shown` : `T${s.thrIdx} highlighted`) +
+    (s.space === 'SMEM'
+      ? `SMEM descriptor: every thread of a warpgroup addresses the whole block`
+      : s.thrIdx === null ? `every thread shown` : `T${s.thrIdx} highlighted`) +
     (s.blockConsecutive ? '' :
       ` &mdash; <b style="color:#fbbf24">interleaved</b>: these ${M} ` +
       `${s.spec.axes[0]} rows are spread over ${s.blockSpan[0]} of the tensor's, because ` +
@@ -735,23 +750,20 @@ function pabcImportTiledMma(tabId, text) {
   renderPartitionABC(tabId);
 }
 
-async function pabcDecodePasteboard(tabId) {
-  const text = await readPasteboardText('Paste the make_tiled_mma URL or its query string:');
-  if (text === null || text === undefined) return;
-  try { pabcImportTiledMma(tabId, text); }
-  catch (e) { showErr(`${tabId}-pabc-error`, e.message); }
+function pabcDecodePasteboard(tabId) {
+  return decodeFromPasteboard({tabId, errorId: `${tabId}-pabc-error`, sources: ['make_tiled_mma'],
+    message: 'Paste the make_tiled_mma URL or its query string:', importFn: text => pabcImportTiledMma(tabId, text)});
 }
 
-function setPABC(tabId, which, opKey, ab, acc, k, atomLayout, perm, thr, tensor, fragmentSlice = '') {
-  document.getElementById(`${tabId}-pabc-fragment-slice-input`).value = fragmentSlice;
+/** Presets and deep links: the URL field order. `...tail` is the atom's
+ *  Op-specific constructor tail (WGMMA: N, A source, A/B major, B dtype),
+ *  written through the shared validated constructor writer. */
+function setPABC(tabId, which, opKey, ab, acc, k, atomLayout, perm, thr, tensor, fragmentSlice = '', ...tail) {
+  mtmWriteConstructorControls(tabId, 'pabc', mtmJoinConstructor(
+    [opKey, ab || 'na', acc || 'na', String(k), atomLayout, perm || 'na'], tail));
+  document.getElementById(`${tabId}-pabc-fragment-slice-input`).value =
+    fragmentSlice && fragmentSlice !== 'na' ? fragmentSlice : '';
   pabcState[tabId] = Object.assign(pabcState[tabId] || {}, { which });
-  document.getElementById(`${tabId}-pabc-op-input`).value = opKey;
-  mmaSyncControls(tabId, opKey, 'pabc');    // options BEFORE values, or the assign is a no-op
-  if (ab  && ab  !== 'na') document.getElementById(`${tabId}-pabc-ab-input`).value  = ab;
-  if (acc && acc !== 'na') document.getElementById(`${tabId}-pabc-acc-input`).value = acc;
-  document.getElementById(`${tabId}-pabc-k-input`).value = String(k);
-  document.getElementById(`${tabId}-pabc-atomlayout-input`).value = atomLayout;
-  document.getElementById(`${tabId}-pabc-perm-input`).value = perm;
   document.getElementById(`${tabId}-pabc-thr-input`).value = thr;
   document.getElementById(`${tabId}-pabc-tensor-input`).value = tensor;
   renderPartitionABC(tabId);
@@ -759,18 +771,13 @@ function setPABC(tabId, which, opKey, ab, acc, k, atomLayout, perm, thr, tensor,
 
 function exportPABC(tabId) {
   // `na` is how exportMTM spells an absent field: the key is split on `-`, so
-  // an empty part cannot travel.
+  // an empty part cannot travel. The atom's Op-specific tail goes last.
+  const { head, tail } = mtmSplitConstructor(mtmReadConstructorControls(tabId, 'pabc'));
   exportURL(`${tabId}-pabc-export`, 'partition_abc',
-    (pabcState[tabId] && pabcState[tabId].which) || 'A',
-    document.getElementById(`${tabId}-pabc-op-input`).value,
-    document.getElementById(`${tabId}-pabc-ab-input`).value || 'na',
-    document.getElementById(`${tabId}-pabc-acc-input`).value || 'na',
-    document.getElementById(`${tabId}-pabc-k-input`).value,
-    document.getElementById(`${tabId}-pabc-atomlayout-input`).value,
-    document.getElementById(`${tabId}-pabc-perm-input`).value || 'na',
+    (pabcState[tabId] && pabcState[tabId].which) || 'A', ...head,
     document.getElementById(`${tabId}-pabc-thr-input`).value,
     document.getElementById(`${tabId}-pabc-tensor-input`).value,
-    document.getElementById(`${tabId}-pabc-fragment-slice-input`).value || 'na');
+    document.getElementById(`${tabId}-pabc-fragment-slice-input`).value || 'na', ...tail);
 }
 
 function pabcOpenFragment(tabId) {
@@ -783,8 +790,9 @@ function pabcOpenFragment(tabId) {
   try {
     const selected = pabcSelectFragment(s.partition, document.getElementById(`${tabId}-pabc-fragment-slice-input`).value);
     const layout = formatLayoutStr(selected.layout.shape, selected.layout.stride);
-    setMfrag(tabId, s.which, s.opKey, s.abDtype, s.accDtype, s.k, layout,
-             s.thrIdx === null ? 0 : s.thrIdx);
+    const atomInputs = [...s.constructor.slice(0, 4), ...mtmSplitConstructor(s.constructor).tail];
+    setMfrag(tabId, s.which, ...atomInputs.slice(0, 4), layout,
+             s.thrIdx === null ? 0 : s.thrIdx, ...atomInputs.slice(4));
     switchInnerTab(tabId, 'make_fragment_abc');
   } catch (e) {
     showErr(`${tabId}-pabc-error`, e.message);

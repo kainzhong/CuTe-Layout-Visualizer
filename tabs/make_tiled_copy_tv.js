@@ -238,10 +238,7 @@ function mtvImportTVLayout(tabId,text) {
   renderMakeTiledCopyTv(tabId);
 }
 
-async function mtvDecodeTVPasteboard(tabId) {
-  try {
-    const text=await readPasteboardText('Paste a TV Layout URL:');
-    if(text===null || text===undefined) return;
-    mtvImportTVLayout(tabId,text);
-  } catch(e) {showErr(`${tabId}-mtv-error`,e.message);}
+function mtvDecodeTVPasteboard(tabId) {
+  return decodeFromPasteboard({tabId, errorId:`${tabId}-mtv-error`, sources:['tv'],
+    message:'Paste a TV Layout URL:', importFn:text => mtvImportTVLayout(tabId,text)});
 }

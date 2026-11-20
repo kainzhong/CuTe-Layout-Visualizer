@@ -138,17 +138,18 @@ function rtImportURL(tabId,kind,text) {
   } else {
     if (parsed.feature !== 'make_fragment_abc') throw new Error('Paste a make_fragment_A/B/C URL.');
     const a=parsed.inputs;
-    const r=mfragCompute(rtParseLayout(a[5]),a[0],a[1],Number(a[4]),
-      a[2] === 'na' ? 'tfloat32_t' : a[2], a[3] === 'na' ? 'float' : a[3]);
+    const r=mfragCompute(rtParseLayout(a[5]),a[0],mfragAtomInputsFromURL(a));
+    if (r.descriptor) throw new Error('That make_fragment URL is a WGMMA shared-memory descriptor tensor, not a register fragment; retile needs RMEM.');
     write('input',formatLayoutStr(r.fragment.shape,r.fragment.stride)); write('dtype',r.dtype); write('thread',a[6]||0);
   }
   renderRetile(tabId);
 }
 
-async function rtDecodePasteboard(tabId,kind) {
-  const text=await readPasteboardText(`Paste the ${kind==='copy'?'TiledCopy':'make_fragment'} URL or its query string:`);
-  if (text===null || text===undefined) return;
-  try { rtImportURL(tabId,kind,text); } catch(e) { showErr(`${tabId}-rt-error`,e.message); }
+function rtDecodePasteboard(tabId,kind) {
+  return decodeFromPasteboard({tabId, errorId:`${tabId}-rt-error`,
+    sources:kind==='copy' ? TILED_COPY_SOURCES : ['make_fragment_abc'],
+    message:`Paste the ${kind==='copy'?'TiledCopy':'make_fragment'} URL or its query string:`,
+    importFn:text => rtImportURL(tabId,kind,text)});
 }
 
 function exportRT(tabId) {

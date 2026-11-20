@@ -1,20 +1,52 @@
-// make_tiled_copy_A/B: match a CopyAtom to a TiledMMA operand.
-// Constructor: copy_atom.hpp make_tiled_copy_A/B; side maps: tile2thrfrg.
-// No tensor is partitioned here. SRC is the logical addressing pattern, not
-// SMEM byte offsets; DST and the reference TV map name register ownership.
-const MCAB_COPY_OPS = ['ldmatrix', 'ldmatrix16x8x8b', 'ldmatrix16x16x8b', 's2r'];
+// make_tiled_copy_A/B/C: match a CopyAtom to a TiledMMA operand.
+// Constructor: copy_atom.hpp make_tiled_copy_A/B/C; side maps: tile2thrfrg.
+// No tensor is partitioned here. For loads, SRC is the logical addressing
+// pattern, not SMEM byte offsets, and DST names register ownership. For the C
+// store (the epilogue), SRC is the accumulator register side.
+// Offered Ops per operand: A/B are SMEM -> RMEM loads; C is either the
+// epilogue store RMEM -> SMEM or a SIMT load of a C source. `s2r` / `r2s` are
+// CopyUniversalOp presented in that direction.
+const MCAB_OPERAND_COPY_OPS = {
+  A: ['ldmatrix', 'ldmatrix16x8x8b', 'ldmatrix16x16x8b', 's2r'],
+  B: ['ldmatrix', 'ldmatrix16x8x8b', 'ldmatrix16x16x8b', 's2r'],
+  C: ['r2s', 's2r'],
+};
+const MCAB_COPY_OPS = ['ldmatrix', 'ldmatrix16x8x8b', 'ldmatrix16x16x8b', 's2r', 'r2s'];
+const MCAB_COPY_LABELS = { s2r: 'CopyUniversalOp (SMEM → RMEM)', r2s: 'CopyUniversalOp (RMEM → SMEM)' };
+
+function mcabCopyOps(operand) {
+  return MCAB_OPERAND_COPY_OPS[operand] || MCAB_OPERAND_COPY_OPS.A;
+}
+
+function mcabCopyLabel(key) {
+  return MCAB_COPY_LABELS[key] || MCA_OPS[key].label;
+}
+
+function mcabCopyOptions(operand) {
+  return mcabCopyOps(operand).map(key => `<option value="${key}">${mcabCopyLabel(key)}</option>`).join('');
+}
+
+/** Rebuild an operand-dependent CopyAtom Op picker before assigning a value. */
+function mcabSyncCopyOptions(tabId, p, operand) {
+  const sel = document.getElementById(`${tabId}-${p}-copy-input`);
+  if (!sel) return;
+  const ops = mcabCopyOps(operand), want = sel.value;
+  const markup = mcabCopyOptions(operand);
+  if (sel.innerHTML !== markup) sel.innerHTML = markup;
+  sel.value = ops.includes(want) ? want : ops[0];
+}
 const mcabState = {};
 
 /** Read existing CopyAtom traits without assuming SIMT SRC == DST. */
 function mcabCopyAtom(opKey, dtype, nm, transpose, bits) {
-  if (!MCAB_COPY_OPS.includes(opKey)) throw new Error(`Unsupported SMEM → RMEM copy Op "${opKey}".`);
+  if (!MCAB_COPY_OPS.includes(opKey)) throw new Error(`Unsupported copy Op "${opKey}" for make_tiled_copy_A/B/C.`);
   const elemBits = DTYPE_BITS[dtype] || (/^float_e[45]m[23]_t$/.test(dtype) ? 8 : 0);
   if (!elemBits) throw new Error(`Unknown copy dtype "${dtype}".`);
-  if (opKey === 's2r') {
+  if (opKey === 's2r' || opKey === 'r2s') {
     if (!Number.isInteger(bits) || bits <= 0 || bits % elemBits)
       throw new Error(`num_bits_per_copy must be a positive multiple of ${elemBits} for ${dtype}.`);
     const tv = new Layout([1, bits / elemBits], [0, 1]);
-    return { src: tv, dst: tv, ref: tv, threads: 1, values: bits / elemBits, liveLanes: 1, elemBits,
+    return { src: tv, dst: tv, ref: tv, threads: 1, values: bits / elemBits, liveLanes: 1, elemBits, opKey,
              label: `CopyUniversalOp (${bits} bits)` };
   }
   const op = MCA_OPS[opKey];
@@ -24,7 +56,7 @@ function mcabCopyAtom(opKey, dtype, nm, transpose, bits) {
   if (product(src.shape[0]) !== 32 || product(dst.shape[0]) !== 32)
     throw new Error(`${dtype} spans multiple transpose units in ${MCA_LDSM_SPECS[op.ldsm].op}; this view requires a full 32-lane element mapping. Choose CopyUniversalOp, or use a matching instruction unit size.`);
   return { src, dst, ref: dst, threads: 32, values: product(dst.shape[1]),
-           liveLanes: atom.liveLanes, elemBits, atom,
+           liveLanes: atom.liveLanes, elemBits, atom, opKey,
            label: `${MCA_LDSM_SPECS[op.ldsm].op}.x${nm}${transpose ? '.trans' : ''}` };
 }
 
@@ -40,7 +72,11 @@ function mcabSideLayout(tv, tile, copyAtom, side) {
 
 /** DOM-free constructor + both tiled TV maps; CuTeDSL is the oracle. */
 function mcabComputeTiledCopy(mma, operand, copyAtom) {
-  if (operand !== 'A' && operand !== 'B') throw new Error('Operand must be A or B.');
+  if (!['A', 'B', 'C'].includes(operand)) throw new Error('Operand must be A, B or C.');
+  if (copyAtom.opKey && !mcabCopyOps(operand).includes(copyAtom.opKey))
+    throw new Error(operand === 'C'
+      ? 'make_tiled_copy_C offers the accumulator store (RMEM → SMEM) and a SIMT C-source load (SMEM → RMEM).'
+      : `The RMEM → SMEM store applies to the accumulator; choose operand C, or an SMEM → RMEM load for ${operand}.`);
   const opnd = mma[operand];
   // A WGMMA shared-memory operand is read by the instruction through a
   // descriptor; there is no register fragment for an SMEM -> RMEM copy to fill.
@@ -51,6 +87,13 @@ function mcabComputeTiledCopy(mma, operand, copyAtom) {
       `make_tiled_copy_${operand} has no register fragment to fill. ` +
       (operand === 'A' ? 'Set the WGMMA A source to RMEM (register A) to load A with a TiledCopy.'
                        : 'WGMMA B is always a shared-memory operand; choose operand A with A source RMEM.'));
+  // CuTe's get_layoutC_TV (mma_atom.hpp) lacks the stride-0 K step that its A/B
+  // siblings have, so with both N and K replication it contradicts partition_C;
+  // make_tiled_copy_C is built from it. The tiled_mma oracle pins the divergence.
+  if (operand === 'C' && mma.atomLayoutMNK && mma.atomLayoutMNK[1] > 1 && mma.atomLayoutMNK[2] > 1)
+    throw new Error('With atom_layout_mnk replicated along both N and K, CuTe\'s get_layoutC_TV (which ' +
+      'make_tiled_copy_C uses) contradicts partition_C, so the TiledCopy would not match the accumulator ' +
+      'fragments. Reduce the K-split partial sums first, or use N = 1 or K = 1.');
   const tv = opnd.tv;
   const values = product(tv.shape[1]);
   if (mma.threads % copyAtom.threads)
@@ -80,11 +123,11 @@ function generateMakeTiledCopyABTabContent(id) {
   return `
     <div id="${id}-tab-make_tiled_copy_ab" class="panel">
       <div class="controls">
-        <h2>make_tiled_copy_A / B</h2>
+        <h2>make_tiled_copy_A / B / C</h2>
         <div class="form-group">
           <label>Operand</label>
           <select id="${id}-mcab-operand-input" onchange="renderMakeTiledCopyAB('${id}')">
-            <option value="A" selected>A (M × K)</option><option value="B">B (N × K)</option>
+            <option value="A" selected>A (M × K)</option><option value="B">B (N × K)</option><option value="C">C (M × N)</option>
           </select>
         </div>
         <div class="form-group">
@@ -122,7 +165,7 @@ function generateMakeTiledCopyABTabContent(id) {
               <summary>Manual construction</summary>
               <div class="cuo-section-body">
                 <div class="form-group"><label>Op</label>
-                  <select id="${id}-mcab-copy-input" onchange="renderMakeTiledCopyAB('${id}')">${MCAB_COPY_OPS.map(key => `<option value="${key}">${key === 's2r' ? 'CopyUniversalOp (SMEM → RMEM)' : MCA_OPS[key].label}</option>`).join('')}</select>
+                  <select id="${id}-mcab-copy-input" onchange="renderMakeTiledCopyAB('${id}')">${mcabCopyOptions('A')}</select>
                 </div>
                 <div class="form-group" id="${id}-mcab-nm-group"><label>num_matrices</label><select id="${id}-mcab-nm-input" onchange="renderMakeTiledCopyAB('${id}')"></select></div>
                 <div class="form-group" id="${id}-mcab-trans-group"><label>transpose</label><select id="${id}-mcab-trans-input" onchange="renderMakeTiledCopyAB('${id}')"><option value="0" selected>False</option><option value="1">True</option></select></div>
@@ -145,13 +188,18 @@ function generateMakeTiledCopyABTabContent(id) {
           <button class="preset-btn" onclick="setMCAB('${id}','B','fp8','float_e4m3_t','float',32,'(2,2,1)','(32,32,32)','ldmatrix16x8x8b',4,1,8)">B — FP8, permuted 8-bit load</button>
           <button class="preset-btn" onclick="setMCAB('${id}','A','fp8','float_e4m3_t','float',32,'(2,2,1)','(32,32,32)','ldmatrix16x16x8b',2,1,8)">A — FP8, 16×16 load</button>
           <button class="preset-btn" onclick="setMCAB('${id}','A','tf32',null,null,8,'(2,2,1)','','s2r',1,0,32)">A — TF32, scalar SIMT load</button>
+          <button class="preset-btn" onclick="setMCAB('${id}','C','f16bf16','half_t','float',16,'(2,2,1)','(32,32,16)','r2s',1,0,64)">C — epilogue store, 64-bit pairs</button>
+          <button class="preset-btn" onclick="setMCAB('${id}','C','f16bf16','half_t','half_t',16,'(2,2,1)','(32,32,16)','r2s',1,0,32,'tv','na','mma_copy')">C — half_t accumulator, MMA/COPY</button>
+          <button class="preset-btn" onclick="setMCAB('${id}','C','f16bf16','half_t','float',16,'(2,2,1)','(32,32,16)','s2r',1,0,32)">C — load a C source, 32-bit</button>
           <button class="preset-btn" onclick="setMCAB('${id}','A','wg_f16bf16','half_t','float',16,'(2,1,1)','','ldmatrix',4,0,16,'warpgroup','na','src_dst',64,'RMEM','K','K','half_t')">WGMMA register A — .x4, two warpgroups</button>
+          <button class="preset-btn" onclick="setMCAB('${id}','C','wg_f16bf16','half_t','float',16,'(1,1,1)','','r2s',1,0,64,'warpgroup','na','mma_copy',64,'SMEM','K','K','half_t')">WGMMA accumulator C — epilogue store</button>
           <button class="preset-btn" onclick="setMCAB('${id}','A','wg_fp8','float_e4m3_t','float',32,'(1,1,1)','','ldmatrix',4,0,16,'tv','na','mma_copy',64,'RMEM','K','K','float_e4m3_t')">WGMMA FP8 register A — MMA/COPY</button>
         </div></div>
         <div class="hint">
-          SRC names the lanes supplying shared-memory row addresses; DST names the lanes receiving register values. Values can cross lanes inside ldmatrix. Ignored address lanes are omitted from SRC.<br><br>
-          Compare SRC/DST to see the copy's lane mapping, or MMA/COPY to compare the MMA operand with the copy destination. The right pane always shows the TiledCopy destination.<br><br>
-          Copy dtype follows the MMA operand. unpack_bits is fixed to None. These are logical ownership maps; an actual SMEM tensor and its alignment are checked when partitioning and executing a copy.
+          For an A/B load, SRC names the lanes supplying shared-memory row addresses; DST names the lanes receiving register values. Values can cross lanes inside ldmatrix. Ignored address lanes are omitted from SRC.<br><br>
+          Operand C is the accumulator: its RMEM → SMEM store is the epilogue, and its SMEM → RMEM load reads a C source. SRC is the register side of a store.<br><br>
+          Compare SRC/DST to see the copy's lane mapping, or MMA/COPY to compare the MMA operand with the copy's register side (DST for a load, SRC for a store).<br><br>
+          Copy dtype follows the MMA operand (the accumulator dtype for C). unpack_bits is fixed to None. These are logical ownership maps; an actual SMEM tensor and its alignment are checked when partitioning and executing a copy.
         </div>
       </div>
       <div class="comp-results">
@@ -175,13 +223,17 @@ function mcabImportConstructor(tabId, feature, text) {
   if (feature === 'make_tiled_mma') {
     mtmWriteConstructorControls(tabId, 'mcab', inputs);
   } else if (feature === 'make_copy_atom') {
-    // UniversalCopy is presented as an SMEM→RMEM load in this tab.
-    const copyKey = inputs[0] === 'universal' ? 's2r' : inputs[0];
-    if (!MCAB_COPY_OPS.includes(copyKey))
-      throw new Error(`Copy Op "${inputs[0]}" is not supported for this SMEM → RMEM comparison.`);
-    const dtype = document.getElementById(`${tabId}-mcab-ab-input`).value;
+    // UniversalCopy is presented in the operand's usual direction: an
+    // SMEM→RMEM load for A/B, the RMEM→SMEM epilogue store for C.
+    const operand = document.getElementById(`${tabId}-mcab-operand-input`).value;
+    const copyKey = inputs[0] === 'universal' ? (operand === 'C' ? 'r2s' : 's2r') : inputs[0];
+    if (!mcabCopyOps(operand).includes(copyKey))
+      throw new Error(`Copy Op "${inputs[0]}" is not supported for make_tiled_copy_${operand}.`);
+    const { atom } = mtmDecodeConstructor(mtmReadConstructorControls(tabId, 'mcab'));
+    const dtype = atom.dtypes[operand];
     if (inputs[2] !== dtype)
-      throw new Error(`CopyAtom dtype ${inputs[2]} does not match MMA operand dtype ${dtype}. Decode a matching TiledMMA first.`);
+      throw new Error(`CopyAtom dtype ${inputs[2]} does not match MMA operand ${operand} dtype ${dtype}. Decode a matching TiledMMA first.`);
+    mcabSyncCopyOptions(tabId, 'mcab', operand);
     write('copy', copyKey);
     mcabSyncCopyControls(tabId);
     write('bits', inputs[1]);
@@ -202,7 +254,7 @@ function mcabDecodePasteboard(tabId, feature) {
 
 function mcabSyncCopyControls(tabId, p = 'mcab') {
   const key = document.getElementById(`${tabId}-${p}-copy-input`).value;
-  const ldsm = key !== 's2r';
+  const ldsm = key !== 's2r' && key !== 'r2s';
   for (const part of ['nm', 'trans']) document.getElementById(`${tabId}-${p}-${part}-group`).style.display = ldsm ? '' : 'none';
   document.getElementById(`${tabId}-${p}-bits-group`).style.display = ldsm ? 'none' : '';
   if (!ldsm) return;
@@ -220,6 +272,7 @@ function renderMakeTiledCopyAB(tabId) {
     // The shared constructor reader/decoder: every MMA Op is offered here.
     const { atom, tiled: mma } = mtmDecodeConstructor(mtmReadConstructorControls(tabId, 'mcab'));
     const op = atom.op, k = atom.k;
+    mcabSyncCopyOptions(tabId, 'mcab', operand);
     mcabSyncCopyControls(tabId);
     const ab = atom.dtypes[operand], acc = atom.dtypes.C;
     const copyAtom = mcabCopyAtom(read('copy'), ab, Number(read('nm')), read('trans') === '1', Number(read('bits')));
@@ -259,7 +312,7 @@ function mcabRenderViz(tabId) {
   const s = mcabState[tabId];
   const r = s.result;
   const [rows, cols] = r.tile;
-  const axes = r.operand === 'A' ? 'M×K' : 'N×K';
+  const axes = { A: 'M×K', B: 'N×K', C: 'M×N' }[r.operand];
   document.getElementById(`${tabId}-mcab-mode-btns`).querySelectorAll('.mode-btn').forEach(b =>
     b.classList.toggle('active', b.textContent.trim() ===
       ({tv: 'Show TVs', warp: 'Show Warps', warpgroup: 'Show Warp Groups'}[s.mode])));
@@ -270,18 +323,23 @@ function mcabRenderViz(tabId) {
   const compareMma = s.compare === 'mma_copy';
   document.getElementById(`${tabId}-mcab-compare-btns`).querySelectorAll('.mode-btn').forEach(b =>
     b.classList.toggle('active', b.textContent.trim() === (compareMma ? 'MMA/COPY' : 'SRC/DST')));
+  // MMA/COPY compares the MMA registers with the copy's register side: DST
+  // for a load, SRC for the epilogue store.
+  const regSide = srcSpace === 'RMEM' ? 'src' : 'dst';
+  const rightSide = compareMma ? regSide : 'dst';
   setMemorySpaceBadge(`${tabId}-mcab-src-space`, compareMma ? 'RMEM' : srcSpace);
   document.getElementById(`${tabId}-mcab-src-label`).textContent = compareMma ? 'TiledMMA' : 'SRC';
-  document.getElementById(`${tabId}-mcab-dst-label`).textContent = 'TiledCopy (DST)';
-  setMemorySpaceBadge(`${tabId}-mcab-dst-space`, dstSpace);
+  document.getElementById(`${tabId}-mcab-dst-label`).textContent = `TiledCopy (${rightSide.toUpperCase()})`;
+  setMemorySpaceBadge(`${tabId}-mcab-dst-space`, rightSide === 'src' ? srcSpace : dstSpace);
   document.getElementById(`${tabId}-mcab-transfer-title`).textContent = `${r.operand} — ${rows}×${cols} ${s.ab} (${axes})`;
   document.getElementById(`${tabId}-mcab-transfer-desc`).textContent =
-    compareMma ? 'MMA operand register slots compared with TiledCopy destination slots over the same logical operand coordinates.' :
-    'SRC labels the address-supplying lanes; DST labels the receiving lanes. Both panes use logical operand coordinates.' +
+    compareMma ? `MMA operand register slots compared with the TiledCopy ${rightSide === 'src' ? 'source (register) slots of the store' : 'destination slots'} over the same logical operand coordinates.` :
+    (r.copyAtom.threads === 1 ? 'SRC and DST label the thread and value that read and write each element. Both panes use logical operand coordinates.'
+      : 'SRC labels the address-supplying lanes; DST labels the receiving lanes. Both panes use logical operand coordinates.') +
     (r.copyAtom.threads === 32 && r.copyAtom.liveLanes < 32 ? ` Only lanes 0–${r.copyAtom.liveLanes - 1} supply addresses for each ldmatrix invocation.` : '');
   const views = {
     src: compareMma ? mtmOperandGrid(r.mmaOperand) : mcabSideGrid(r, 'src'),
-    dst: mcabSideGrid(r, 'dst'),
+    dst: mcabSideGrid(r, rightSide),
   };
   for (const [key, grid] of Object.entries(views)) {
     const svg = `${tabId}-mcab-${key}-svg`;
@@ -310,6 +368,7 @@ function setMCAB(tabId, operand, opKey, ab, acc, k, atomLayout, perm, copyKey, n
   mtmWriteConstructorControls(tabId, 'mcab', mtmJoinConstructor(
     [opKey, ab || 'na', acc || 'na', String(k), atomLayout, perm || 'na'], tail));
   write('operand', operand);
+  mcabSyncCopyOptions(tabId, 'mcab', operand);
   write('copy', copyKey);
   mcabSyncCopyControls(tabId);
   write('nm', nm);

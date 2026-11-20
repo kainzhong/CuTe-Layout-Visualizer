@@ -260,7 +260,7 @@ function runUnitTests(V, T) {
       /requires a full 32-lane element mapping/.test(msg), true);
   });
   guard('reject-copy-operation-and-width', () => {
-    for (const [op, bits, want] of [['cpasync', 16, /Unsupported SMEM/], ['s2r', 7, /positive multiple/]]) {
+    for (const [op, bits, want] of [['cpasync', 16, /Unsupported copy Op/], ['s2r', 7, /positive multiple/]]) {
       let msg = '';
       try { V.mcabCopyAtom(op, 'half_t', 1, false, bits); }
       catch (e) { msg = e.message; }
@@ -269,9 +269,18 @@ function runUnitTests(V, T) {
   });
   guard('reject-unsupported-operand', () => {
     let msg = '';
-    try { V.mcabComputeTiledCopy({}, 'C', {}); }
+    try { V.mcabComputeTiledCopy({}, 'D', {}); }
     catch (e) { msg = e.message; }
-    check('reject-unsupported-operand', 'names supported operands', /Operand must be A or B/.test(msg), true);
+    check('reject-unsupported-operand', 'names supported operands', /Operand must be A, B or C/.test(msg), true);
+  });
+  guard('operand-copy-direction', () => {
+    // The RMEM -> SMEM store is the accumulator's epilogue; ldmatrix is not offered for C.
+    for (const [operand, op, want] of [['A', 'r2s', /choose operand C/], ['C', 'ldmatrix', /accumulator store/]]) {
+      let msg = '';
+      try { V.mcabComputeTiledCopy({}, operand, V.mcabCopyAtom(op, 'half_t', 4, false, 32)); }
+      catch (e) { msg = e.message; }
+      check('operand-copy-direction', `${operand}/${op}`, want.test(msg), true);
+    }
   });
 
   // ── parseSwizzleSpec ───────────────────────────────────────────────────────

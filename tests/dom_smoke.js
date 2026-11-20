@@ -1046,6 +1046,59 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     } finally { ctx.switchInnerTab = realSwitch; ctx.location.search = ''; }
   }, mcabPanes);
 
+  step('make_tiled_copy_C: epilogue store, operand-dependent Ops and register-side comparison', () => {
+    // Switching the operand rebuilds the Op list before any value is assigned.
+    ctx.setMCAB(TAB, 'A', 'f16bf16', 'half_t', 'float', 16, '(2,2,1)', '(32,32,16)', 'ldmatrix', 4, 0, 16);
+    els.get(`${TAB}-mcab-operand-input`).value = 'C';
+    els.get(`${TAB}-mcab-bits-input`).value = '32';
+    ctx.renderMakeTiledCopyAB(TAB);
+    const ops = [...els.get(`${TAB}-mcab-copy-input`).innerHTML.matchAll(/value="([^"]+)"/g)].map(m => m[1]);
+    if (ops.join() !== 'r2s,s2r' || els.get(`${TAB}-mcab-copy-input`).value !== 'r2s')
+      throw new Error(`C Op list = ${ops}`);
+    if (ctx.mcabState[TAB].result.tile.join('x') !== '32x32') throw new Error('C tile is not M×N');
+    ctx.setMCAB(TAB, 'C', 'f16bf16', 'half_t', 'float', 16, '(2,2,1)', '(32,32,16)', 'r2s', 1, 0, 64, 'tv', 'na', 'src_dst');
+    expectBadge(`mcab-src`, 'RMEM'); expectBadge(`mcab-dst`, 'SMEM');
+    if (!els.get(`${TAB}-mcab-result`).innerHTML.includes('make_tiled_copy_C(copy_atom, tiled_mma)'))
+      throw new Error('C constructor name missing');
+    // MMA/COPY compares the accumulator with the store's register (SRC) side.
+    ctx.setMcabCompare(TAB, 'mma_copy');
+    if (els.get(`${TAB}-mcab-dst-label`).textContent !== 'TiledCopy (SRC)') throw new Error('store compare is not register-side');
+    expectBadge(`mcab-dst`, 'RMEM');
+    // A C-source load keeps DST as its register side.
+    ctx.setMCAB(TAB, 'C', 'f16bf16', 'half_t', 'float', 16, '(2,2,1)', '(32,32,16)', 's2r', 1, 0, 32, 'warp', 'na', 'mma_copy');
+    if (els.get(`${TAB}-mcab-dst-label`).textContent !== 'TiledCopy (DST)') throw new Error('load compare is not DST');
+  }, mcabPanes);
+  step('make_tiled_copy_C: CopyUniversalOp decode becomes the store; ldmatrix is refused', () => {
+    ctx.setMCAB(TAB, 'C', 'f16bf16', 'half_t', 'float', 16, '(2,2,1)', '(32,32,16)', 's2r', 1, 0, 32);
+    ctx.mcabImportConstructor(TAB, 'make_copy_atom', '?key=make_copy_atom-universal-64-float');
+    if (els.get(`${TAB}-mcab-copy-input`).value !== 'r2s' || els.get(`${TAB}-mcab-bits-input`).value !== '64')
+      throw new Error('universal copy was not decoded as the C store');
+    let error;
+    try { ctx.mcabImportConstructor(TAB, 'make_copy_atom', '?key=make_copy_atom-ldmatrix-128-float-4-0'); } catch (e) { error = e.message; }
+    if (!/not supported for make_tiled_copy_C/.test(error || '') || els.get(`${TAB}-mcab-copy-input`).value !== 'r2s')
+      throw new Error(`unexpected ldmatrix decode for C: ${error}`);
+  }, mcabPanes);
+  step('make_tiled_copy_C: N and K split is explained, not drawn', () => {
+    ctx.setMCAB(TAB, 'C', 'f16bf16', 'half_t', 'float', 16, '(2,2,2)', '(32,32,32)', 'r2s', 1, 0, 64);
+  }, [], { expectError: /get_layoutC_TV/ });
+  step('make_tiled_copy_C: URL round trip keeps operand C and the store', () => {
+    ctx.setMCAB(TAB, 'C', 'wg_f16bf16', 'half_t', 'float', 16, '(1,1,1)', '', 'r2s', 1, 0, 64, 'warpgroup', 'na', 'mma_copy', 64, 'SMEM', 'K', 'K', 'half_t');
+    const expected = mcabPanes.map(id => els.get(id).innerHTML);
+    const realExport = ctx.exportURL, realSwitch = ctx.switchInnerTab;
+    let args;
+    ctx.exportURL = (btn, feature, ...inputs) => { args = [feature, ...inputs]; };
+    ctx.switchInnerTab = () => {};
+    try {
+      ctx.exportMCAB(TAB);
+      ctx.setMCAB(TAB, 'A', 'f16bf16', 'half_t', 'float', 16, '(2,2,1)', '(32,32,16)', 'ldmatrix', 4, 0, 16);
+      ctx.location.search = `?key=${encodeURIComponent(args.join('-'))}`;
+      ctx.applyKeyParam(TAB);
+      if (els.get(`${TAB}-mcab-operand-input`).value !== 'C' || els.get(`${TAB}-mcab-copy-input`).value !== 'r2s' ||
+          ctx.mcabState[TAB].mode !== 'warpgroup' || mcabPanes.some((id, i) => els.get(id).innerHTML !== expected[i]))
+        throw new Error('C URL did not round trip');
+    } finally { ctx.exportURL = realExport; ctx.switchInnerTab = realSwitch; ctx.location.search = ''; }
+  }, mcabPanes);
+
   // ── the two partition tabs' thread box accepts BLANK = every thread ──────
   // The presets all pass a concrete id, so nothing else here reaches the
   // unfocused path — and it is a whole branch of both grid-1 renderers.
@@ -2189,6 +2242,17 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     const manual = ctx.mtcReadManualConstructor(TAB, 'psd-manual');
     const a = ctx.mtcDecodeURL(manual), b = ctx.mtcDecodeURL(ctx.parsePastedKeyParam(url));
     if (fmtL(a.tv) !== fmtL(b.tv) || a.dtype !== 'half_t') throw new Error('manual WGMMA TiledCopy diverged from its URL');
+  }, psdPanes);
+
+  step('partition_S/D: a make_tiled_copy_C URL fills the manual constructor with the C store', () => {
+    const url = '?key=make_tiled_copy_ab-C-f16bf16-half_t-float-16-(2,2,1)-(32,32,16)-r2s-1-0-64-warp';
+    els.get(`${TAB}-psd-tensor-input`).value = '(64,64):(64,1)';
+    ctx.psdImportTiledCopy(TAB, url);
+    for (const [key, want] of [['operand', 'C'], ['atom-copy', 'r2s'], ['atom-bits', '64']])
+      if (els.get(`${TAB}-psd-manual-${key}-input`).value !== want) throw new Error(`manual ${key} lost`);
+    const a = ctx.mtcDecodeURL(ctx.mtcReadManualConstructor(TAB, 'psd-manual')), b = ctx.mtcDecodeURL(ctx.parsePastedKeyParam(url));
+    if (fmtL(a.tv) !== fmtL(b.tv) || a.dtype !== 'float' || a.tile.join('x') !== '32x32')
+      throw new Error('manual C TiledCopy diverged from its URL');
   }, psdPanes);
 
   // ── URL round-trip: every ?key= form must parse ──────────────────────────

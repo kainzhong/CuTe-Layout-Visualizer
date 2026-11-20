@@ -58,7 +58,7 @@ tabs/
                         Draws SIX grids in two rows: atom_layout_mnk applied on top, the permuted
                         TiledMMA below. A port of TiledMMA::thrfrg_A/B/C, not a table. Prefix `mtm`.
   retile.js            "retile" tab (Copy scope) — port of TiledCopy.retile and existing RMEM views.
-  make_tiled_copy_ab.js "make_tiled_copy_A / B" tab (Copy scope) — matched CopyAtom and
+  make_tiled_copy_ab.js "make_tiled_copy_A / B / C" tab (Copy scope) — matched CopyAtom and
                         TiledMMA operand layouts, SRC/DST above and MMA/reference below.
                         Reuses partition and MMA render helpers. Prefix `mcab`.
   partition_abc.js      "partition_A / B / C" tab (MMA scope) — the ThrMMA slice. The MMA
@@ -1214,7 +1214,7 @@ rank > 2 tensors.
 `tiled_copy.get_slice(t).partition_S(tensor)` — a port of `copy_atom.hpp`'s `partition_S` (:368),
 `tidfrg_S` (:221) and `tile2thrfrg` (:257). A **TiledCopy is the only source of a ThrCopy**, so the
 tab decodes its exported URL and offers the equivalent parameters in a default-collapsed
-Manual construction section. Decode from Pasteboard accepts make_tiled_copy, make_tiled_copy_tv and make_tiled_copy_A/B;
+Manual construction section. Decode from Pasteboard accepts make_tiled_copy, make_tiled_copy_tv and make_tiled_copy_A/B/C;
 there is no manual URL field or Decode URL button. The active source URL lives in
 `psdState.copyURL`, including a shipped default. A failed paste leaves the last valid copy intact.
 Shared DOM-free `mtcDecodeURL` preserves the atom SRC/DST/reference layouts, atom thread/value
@@ -1693,11 +1693,11 @@ offset and the picture is quietly incomplete). Both go through **one writer** at
 `mtmRenderViz`; `mtmReadHighlight` returns its message rather than writing it, because two functions
 racing for one element is how a warning goes missing.
 
-### make_tiled_copy_A / B
+### make_tiled_copy_A / B / C
 
 `tabs/make_tiled_copy_ab.js` bridges the MMA and Copy constructors. It takes any
-offered MMA Op (warp MMA or WGMMA), `atom_layout_mnk`, `permutation_mnk`, operand A/B, and an existing SMEM→RMEM
-CopyAtom. Copy dtype follows the MMA input dtype. No tensor layout or partitioning is involved.
+offered MMA Op (warp MMA or WGMMA), `atom_layout_mnk`, `permutation_mnk`, operand A/B/C, and an existing
+CopyAtom (SMEM→RMEM for A/B; see below for C). Copy dtype follows the operand's dtype (the accumulator's for C). No tensor layout or partitioning is involved.
 
 `mcabComputeTiledCopy(mma, operand, atom)` uses the operand's TV layout as
 `layout_tv_tiled` and its M×K / N×K tile as `Tiler_MN`, exactly like CuTe's constructors.
@@ -1720,6 +1720,23 @@ label IDs allow the titles to follow the comparison. Both panes reuse `mtmOperan
 without duplicating their behavior.
 
 Badges follow `COPY_OP_MOVES`: SMEM for SRC and RMEM for DST. In MMA/COPY mode the left MMA pane names RMEM.
+
+Operand C (`make_tiled_copy_C`) uses the accumulator's TV layout and M×N tile through the
+same `mcabComputeTiledCopy` path. The offered Ops depend on the operand
+(`MCAB_OPERAND_COPY_OPS`): A/B offer ldmatrix and the SIMT load `s2r`; C offers `r2s`
+(the epilogue store, RMEM → SMEM) and `s2r` (loading a C source). Both are CuTeDSL's
+`CopyUniversalOp` presented in that direction, so their badges come from `COPY_OP_MOVES`.
+The Op picker is rebuilt by `mcabSyncCopyOptions` before any imported or preset value is
+assigned, and the shared TiledCopy editor (`mtcSyncManualConstructor`) does the same after
+writing the operand. A decoded `universal` CopyAtom becomes `r2s` for C and `s2r` for A/B.
+In MMA/COPY the right pane is the copy's register side: DST for a load, SRC for the store.
+StMatrix is not offered yet; it needs its own CopyAtom traits and a GPU check.
+
+C is refused when `atom_layout_mnk` replicates along both N and K. CuTe's `get_layoutC_TV`
+lacks the stride-0 K step of its A/B siblings (the `tiled_mma` section pins this divergence),
+and `make_tiled_copy_C` is built from it, so the CuTeDSL TiledCopy contradicts `partition_C`.
+The `C_N_K_split_rejected` case pins both the divergence and the refusal. K replication with
+N = 1 is drawn: the K warps hold the same accumulator coordinates and their stores overlap.
 `unpack_bits` remains fixed to None. Source tensor contiguity/alignment and copying runtime values
 are outside this tab. The view rejects element widths that split transpose units and produce
 fewer than 32 destination lanes; this is a visualization limit, not a claim that CuTeDSL rejects

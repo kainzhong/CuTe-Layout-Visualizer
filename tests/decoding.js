@@ -106,14 +106,17 @@ function runDecodingTests(V, T) {
       equalLayout(c.id+'/fragment URL consumer',layout(V.variablesClipboardChoices(fragURL)[0].value),refs.partition_abc[c.id].fragment);
     });
 
-    // Both typed constructors feed make_tiled_copy_A/B. Check the distinct SRC
+    // Both typed constructors feed make_tiled_copy_A/B/C. Check the distinct SRC
     // and DST maps, so losing ldmatrix transpose/x1/x2/x4 cannot pass unnoticed.
     // FP8 entries in the math corpus have no standalone CopyAtom picker dtype;
     // only test atom exports the UI can produce. FP8 TiledCopy decoding remains
     // covered below by the partition corpus.
-    for(const c of cases.make_tiled_copy_ab.filter(c=>V.DTYPE_BITS[c.ab_dtype])) guard(`CopyAtom + TiledMMA -> TiledCopy/${c.id}`,()=>{
+    // C copies the accumulator; its N-and-K-split TiledCopy is refused (see run.js).
+    const copyDtype=c=>c.operand==='C'?c.acc_dtype:c.ab_dtype;
+    const nkSplitC=c=>{const [,n,k]=c.atom_layout.split(':')[0].match(/\d+/g).map(Number);return c.operand==='C'&&n>1&&k>1;};
+    for(const c of cases.make_tiled_copy_ab.filter(c=>V.DTYPE_BITS[copyDtype(c)]&&!nkSplitC(c))) guard(`CopyAtom + TiledMMA -> TiledCopy/${c.id}`,()=>{
       const mmaURL=exported('make_tiled_mma',c.op,c.ab_dtype,c.acc_dtype,c.k,c.atom_layout,c.perm||'na');
-      const cpURL=exported('make_copy_atom',c.copy_op,c.bits,c.ab_dtype,c.num_matrices,c.transpose?1:0);
+      const cpURL=exported('make_copy_atom',c.copy_op,c.bits,copyDtype(c),c.num_matrices,c.transpose?1:0);
       const cp=V.mcaDecodeAtomURL(cpURL), mp=decoded(mmaURL);
       const url=exported('make_tiled_copy_ab',c.operand,...mp.inputs,cp.opKey,cp.nm,cp.trans?1:0,cp.numBits,'warp','na','src_dst');
       const copy=V.mtcDecodeURL(decoded(url));
@@ -121,7 +124,7 @@ function runDecodingTests(V, T) {
       equalLayout(c.id+'/tiled TV',copy.tv,r.tv);
       equalLayout(c.id+'/SRC',V.mcabSideLayout(copy.tv,copy.tile,copy.copyAtom,'src'),r.src);
       equalLayout(c.id+'/DST',V.mcabSideLayout(copy.tv,copy.tile,copy.copyAtom,'dst'),r.dst);
-      check(c.id,'dtype survives handoff',copy.dtype,c.ab_dtype);
+      check(c.id,'dtype survives handoff',copy.dtype,copyDtype(c));
       check(c.id,'num_matrices survives handoff',cp.nm,c.num_matrices);
       check(c.id,'transpose survives handoff',cp.trans,c.transpose);
     });

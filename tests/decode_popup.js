@@ -130,7 +130,7 @@ async function runDecodePopupTests() {
   // Message text and the non-failure paths.
   const msg = ctx.decodeFailureMessage(TILED_COPY, 'x');
   check('multi-source hint lists every tab',
-    msg.hint === 'Open COPY → make_tiled_copy, COPY → make_tiled_copy_tv or COPY → make_tiled_copy_A / B, click Export URL, then Decode from Pasteboard again.', msg.hint);
+    msg.hint === 'Open COPY → make_tiled_copy, COPY → make_tiled_copy_tv or COPY → make_tiled_copy_A / B / C, click Export URL, then Decode from Pasteboard again.', msg.hint);
   check('single-source hint', ctx.decodeFailureMessage(['tv'], 'x').hint.startsWith('Open BASICS → TV Layout, click Export URL'));
   let threw = false;
   try { ctx.decodeFailureMessage(['nope'], 'x'); } catch (_) { threw = true; }

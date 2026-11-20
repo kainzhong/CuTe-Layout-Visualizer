@@ -781,7 +781,7 @@ function mtcDecodeURL(parsed) {
       constructorName: `make_tiled_copy_${a[0]}(copy_atom, tiled_mma)` };
   }
   if (!['make_tiled_copy', 'make_tiled_copy_tv'].includes(parsed.feature))
-    throw new Error('Paste a make_tiled_copy, make_tiled_copy_tv, or make_tiled_copy_A/B URL.');
+    throw new Error('Paste a make_tiled_copy, make_tiled_copy_tv, or make_tiled_copy_A/B/C URL.');
   const dtype = a[2], bits = DTYPE_BITS[dtype];
   if (!MTC_OPS[a[0]] || !bits || !Number.isInteger(Number(a[1]) / bits)) throw new Error('Invalid CopyAtom in URL.');
   const copyAtom = mcabCopyAtom('s2r', dtype, 1, false, Number(a[1]));
@@ -821,10 +821,10 @@ function mtcManualConstructorMarkup(id, p, render, errorPrefix=p) {
       <div class="form-group"><label>Constructor</label><select id="${id}-${p}-kind-input" onchange="${render}('${id}')">
         <option value="make_tiled_copy">make_tiled_copy</option>
         <option value="make_tiled_copy_tv">make_tiled_copy_tv</option>
-        <option value="make_tiled_copy_ab">make_tiled_copy_A/B</option>
+        <option value="make_tiled_copy_ab">make_tiled_copy_A/B/C</option>
       </select></div>
       <div id="${id}-${p}-mma-group">
-        <div class="form-group"><label>Operand</label><select id="${id}-${p}-operand-input" onchange="${render}('${id}')"><option value="A">A</option><option value="B">B</option></select></div>
+        <div class="form-group"><label>Operand</label><select id="${id}-${p}-operand-input" onchange="${render}('${id}')"><option value="A">A</option><option value="B">B</option><option value="C">C</option></select></div>
         ${mtmManualConstructorMarkup({id,p:`${p}-mma`,render,errorPrefix,k:16,perm:'(32,32,16)',bare:true})}
       </div>
       <div class="form-group"><label>CopyAtom Op</label><select id="${id}-${p}-atom-copy-input" onchange="${render}('${id}')">${simtCopyOpOptions('universal')}</select></div>
@@ -850,9 +850,9 @@ function mtcSyncManualConstructor(tabId, p) {
   show('mma', mma); show('primitive', kind === 'make_tiled_copy');
   show('derived', kind === 'make_tiled_copy_tv'); show('dtype', !mma);
   const copy = document.getElementById(`${tabId}-${p}-atom-copy-input`), before = copy.value;
-  const ops = mma ? MCAB_COPY_OPS : Object.keys(MTC_OPS);
-  copy.innerHTML = ops.map(key => `<option value="${key}">${mma ? MCA_OPS[key].label : MTC_OPS[key].label}</option>`).join('');
-  copy.value = ops.includes(before) ? before : mma ? 'ldmatrix' : 'universal';
+  const ops = mma ? mcabCopyOps(read('operand')) : Object.keys(MTC_OPS);
+  copy.innerHTML = ops.map(key => `<option value="${key}">${mma ? mcabCopyLabel(key) : MTC_OPS[key].label}</option>`).join('');
+  copy.value = ops.includes(before) ? before : ops[0];
   if (mma) mcabSyncCopyControls(tabId, `${p}-atom`);
   else {
     show('atom-bits', true); show('atom-nm', false); show('atom-trans', false);
@@ -883,7 +883,8 @@ function mtcWriteManualConstructor(tabId, p, parsed, sourceURL) {
   mtcSyncManualConstructor(tabId, p);
   if (parsed.feature === 'make_tiled_copy_ab') {
     mtmWriteConstructorControls(tabId, `${p}-mma`, mcabConstructorFromURL(a));
-    write('operand', a[0]); write('atom-copy', a[7]);
+    // The Op list depends on the operand: rebuild it before assigning the Op.
+    write('operand', a[0]); mtcSyncManualConstructor(tabId, p); write('atom-copy', a[7]);
     mtcSyncManualConstructor(tabId, p);
     write('atom-nm', a[8]); write('atom-trans', a[9]); write('atom-bits', a[10]);
   } else {

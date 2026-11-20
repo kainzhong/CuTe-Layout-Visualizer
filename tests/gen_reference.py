@@ -672,7 +672,9 @@ def run_make_tiled_copy_ab(c):
     )
     smem, dtype_name = operand_space(cfg, c["operand"])
     dtype = DTYPES[dtype_name]
-    if c["copy_op"] == "s2r":
+    if c["copy_op"] in ("s2r", "r2s"):
+        # The tab presents CopyUniversalOp as a load (s2r) or, for C, as the
+        # epilogue store (r2s); the Atom is the same either way.
         atom = cute.make_copy_atom(common.CopyUniversalOp(), dtype,
                                    num_bits_per_copy=c["bits"])
     else:
@@ -681,7 +683,7 @@ def run_make_tiled_copy_ab(c):
         atom = cute.make_copy_atom(LDSM_OPS[key](
             transpose=c["transpose"], num_matrices=c["num_matrices"]), dtype)
     tc = getattr(cute, "make_tiled_copy_" + c["operand"])(atom, tmma)
-    tile = [int(tmma.get_tile_size(i)) for i in ([0, 2] if c["operand"] == "A" else [1, 2])]
+    tile = [int(tmma.get_tile_size(i)) for i in {"A": [0, 2], "B": [1, 2], "C": [0, 1]}[c["operand"]]]
     if smem:
         # A WGMMA descriptor operand: CuTeDSL builds a TiledCopy whose thread
         # mode broadcasts, so every thread of a warpgroup receives the whole

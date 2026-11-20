@@ -59,7 +59,7 @@ function generateRetileTabContent(id) {
     <details class="cuo-section" open><summary>1. TiledCopy</summary><div class="cuo-section-body">
       <button class="btn btn-render btn-decode" id="${id}-rt-decode-copy" onclick="rtDecodePasteboard('${id}','copy')">Decode from Pasteboard</button>
       <details class="cuo-section" id="${id}-rt-copy-manual-construction"><summary>Manual construction</summary><div class="cuo-section-body">
-      ${layoutInputField({id:`${id}-rt-tv-input`,label:'TV Layout tiled',value:RT_DEFAULT_TV,hint:'Two modes: (threads, values). Decode a make_tiled_copy, make_tiled_copy_tv, or make_tiled_copy_A/B URL.'})}
+      ${layoutInputField({id:`${id}-rt-tv-input`,label:'TV Layout tiled',value:RT_DEFAULT_TV,hint:'Two modes: (threads, values). Decode a make_tiled_copy, make_tiled_copy_tv, or make_tiled_copy_A/B/C URL.'})}
       ${layoutInputField({id:`${id}-rt-tile-input`,label:'Tiler_MN',value:'(32,16)',hint:'Two independent tiler modes, as printed by TiledCopy.'})}
       <div class="form-group"><label>CopyAtom values per thread</label><input id="${id}-rt-values-input" type="text" value="8"></div>
       </div></details>

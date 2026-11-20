@@ -555,7 +555,7 @@ if (section('tiled_mma')) {
   }
 }
 
-// make_tiled_copy_A/B: constructor, atom traits, and every tiled SRC/DST point.
+// make_tiled_copy_A/B/C: constructor, atom traits, and every tiled SRC/DST point.
 for (const name of ['make_tiled_copy_ab', 'warpgroup_make_tiled_copy_ab']) if (section(name)) {
   for (const c of CASES[name]) {
     const ref = refFor(name, c.id);
@@ -564,7 +564,7 @@ for (const name of ['make_tiled_copy_ab', 'warpgroup_make_tiled_copy_ab']) if (s
       const mmaAtom = mmaAtomOf(c);
       const mma = V.mtmComputeTiledMma(mmaAtom,
         V.mtmParseAtomLayout(c.atom_layout), V.mtmParsePerm(c.perm || ''));
-      const dtype = c.atom ? mmaAtom.dtypes[c.operand] : c.ab_dtype;
+      const dtype = c.atom ? mmaAtom.dtypes[c.operand] : c.operand === 'C' ? c.acc_dtype : c.ab_dtype;
       const atom = V.mcabCopyAtom(c.copy_op, dtype, c.num_matrices, c.transpose, c.bits);
       if (ref.descriptor) {
         // CuTeDSL builds a degenerate copy for a descriptor operand: every
@@ -573,6 +573,15 @@ for (const name of ['make_tiled_copy_ab', 'warpgroup_make_tiled_copy_ab']) if (s
         let rejected = false;
         try { V.mcabComputeTiledCopy(mma, c.operand, atom); } catch (_) { rejected = true; }
         check(c.id, 'descriptor operand rejected by the tab', rejected, true);
+        return;
+      }
+      if (c.operand === 'C' && mma.atomLayoutMNK[1] > 1 && mma.atomLayoutMNK[2] > 1) {
+        // get_layoutC_TV diverges from partition_C here (see tiled_mma); the
+        // CuTeDSL TiledCopy inherits it, so the tab refuses rather than draw it.
+        check(c.id, 'CuTeDSL C TiledCopy diverges from partition_C', V.formatLayoutStr(mma.C.tv.shape, mma.C.tv.stride) !== ref.mma_tv.layout, true);
+        let rejected = false;
+        try { V.mcabComputeTiledCopy(mma, c.operand, atom); } catch (_) { rejected = true; }
+        check(c.id, 'N and K split C rejected by the tab', rejected, true);
         return;
       }
       const r = V.mcabComputeTiledCopy(mma, c.operand, atom);

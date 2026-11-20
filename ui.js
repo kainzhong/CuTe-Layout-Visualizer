@@ -879,7 +879,7 @@ function generateTabContent(id) {
       <div data-tab="make_copy_atom" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_copy_atom')">make_copy_atom</div>
       <div data-tab="make_tiled_copy" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy')">make_tiled_copy</div>
       <div data-tab="make_tiled_copy_tv" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy_tv')">make_tiled_copy_tv</div>
-      <div data-tab="make_tiled_copy_ab" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy_ab')">make_tiled_copy_A / B</div>
+      <div data-tab="make_tiled_copy_ab" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy_ab')">make_tiled_copy_A / B / C</div>
       <div data-tab="retile" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'retile')">retile</div>
       <div data-tab="make_tiled_tma_atom" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_tma_atom')">make_tiled_tma_atom</div>
       <div data-tab="tma_partition" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'tma_partition')">tma_partition</div>
@@ -1926,7 +1926,7 @@ const DECODE_SOURCE_TABS = {
   make_copy_atom: ['COPY', 'make_copy_atom', 'make_copy_atom'],
   make_tiled_copy: ['COPY', 'make_tiled_copy', 'make_tiled_copy'],
   make_tiled_copy_tv: ['COPY', 'make_tiled_copy_tv', 'make_tiled_copy_tv'],
-  make_tiled_copy_ab: ['COPY', 'make_tiled_copy_A / B', 'make_tiled_copy_ab'],
+  make_tiled_copy_ab: ['COPY', 'make_tiled_copy_A / B / C', 'make_tiled_copy_ab'],
   make_mma_atom: ['MMA', 'make_mma_atom', 'make_mma_atom'],
   make_tiled_mma: ['MMA', 'make_tiled_mma', 'make_tiled_mma'],
   make_fragment_abc: ['MMA', 'make_fragment_A / B / C', 'make_fragment_abc'],

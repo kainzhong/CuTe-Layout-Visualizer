@@ -607,7 +607,7 @@ function generateMakeTiledMmaTabContent(id) {
           required fence, commit and wait operations. This constructor partitions work;
           it neither stages shared memory nor supplies those synchronization operations.
           Logical permutations still require a compatible physical SMEM descriptor layout.
-          Every MMA tab (partition, partition_shape, make_fragment, gemm, make_tiled_copy_A/B)
+          Every MMA tab (partition, partition_shape, make_fragment, gemm, make_tiled_copy_A/B/C)
           accepts the same warp MMA and WGMMA constructors.
 
         </div>

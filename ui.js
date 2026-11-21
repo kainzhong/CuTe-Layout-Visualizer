@@ -1686,8 +1686,8 @@ const DTYPE_BITS = {
 
 /** <option> list for a tensor_dtype <select>. Single source of truth so the
  *  tabs can never drift apart on which dtypes they accept. */
-function dtypeOptions(selected) {
-  return Object.entries(DTYPE_BITS).map(([name, bits]) =>
+function dtypeOptions(selected, exclude = []) {
+  return Object.entries(DTYPE_BITS).filter(([name]) => !exclude.includes(name)).map(([name, bits]) =>
     `<option value="${name}"${name === selected ? ' selected' : ''}>${name} (${bits})</option>`
   ).join('');
 }

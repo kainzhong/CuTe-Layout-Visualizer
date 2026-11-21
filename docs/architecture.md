@@ -1008,9 +1008,10 @@ ignores the Op. `tmaRenderBoxViz` puts the GMEM grid in the SRC pane for the loa
 for the store; badges come from `COPY_OP_MOVES` through `syncCopyMoves`. The Op is an optional
 sixth URL field (`make_tiled_tma_atom` and `tma_partition`); a URL without it means the load.
 `tests/gpu_check.py --tma` executes the store for every `tma_atom` case (fill SMEM, fence the
-async proxy, TMA store, compare GMEM bit-exactly). CuTeDSL 4.8 cannot lower a coordinate tensor
-over 128-bit elements for either Op, so `tma-u128-8x8-sw128` is listed as a known lowering
-failure; the gate fails if that case starts working, so the entry is noticed.
+async proxy, TMA store, compare GMEM bit-exactly). CuTeDSL 4.8 traces but cannot compile a TMA
+copy over 128-bit elements, for either Op, so both TMA tabs leave `uint128_t` out of their dtype
+picker and reject it from URLs (`TMA_UNSUPPORTED_DTYPES`, `tmaElemBits`): the tabs offer only what
+CuTe supports.
 
 **The box is inferred, never given.** `cta_tiler` picks the region; `smem_layout` picks the order and
 swizzle; the descriptor falls out of the two. The pipeline is a port of
@@ -1091,8 +1092,8 @@ and an element's index *within* an instruction is not something anyone looks up 
 
 **A swizzle needs a tile big enough to reach its source bits.** `Sw<3,4,3>` XORs byte-offset bits
 `[7,10)` into `[4,7)`, so it does nothing at all until the SMEM tile spans 8 rows of 128B. In
-elements that is 8x64 `half_t` but only 8x8 `uint128_t` — same swizzle, same 128B rows, a 64th of
-the cells. This is why the small presets use wide element types, and why the DST pane header reports
+elements that is 8x64 `half_t` but only 8x16 `uint64_t` — same swizzle, same 128B rows, a quarter of
+the cells. (`uint128_t` is not offered: CuTeDSL cannot compile a 128-bit TMA.) This is why the small presets use wide element types, and why the DST pane header reports
 how many cells the swizzle actually moved: `0 cells moved` means the picture is indistinguishable
 from `SWIZZLE_NONE` and the tile, not the swizzle, is the problem. Keep the tab's defaults small —
 `renderAllTabs` builds every tab on panel creation, and a 64x64 tile is ~8k SVG nodes per pane.
@@ -1102,7 +1103,8 @@ The floors here are **byte** alignments, not tile sizes: the innermost box row m
 single-instruction atom is a 1x8 tile moving 16 B.
 
 **Two hardware rules CuTe does not check** are reported as errors in the descriptor panel, because
-CuTeDSL builds these atoms and the GPU then rejects them (`tests/gpu_check.py --tma`):
+CuTeDSL builds these atoms and the GPU then rejects them (`tests/gpu_check.py --tma`). The TMA tabs
+show only what the hardware runs:
 - When a tile takes several instructions, instruction *i* writes SMEM at `i × box bytes`, and TMA
   needs 128B-aligned shared-memory addresses: anything but a multiple of 128B per instruction faults
   with `CUDA_ERROR_MISALIGNED_ADDRESS`, with or without a swizzle.
@@ -1136,6 +1138,13 @@ direction would silently become wrong the moment the store Op is added, which is
 roadmap. SMEM never has one; it is an ordinary layout over a flat buffer.
 
 ### tma_partition
+
+**Hardware-valid only.** Every preset and the default is a real `make_tiled_tma_atom` +
+`tma_partition` configuration with an oracle case (`tp-f32-usual-4pass`, `tp-f32-8pass`,
+`tp-f32-mmajor-4pass`, `tp-bf16-production`, ...) that `gpu_check.py --tma` executes bit-exact,
+including multi-pass tiles (an atom smaller than the tile). `tpHardwareIssues` warns when a
+multi-pass tile moves a non-multiple of 128 B per pass, since pass *i* then lands on a misaligned
+SMEM address; `run.js` holds it to the `hw_invalid` case `tp-f32-64B-passes`, which the GPU rejects.
 
 The Op picker offers the same load and store as `make_tiled_tma_atom`. Both atoms are
 `ThrID 1:0`, `Src = Dst = (1,N)`, and the split depends only on SMEM, so the partition is identical

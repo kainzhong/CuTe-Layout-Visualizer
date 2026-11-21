@@ -2157,6 +2157,13 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
       throw new Error('ordinary preset kept the ldmatrix bank check');
   }, [`${TAB}-tv-svg-host`]);
   const tmaPanes = [`${TAB}-tma-src-svg`, `${TAB}-tma-dst-svg`], tpPanes = [`${TAB}-tp-s-svg`, `${TAB}-tp-g-svg`];
+  step('TMA tabs offer only what CuTeDSL compiles: no uint128_t', () => {
+    for (const sel of [`${TAB}-tma-dtype-input`, `${TAB}-tp-dtype-input`])
+      if (/value="uint128_t"/.test(els.get(sel).innerHTML)) throw new Error(`${sel} offers uint128_t`);
+    let msg = '';
+    try { ctx.tmaElemBits('uint128_t'); } catch (e) { msg = e.message; }
+    if (!/not supported for TMA/.test(msg)) throw new Error('uint128_t accepted');
+  });
   step('make_tiled_tma_atom: the TMA store swaps SRC/DST and keeps the box', () => {
     ctx.setTMA(TAB, 'half_t', '(256, 128):(128, 1)', '3,4,3', '(8, 64):(64, 1)', '(8, 64)');
     const load = tmaPanes.map(id => els.get(id).innerHTML), loadBox = ctx.tmaState[TAB].box.map(b => b.extent).join();

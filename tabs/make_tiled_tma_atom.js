@@ -63,6 +63,24 @@ const TMA_OPS = {
   },
 };
 
+/** Element types the TMA tabs offer: everything except what CuTeDSL cannot
+ *  build. CuTeDSL 4.8 traces a 128-bit TMA atom but cannot compile it, for the
+ *  load or the store, so uint128_t is neither offered nor accepted from a URL. */
+const TMA_UNSUPPORTED_DTYPES = ['uint128_t'];
+
+function tmaDtypeOptions(selected) {
+  return dtypeOptions(selected, TMA_UNSUPPORTED_DTYPES);
+}
+
+/** Element width of a TMA dtype, rejecting what CuTeDSL does not support. */
+function tmaElemBits(dtype) {
+  if (TMA_UNSUPPORTED_DTYPES.includes(dtype))
+    throw new Error(`${dtype} is not supported for TMA: CuTeDSL cannot compile a 128-bit TMA copy.`);
+  const bits = DTYPE_BITS[dtype];
+  if (!bits) throw new Error(`Unknown element type "${dtype}"`);
+  return bits;
+}
+
 /** URL/preset Op field -> TMA_OPS key; old URLs carry none and mean the load. */
 function tmaOpKey(raw) {
   return TMA_OPS[raw] ? raw : 'tma_g2s';
@@ -544,6 +562,7 @@ function tmaComputeAtom(cfg) {
       `the swizzle. CuTe builds the atom without complaint.` });
   }
 
+
   // The TMA tensor's strides (:1090-1120): for each gmem axis, which TMA
   // coordinate does moving one step along it change, and by how much.
   const tmaTensorStride = [];
@@ -646,7 +665,7 @@ ${copyMoveField(id, 'tma')}
             ${layoutInputField({ id: `${id}-tma-gmem-input`, label: 'GMEM tensor &mdash; shape:stride', value: '(32, 64):(64, 1)', hint: 'flat rank 2 to 5; the tile covers modes 0 and 1, e.g. (M, K, L)' })}
             <div class="form-group">
               <label>element type</label>
-              <select id="${id}-tma-dtype-input">${dtypeOptions('float')}</select>
+              <select id="${id}-tma-dtype-input">${tmaDtypeOptions('float')}</select>
             </div>
           </div>
         </details>
@@ -678,7 +697,7 @@ ${copyMoveField(id, 'tma')}
         <div class="presets">
           <h3>Presets</h3>
           <div class="preset-list">
-            <button class="preset-btn" onclick="setTMA('${id}','uint128_t','(16, 16):(16, 1)','3,4,3','(8, 8):(8, 1)','(8, 8)')">8&times;8, one 16B element per cell &mdash; the 128B swizzle at its smallest</button>
+            <button class="preset-btn" onclick="setTMA('${id}','uint64_t','(16, 32):(32, 1)','3,4,3','(8, 16):(16, 1)','(8, 16)')">8&times;16, one 8B element per cell &mdash; the 128B swizzle at its smallest</button>
             <button class="preset-btn" onclick="setTMA('${id}','float','(32, 64):(64, 1)','3,4,3','(8, 32):(32, 1)','(8, 32)')">8&times;32 float + 128B swizzle &mdash; the default, 1 KB box</button>
             <button class="preset-btn" onclick="setTMA('${id}','float','(16, 16, 2):(16, 1, 256)','1,4,3','(8, 8):(8, 1)','(8, 8)')">Batched (M, K, L) &mdash; the L mode becomes TMA dim 2, box unchanged</button>
             <button class="preset-btn" onclick="setTMA('${id}','half_t','(32, 128):(128, 1)','3,4,3','(8, 64):(64, 1)','(8, 64)')">GMMA::Layout_K_SW128_Atom&lt;half_t&gt; &mdash; the real SMEM atom, 8&times;64</button>
@@ -725,8 +744,8 @@ ${copyMoveField(id, 'tma')}
           bits. <code>Sw&lt;3,4,3&gt;</code> XORs the byte offset's bits
           <code>[7,10)</code> into <code>[4,7)</code>, so it needs 8 rows of
           128B &mdash; that is 8&times;64 <code>half_t</code>, but only
-          8&times;8 <code>uint128_t</code>. Same swizzle, same 128B rows, a 64th
-          of the cells. The <code>swizzled cells</code> the DST pane shows
+          8&times;16 <code>uint64_t</code>. Same swizzle, same 128B rows, a
+          quarter of the cells. The <code>swizzled cells</code> the DST pane shows
           moving is the check: if no cell moves, the tile is too small to
           exercise the swizzle you asked for.<br><br>
           <b>Load or store.</b> <code>CopyBulkTensorTileS2GOp</code> builds the same
@@ -853,8 +872,7 @@ function renderMakeTiledTmaAtom(tabId) {
     const smemStr  = document.getElementById(`${tabId}-tma-smem-input`).value;
     const tilerStr = document.getElementById(`${tabId}-tma-tiler-input`).value;
     const dtype    = document.getElementById(`${tabId}-tma-dtype-input`).value;
-    const elemBits = DTYPE_BITS[dtype];
-    if (!elemBits) throw new Error(`Unknown element type "${dtype}"`);
+    const elemBits = tmaElemBits(dtype);
 
     // --- gmem tensor: flat rank 2 to 5. The tile is modes 0 and 1; later
     // modes (a batch L) are untiled and each becomes a descriptor dimension ---

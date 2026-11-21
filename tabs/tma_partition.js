@@ -60,11 +60,11 @@ function generateTmaPartitionTabContent(id) {
             </div>
             <div class="form-group">
               <label>TV Layout Src = Dst &mdash; (1, N):(0,1)<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; N = values one instruction moves</span></label>
-              <input type="text" id="${id}-tp-vals-input" value="16">
+              <input type="text" id="${id}-tp-vals-input" value="32">
             </div>
             <div class="form-group">
               <label>Value type</label>
-              <select id="${id}-tp-dtype-input">${dtypeOptions('float')}</select>
+              <select id="${id}-tp-dtype-input">${tmaDtypeOptions('float')}</select>
             </div>
             <div id="${id}-tp-atom-result" class="cuo-result"></div>
           </div>
@@ -83,7 +83,7 @@ function generateTmaPartitionTabContent(id) {
         <details class="cuo-section" open>
           <summary>3. smem_tensor</summary>
           <div class="cuo-section-body">
-            ${layoutInputField({ id: `${id}-tp-smem-input`, label: 'smem_tensor &mdash; (tile, Rest...)', value: '((4, 16), 2):((16, 1), 64)', hint: 'mode 0 IS the tile; it alone decides the ORDER' })}
+            ${layoutInputField({ id: `${id}-tp-smem-input`, label: 'smem_tensor &mdash; (tile, Rest...)', value: '((4, 32), 2):((32, 1), 128)', hint: 'mode 0 IS the tile; it alone decides the ORDER' })}
             <div class="form-group">
               <label>swizzle<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; stripped by get_nonswizzle_portion, so it changes nothing here</span></label>
               <select id="${id}-tp-swizzle-input">${TMA_SWIZZLE_OPTIONS}</select>
@@ -94,7 +94,7 @@ function generateTmaPartitionTabContent(id) {
         <details class="cuo-section" open>
           <summary>4. gmem_tensor</summary>
           <div class="cuo-section-body">
-            ${layoutInputField({ id: `${id}-tp-gmem-input`, label: 'gmem_tensor &mdash; (tile, Rest...)', value: '((4, 16), (2, 2)):((1@0, 1@1), (4@0, 16@1))', hint: 'mode 0 IS the tile; anything after is Rest' })}
+            ${layoutInputField({ id: `${id}-tp-gmem-input`, label: 'gmem_tensor &mdash; (tile, Rest...)', value: '((4, 32), (2, 2)):((1@1, 1@0), (4@1, 32@0))', hint: 'mode 0 IS the tile; anything after is Rest' })}
             <div id="${id}-tp-result" class="cuo-result"></div>
           </div>
         </details>
@@ -111,14 +111,14 @@ function generateTmaPartitionTabContent(id) {
         <div class="presets">
           <h3>Presets</h3>
           <div class="preset-list">
-            <button class="preset-btn" onclick="setTP('${id}',16,'float','3,4,3','((4, 16), 2):((16, 1), 64)','((4, 16), (2, 2)):((1@0, 1@1), (4@0, 16@1))')">The usual call &mdash; 4 passes of 16, 2 SMEM stages, 2x2 tiles</button>
-            <button class="preset-btn" onclick="setTP('${id}',64,'float','3,4,3','(4, 16):(16, 1)','((4, 16), (2, 2)):((1@0, 1@1), (4@0, 16@1))')">One pass per tile &mdash; tAsA is flat, no SMEM stages</button>
-            <button class="preset-btn" onclick="setTP('${id}',8,'float','3,4,3','(4, 16):(16, 1)','((4, 16), (2, 2)):((1@0, 1@1), (4@0, 16@1))')">8 passes of 8 &mdash; the finest ramp</button>
+            <button class="preset-btn" onclick="setTP('${id}',32,'float','3,4,3','((4, 32), 2):((32, 1), 128)','((4, 32), (2, 2)):((1@1, 1@0), (4@1, 32@0))')">The usual call &mdash; 4 passes of 32 (one 128 B row each), 2 SMEM stages, 2x2 tiles</button>
+            <button class="preset-btn" onclick="setTP('${id}',128,'float','3,4,3','(4, 32):(32, 1)','((4, 32), (2, 2)):((1@1, 1@0), (4@1, 32@0))')">One pass per tile &mdash; tAsA is flat, no SMEM stages</button>
+            <button class="preset-btn" onclick="setTP('${id}',32,'float','3,4,3','(8, 32):(32, 1)','((8, 32), (2, 2)):((1@1, 1@0), (8@1, 32@0))')">8 passes of 32 &mdash; the finest legal ramp, 128 B per pass</button>
             <button class="preset-btn" onclick="setTP('${id}',32,'float','none','(8, 8):(8, 1)','((8, 8), (2, 2, 2)):((1@1, 1@0), (8@1, 8@0, 1@2))')">Batched (M, K, L) &mdash; Rest gains the L mode, 2 passes of 32</button>
-            <button class="preset-btn" onclick="setTP('${id}',16,'float','none','(4, 16):(1, 4)','((4, 16), (2, 2)):((1@0, 1@1), (4@0, 16@1))')">M-major SMEM &mdash; same shape, the order runs down the columns</button>
-            <button class="preset-btn" onclick="setTP('${id}',16,'float','3,4,3','(4, 16):(16, 1)','(4, 16):(1@0, 1@1)')">No Rest &mdash; a single tile, so tAgA is rank 1 like tAsA</button>
+            <button class="preset-btn" onclick="setTP('${id}',32,'float','none','(4, 32):(1, 4)','((4, 32), (2, 2)):((1@0, 1@1), (4@0, 32@1))')">M-major SMEM and GMEM &mdash; same shape, the passes run down the columns</button>
+            <button class="preset-btn" onclick="setTP('${id}',32,'float','3,4,3','(4, 32):(32, 1)','(4, 32):(1@1, 1@0)')">No Rest &mdash; a single tile, so tAgA is rank 1 like tAsA</button>
             <button class="preset-btn" onclick="setTP('${id}',64,'float','none','(8, 8):(1, 8)','((8, 8), (2, 2, 2)):((1@0, 1@1), (8@0, 8@1, 1@2))','tma_s2g')">TMA store, batched M-major C &mdash; the same split, copied SMEM &rarr; GMEM</button>
-            <button class="preset-btn" onclick="setTP('${id}',4096,'bfloat16_t','3,4,3','((32,128),2):((128,1),4096)','((32,128),(12,2)):((1@1,1@0),(32@1,128@0))')">Production scale &mdash; 4096-element tile is one pass, so each of the 24 tiles is one cell</button>
+            <button class="preset-btn" onclick="setTP('${id}',2048,'bfloat16_t','3,4,3','((32, 64), 2):((64, 1), 2048)','((32, 64), (12, 4)):((1@1, 1@0), (32@1, 64@0))')">Production scale &mdash; a 2048-element tile is one pass, so each of the 48 tiles is one cell</button>
           </div>
         </div>
 
@@ -346,6 +346,19 @@ function tpComputePartition(sp, gp, numValSrc) {
   };
 }
 
+/** Hardware rule CuTe does not check (tests/gpu_check.py --tma): pass i of a
+ *  multi-pass tile writes SMEM at i x N x element bytes, and TMA needs
+ *  128B-aligned shared-memory addresses, so every pass must be a multiple of
+ *  128 B. DOM-free so run.js can hold it to the `hw_invalid` corpus cases. */
+function tpHardwareIssues(numValSrc, elemBits, iters) {
+  const passBytes = numValSrc * elemBits / 8;
+  if (iters <= 1 || passBytes % 128 === 0) return [];
+  return [`Each pass moves ${passBytes} B, so pass i writes SMEM at i &times; ${passBytes} B. ` +
+    `TMA requires 128 B-aligned shared-memory addresses: a tile split this way faults with ` +
+    `CUDA_ERROR_MISALIGNED_ADDRESS. Use a pass that is a multiple of 128 B ` +
+    `(${128 / (elemBits / 8)} ${elemBits === 32 ? 'floats' : 'elements'}). CuTe partitions it without complaint.`];
+}
+
 function renderTmaPartition(tabId) {
   showErr(`${tabId}-tp-error`, '');
   showWarn(`${tabId}-tp-warning`, '');
@@ -357,8 +370,7 @@ function renderTmaPartition(tabId) {
     const swRaw   = document.getElementById(`${tabId}-tp-swizzle-input`).value;
     const opKey   = tmaOpKey(document.getElementById(`${tabId}-tp-op-input`).value);
 
-    const elemBits = DTYPE_BITS[dtype];
-    if (!elemBits) throw new Error(`Unknown element type "${dtype}"`);
+    const elemBits = tmaElemBits(dtype);
     // NumValSrc = size<1>(ValLayoutSrc) — read straight off the atom. You do NOT
     // hand a TMA atom a bit count: make_tiled_tma_atom DERIVES num_bits_per_tma
     // from the box it inferred, and the atom then presents as (1, N) values.
@@ -395,6 +407,7 @@ function renderTmaPartition(tabId) {
 
     // Highlight picker
     const warnings = atomWarn ? [atomWarn] : [];
+    warnings.push(...tpHardwareIssues(numValSrc, elemBits, P.iters));
     const hlRaw = (document.getElementById(`${tabId}-tp-highlight`).value || '').trim();
     let highlight = null;
     if (hlRaw !== '') {

@@ -297,6 +297,10 @@ def run_tma_store(case):
     dtype = DTYPES[case["dtype"]]
     gmem_str, smem_str, sw = case["gmem"], case["smem"], parse_swizzle(case["swizzle"])
     tiler_val = _parse_value(case["tiler"])
+    # A tma_partition case builds its atom over a smaller box than the tile
+    # (atom_smem / atom_tiler), so the tile takes several instructions.
+    atom_smem_str = case.get("atom_smem", smem_str)
+    atom_tiler_val = _parse_value(case["atom_tiler"]) if "atom_tiler" in case else tiler_val
     tile_size = int(np.prod(tiler_val))
     layout_shape = [int(x) for x in gmem_str.split(":")[0].strip("() ").split(",")]
     origin = (0,) * len(layout_shape)   # the tile at index 0 of every mode, batch included
@@ -333,11 +337,11 @@ def run_tma_store(case):
         layout = parse_layout(gmem_str)
         src = cute.make_tensor(psrc, layout)
         dst = cute.make_tensor(pdst, layout)
-        slay = parse_layout(smem_str)
+        slay = parse_layout(atom_smem_str)
         if cutlass.const_expr(sw is not None):
             slay = cute.make_composed_layout(cute.make_swizzle(*sw), 0, slay)
         atom, tma_dst = cpasync.make_tiled_tma_atom(
-            cpasync.CopyBulkTensorTileS2GOp(), dst, slay, tiler_val)
+            cpasync.CopyBulkTensorTileS2GOp(), dst, slay, atom_tiler_val)
         kern(atom, tma_dst, src).launch(grid=(1, 1, 1), block=(threads, 1, 1),
                                         smem=smem_bytes + 1024)
 
@@ -364,16 +368,6 @@ def run_tma_store(case):
     return int(np.any(got != want, axis=1).sum())
 
 
-# CuTeDSL 4.8 cannot lower a TMA coordinate tensor over 128-bit elements, for
-# the LOAD Op as much as the store ("failed to legalize unresolved
-# materialization"). Not a property of the store; recorded so the gate stays
-# honest. The case must keep failing -- if it starts passing, delete it here.
-TMA_KNOWN_LOWERING_FAILURES = {
-    "tma-u128-8x8-sw128": "CuTeDSL 4.8 cannot lower 128-bit TMA elements (load or store)",
-    "tma-u128-8x8-sw128-s2g": "CuTeDSL 4.8 cannot lower 128-bit TMA elements (load or store)",
-}
-
-
 def tma_case_isolated(case_id):
     """Run one case in a fresh process. A TMA fault (misaligned or illegal
     address) is sticky: it poisons the CUDA context, so every later case in the
@@ -391,8 +385,8 @@ def tma_one_main():
     ck(drv.cuInit(0))
     ck(drv.cuCtxCreate(0, ck(drv.cuDeviceGet(0))))
     case_id = sys.argv[sys.argv.index("--tma-one") + 1]
-    case = next(c for c in json.loads(Path(__file__).with_name("cases.json").read_text())["tma_atom"]
-                if c["id"] == case_id)
+    corpus = json.loads(Path(__file__).with_name("cases.json").read_text())
+    case = next(c for c in corpus["tma_atom"] + corpus["tma_partition"] if c["id"] == case_id)
     bad = run_tma_store(case)
     if bad:
         sys.exit(f"{bad} elements differ")
@@ -410,12 +404,13 @@ def tma_main():
         sys.exit(f"TMA requires SM90 or newer; this device is SM{major}x.")
     ck(drv.cuCtxCreate(0, dev))
     case_filter = sys.argv[sys.argv.index("--case") + 1] if "--case" in sys.argv else ""
-    cases = [c for c in json.loads(Path(__file__).with_name("cases.json").read_text())["tma_atom"]
-             if case_filter in c["id"]]
+    corpus = json.loads(Path(__file__).with_name("cases.json").read_text())
+    # tma_partition cases add atoms smaller than the tile: several instructions
+    # per tile, i.e. the TMA_Iter mode that tma_partition produces.
+    cases = [c for c in corpus["tma_atom"] + corpus["tma_partition"] if case_filter in c["id"]]
     print("make_tiled_tma_atom -- cpasync.CopyBulkTensorTileS2GOp, compiled and executed")
     failures = []
     for case in cases:
-        known = TMA_KNOWN_LOWERING_FAILURES.get(case["id"])
         if case.get("hw_invalid"):
             # CuTe builds this atom, but the hardware must reject it: the tab
             # flags it as an error, and that claim is checked here.
@@ -431,21 +426,14 @@ def tma_main():
             bad = run_tma_store(case)
             if bad:
                 raise AssertionError(f"{bad} elements differ")
-            if known:
-                raise AssertionError(f"now executes; remove it from TMA_KNOWN_LOWERING_FAILURES ({known})")
             print(f"  ok    {case['id']}", flush=True)
         except Exception as e:                              # noqa: BLE001
-            if known and "compiler pass failed" in str(e):
-                print(f"  known {case['id']}  {known}", flush=True)
-                continue
             print(f"  FAIL  {case['id']}  {type(e).__name__}: {' '.join(str(e).split())[:200]}", flush=True)
             failures.append(case["id"])
-    known = sum(1 for c in cases if c["id"] in TMA_KNOWN_LOWERING_FAILURES and c["id"] not in failures)
     invalid = sum(1 for c in cases if c.get("hw_invalid") and c["id"] not in failures)
-    valid = len(cases) - len(failures) - known - invalid
+    valid = len(cases) - len(failures) - invalid
     print(f"{len(cases)} TMA store cases: {valid} executed bit-exact, {invalid} hardware-invalid "
-          f"failed as the tab flags them, {known} known DSL lowering failure{'s' if known != 1 else ''}, "
-          f"{len(failures)} FAILED")
+          f"failed as the tab flags them, {len(failures)} FAILED")
     return 1 if failures else 0
 
 

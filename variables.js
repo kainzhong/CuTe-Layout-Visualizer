@@ -244,8 +244,7 @@ function variablesClipboardChoices(raw) {
 }
 
 function variablesTmaResult(a) {
-    const gp=parseLayout(a[1]), sm=tmaParseSmemField(a[3]), sp=parseLayout(sm.layoutStr), bits=DTYPE_BITS[a[0]];
-    if (!bits) throw new Error('Invalid TMA dtype.');
+    const gp=parseLayout(a[1]), sm=tmaParseSmemField(a[3]), sp=parseLayout(sm.layoutStr), bits=tmaElemBits(a[0]);
     const sw=tmaSwizzleInfo(sm.sw || (a[2] === 'none' ? null : parseSwizzleSpec(a[2])),bits);
     const t=mtcParseTiler(a[4]); t.strides=t.strides.map(x=>x === null ? 1 : x);
     if (gp.shape.length !== 2 || gp.shape.some(Array.isArray) || ![2,3].includes(sp.shape.length)) throw new Error('TMA requires flat rank-2 GMEM and rank-2 or staged rank-3 SMEM.');

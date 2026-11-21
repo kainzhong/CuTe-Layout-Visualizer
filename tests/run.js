@@ -694,6 +694,10 @@ if (section('tma_partition')) {
       check(c.id, 'tAsA', P.sPartStr.replace(/\s+/g, ''), stripSwizzlePrefix(ref.tAsA));
       check(c.id, 'tAgA', P.gPartStr.replace(/\s+/g, ''), ref.tAgA);
       check(c.id, 'iterations', P.iters, P.tileSize / ref.num_val);
+      // The tab's hardware warning fires exactly on the passes the GPU rejects
+      // (`hw_invalid`, confirmed by tests/gpu_check.py --tma).
+      check(c.id, 'hardware warning iff hw_invalid',
+            V.tpHardwareIssues(ref.num_val, V.DTYPE_BITS[c.dtype], P.iters).length > 0, !!c.hw_invalid);
     });
   }
 }

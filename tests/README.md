@@ -152,15 +152,20 @@ WGMMA configurations compiled and executed with exact agreement against NumPy.
 python3 tests/gpu_check.py --tma
 ```
 
-Requires SM90 or newer. For each `tma_atom` case it builds a `CopyBulkTensorTileS2GOp` atom,
-fills the SMEM tile with threads, fences the async proxy, issues the TMA store and compares
-the destination GMEM bit-exactly, including that nothing outside the tile was written.
-`--case <substring>` narrows the corpus. The `tma_atom` / `tma_partition` oracle sections
-mirror every load case as an `-s2g` store case.
+Requires SM90 or newer. For each `tma_atom` case (rank 2 to 5, batched included) it builds a
+`CopyBulkTensorTileS2GOp` atom, fills the SMEM tile with threads, fences the async proxy, issues
+the TMA store and compares the destination GMEM bit-exactly, including that nothing outside the
+tile was written. `--case <substring>` narrows the corpus. The `tma_atom` / `tma_partition`
+oracle sections mirror every load case as an `-s2g` store case.
 
-Execution validated with CuTeDSL 4.8.0 on NVIDIA GB200 (SM100): 9 of 10 cases executed
-bit-exact. `tma-u128-8x8-sw128` is a known CuTeDSL lowering failure for 128-bit elements,
-which affects the load Op as well.
+Cases marked `hw_invalid` are atoms CuTeDSL builds but the hardware rejects (SMEM destinations
+not 128B-aligned, or a box row narrower than its swizzle). `run.js` requires the tab to flag
+exactly these as errors; the gate runs each in its own process (a TMA fault poisons the CUDA
+context) and requires it to fail.
+
+Execution validated with CuTeDSL 4.8.0 on NVIDIA GB200 (SM100): of 60 cases, 44 executed
+bit-exact, all 14 `hw_invalid` cases failed as flagged, and the 2 `uint128_t` cases are a known
+CuTeDSL lowering failure for 128-bit elements, which affects the load Op as well.
 
 ## WGMMA in every MMA consumer
 

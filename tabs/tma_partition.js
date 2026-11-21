@@ -114,10 +114,10 @@ function generateTmaPartitionTabContent(id) {
             <button class="preset-btn" onclick="setTP('${id}',16,'float','3,4,3','((4, 16), 2):((16, 1), 64)','((4, 16), (2, 2)):((1@0, 1@1), (4@0, 16@1))')">The usual call &mdash; 4 passes of 16, 2 SMEM stages, 2x2 tiles</button>
             <button class="preset-btn" onclick="setTP('${id}',64,'float','3,4,3','(4, 16):(16, 1)','((4, 16), (2, 2)):((1@0, 1@1), (4@0, 16@1))')">One pass per tile &mdash; tAsA is flat, no SMEM stages</button>
             <button class="preset-btn" onclick="setTP('${id}',8,'float','3,4,3','(4, 16):(16, 1)','((4, 16), (2, 2)):((1@0, 1@1), (4@0, 16@1))')">8 passes of 8 &mdash; the finest ramp</button>
-            <button class="preset-btn" onclick="setTP('${id}',32,'bfloat16_t','3,4,3','((4, 32), 2):((32, 1), 128)','((4, 32), (2, 2)):((1@0, 1@1), (4@0, 32@1))')">bf16, 4 passes of 32</button>
+            <button class="preset-btn" onclick="setTP('${id}',32,'float','none','(8, 8):(8, 1)','((8, 8), (2, 2, 2)):((1@1, 1@0), (8@1, 8@0, 1@2))')">Batched (M, K, L) &mdash; Rest gains the L mode, 2 passes of 32</button>
             <button class="preset-btn" onclick="setTP('${id}',16,'float','none','(4, 16):(1, 4)','((4, 16), (2, 2)):((1@0, 1@1), (4@0, 16@1))')">M-major SMEM &mdash; same shape, the order runs down the columns</button>
             <button class="preset-btn" onclick="setTP('${id}',16,'float','3,4,3','(4, 16):(16, 1)','(4, 16):(1@0, 1@1)')">No Rest &mdash; a single tile, so tAgA is rank 1 like tAsA</button>
-            <button class="preset-btn" onclick="setTP('${id}',16,'float','3,4,3','((4, 16), 2):((16, 1), 64)','((4, 16), (2, 2)):((1@0, 1@1), (4@0, 16@1))','tma_s2g')">TMA store &mdash; the same split, copied SMEM &rarr; GMEM</button>
+            <button class="preset-btn" onclick="setTP('${id}',64,'float','none','(8, 8):(1, 8)','((8, 8), (2, 2, 2)):((1@0, 1@1), (8@0, 8@1, 1@2))','tma_s2g')">TMA store, batched M-major C &mdash; the same split, copied SMEM &rarr; GMEM</button>
             <button class="preset-btn" onclick="setTP('${id}',4096,'bfloat16_t','3,4,3','((32,128),2):((128,1),4096)','((32,128),(12,2)):((1@1,1@0),(32@1,128@0))')">Production scale &mdash; 4096-element tile is one pass, so each of the 24 tiles is one cell</button>
           </div>
         </div>

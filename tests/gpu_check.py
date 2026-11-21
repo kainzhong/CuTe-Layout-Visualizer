@@ -298,6 +298,8 @@ def run_tma_store(case):
     gmem_str, smem_str, sw = case["gmem"], case["smem"], parse_swizzle(case["swizzle"])
     tiler_val = _parse_value(case["tiler"])
     tile_size = int(np.prod(tiler_val))
+    layout_shape = [int(x) for x in gmem_str.split(":")[0].strip("() ").split(",")]
+    origin = (0,) * len(layout_shape)   # the tile at index 0 of every mode, batch included
     threads = min(tile_size, 1024)
     assert tile_size % threads == 0
     smem_bytes = tile_size * dtype.width // 8
@@ -308,16 +310,16 @@ def run_tma_store(case):
         alloc = SmemAllocator()
         base = parse_layout(smem_str)
         if cutlass.const_expr(sw is not None):
-            sC = alloc.allocate_tensor(dtype, base, 128, swizzle=cute.make_swizzle(*sw))
+            sC = alloc.allocate_tensor(dtype, base, 1024, swizzle=cute.make_swizzle(*sw))
         else:
             sC = alloc.allocate_tensor(dtype, base, 128)
-        gS = cute.local_tile(src, tiler_val, (0, 0))
+        gS = cute.local_tile(src, tiler_val, origin)
         for k in cutlass.range_constexpr(tile_size // threads):
             sC[tid + k * threads] = gS[tid + k * threads]
         # Generic-proxy SMEM writes must be visible to the async (TMA) proxy.
         cute.arch.fence_proxy("async.shared", space="cta")
         cute.arch.barrier()
-        gD = cute.local_tile(tma_dst, tiler_val, (0, 0))
+        gD = cute.local_tile(tma_dst, tiler_val, origin)
         tAsC, tAgC = cpasync.tma_partition(atom, 0, cute.make_layout(1),
                                            cute.group_modes(sC, 0, 2), cute.group_modes(gD, 0, 2))
         warp = cute.arch.make_warp_uniform(cute.arch.warp_idx())
@@ -339,8 +341,8 @@ def run_tma_store(case):
         kern(atom, tma_dst, src).launch(grid=(1, 1, 1), block=(threads, 1, 1),
                                         smem=smem_bytes + 1024)
 
-    layout_shape = [int(x) for x in gmem_str.split(":")[0].strip("() ").split(",")]
-    n = int(np.prod(layout_shape))
+    stride = [int(x) for x in gmem_str.split(":")[1].strip("() ").split(",")]
+    n = sum((e - 1) * d for e, d in zip(layout_shape, stride)) + 1   # cosize: padded batch strides
     nbytes = dtype.width // 8
     rng = np.random.default_rng(1)
     src = rng.integers(1, 255, size=n * nbytes, dtype=np.uint8)
@@ -353,10 +355,8 @@ def run_tma_store(case):
     ck(drv.cuCtxSynchronize())
     got = from_device(pdst, dst).reshape(n, nbytes)
     want = np.zeros_like(got)
-    # Expected: exactly the origin tile copied. Evaluate offsets on the host
-    # from the (flat, rank-2) GMEM layout.
-    shape = layout_shape
-    stride = [int(x) for x in gmem_str.split(":")[1].strip("() ").split(",")]
+    # Expected: exactly the origin tile copied (modes 0 and 1, index 0 of the
+    # rest). Offsets come from the flat GMEM layout on the host.
     for i in range(tiler_val[0]):
         for j in range(tiler_val[1]):
             off = i * stride[0] + j * stride[1]
@@ -370,7 +370,33 @@ def run_tma_store(case):
 # honest. The case must keep failing -- if it starts passing, delete it here.
 TMA_KNOWN_LOWERING_FAILURES = {
     "tma-u128-8x8-sw128": "CuTeDSL 4.8 cannot lower 128-bit TMA elements (load or store)",
+    "tma-u128-8x8-sw128-s2g": "CuTeDSL 4.8 cannot lower 128-bit TMA elements (load or store)",
 }
+
+
+def tma_case_isolated(case_id):
+    """Run one case in a fresh process. A TMA fault (misaligned or illegal
+    address) is sticky: it poisons the CUDA context, so every later case in the
+    same process would fail too. Returns (passed, message)."""
+    import subprocess
+    p = subprocess.run([sys.executable, os.path.abspath(__file__), "--tma-one", case_id],
+                       capture_output=True, text=True, timeout=600)
+    msg = " ".join((p.stdout + p.stderr).split())[-200:]
+    return p.returncode == 0, msg
+
+
+def tma_one_main():
+    import json
+    from pathlib import Path
+    ck(drv.cuInit(0))
+    ck(drv.cuCtxCreate(0, ck(drv.cuDeviceGet(0))))
+    case_id = sys.argv[sys.argv.index("--tma-one") + 1]
+    case = next(c for c in json.loads(Path(__file__).with_name("cases.json").read_text())["tma_atom"]
+                if c["id"] == case_id)
+    bad = run_tma_store(case)
+    if bad:
+        sys.exit(f"{bad} elements differ")
+    return 0
 
 
 def tma_main():
@@ -390,6 +416,17 @@ def tma_main():
     failures = []
     for case in cases:
         known = TMA_KNOWN_LOWERING_FAILURES.get(case["id"])
+        if case.get("hw_invalid"):
+            # CuTe builds this atom, but the hardware must reject it: the tab
+            # flags it as an error, and that claim is checked here.
+            passed, msg = tma_case_isolated(case["id"])
+            if passed:
+                print(f"  FAIL  {case['id']}  executed correctly, but is marked hw_invalid "
+                      f"({case['hw_invalid']}); the tab's diagnostic is wrong", flush=True)
+                failures.append(case["id"])
+            else:
+                print(f"  ok    {case['id']}  fails on hardware as flagged: {case['hw_invalid']}", flush=True)
+            continue
         try:
             bad = run_tma_store(case)
             if bad:
@@ -404,8 +441,11 @@ def tma_main():
             print(f"  FAIL  {case['id']}  {type(e).__name__}: {' '.join(str(e).split())[:200]}", flush=True)
             failures.append(case["id"])
     known = sum(1 for c in cases if c["id"] in TMA_KNOWN_LOWERING_FAILURES and c["id"] not in failures)
-    print(f"{len(cases) - len(failures) - known}/{len(cases)} TMA store cases compiled and executed"
-          + (f", {known} known DSL lowering failure{'s' if known != 1 else ''}" if known else ""))
+    invalid = sum(1 for c in cases if c.get("hw_invalid") and c["id"] not in failures)
+    valid = len(cases) - len(failures) - known - invalid
+    print(f"{len(cases)} TMA store cases: {valid} executed bit-exact, {invalid} hardware-invalid "
+          f"failed as the tab flags them, {known} known DSL lowering failure{'s' if known != 1 else ''}, "
+          f"{len(failures)} FAILED")
     return 1 if failures else 0
 
 
@@ -446,4 +486,5 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(warpgroup_main() if "--warpgroup" in sys.argv
+             else tma_one_main() if "--tma-one" in sys.argv
              else tma_main() if "--tma" in sys.argv else main())

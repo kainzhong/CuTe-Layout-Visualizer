@@ -256,14 +256,14 @@ function tmaInferBasisModes(coordOf, size) {
   let pos = 1;
   while (pos < size) {
     const cp = coordOf(pos);
-    const d = [cp[0] - c0[0], cp[1] - c0[1]];
+    const d = cp.map((v, a) => v - c0[a]);
     const nz = [];
-    for (let a = 0; a < 2; a++) if (d[a] !== 0) nz.push(a);
+    for (let a = 0; a < d.length; a++) if (d[a] !== 0) nz.push(a);
     if (nz.length !== 1 || d[nz[0]] < 0) {
       throw new Error(
         `smem_layout and cta_tiler are not composable: advancing ${pos} element` +
         `${pos === 1 ? '' : 's'} in SMEM moves the GMEM coordinate by ` +
-        `(${d[0]}, ${d[1]}), which is not a single scaled basis element. ` +
+        `(${d.join(', ')}), which is not a single scaled basis element. ` +
         `composition(cta_v_map, right_inverse(smem_layout)) is undefined here — ` +
         `CuTe fails to compile rather than producing this. Usually the smem ` +
         `layout's mode sizes do not divide the tiler's.`);
@@ -274,7 +274,7 @@ function tmaInferBasisModes(coordOf, size) {
       let ok = true;
       for (let q = 0; q < pos && ok; q++) {
         const a = coordOf(e * pos + q), b = coordOf(q);
-        if (a[0] !== b[0] + e * d[0] || a[1] !== b[1] + e * d[1]) ok = false;
+        if (a.some((v, k) => v !== b[k] + e * d[k])) ok = false;
       }
       if (!ok) break;
       e++;
@@ -294,8 +294,12 @@ function tmaInferBasisModes(coordOf, size) {
  *  while the merged extent stays within the 256 the TMA box allows. Each
  *  resulting mode remembers the flat modes it swallowed, which is what
  *  `tile_gbasis.compose(make_layout(shape(tma_gstride)))` produces symbolically:
- *  one TMA mode can span several gmem axes when the tensor is contiguous. */
-function tmaCoalesce256(flat) {
+ *  one TMA mode can span several gmem axes when the tensor is contiguous.
+ *
+ *  `merge = false` keeps every mode separate. CuTeDSL never merges the tile's
+ *  modes under a swizzle, even contiguous ones that would fit (the oracle pins
+ *  e.g. float (64,32):(32,1) with Sw<3,4,3>: (1@1,1@0), not (32@0,1@0)). */
+function tmaCoalesce256(flat, merge = true) {
   const out = [];
   for (const m of flat) {
     if (m.extent === 1) continue;
@@ -303,7 +307,7 @@ function tmaCoalesce256(flat) {
     if (!back || back.extent === 1) {
       if (back) { out.pop(); }
       out.push({ extent: m.extent, stride: m.stride, segs: [m] });
-    } else if (back.extent * back.stride === m.stride &&
+    } else if (merge && back.extent * back.stride === m.stride &&
                m.extent * back.extent <= TMA_MAX_BOX_EXTENT) {
       back.extent *= m.extent;
       back.segs.push(m);
@@ -317,7 +321,10 @@ function tmaCoalesce256(flat) {
 
 function tmaGcd(a, b) { while (b) { const t = a % b; a = b; b = t; } return a; }
 
-/** Everything `make_tiled_tma_atom` computes, for a rank-2 GMEM tensor.
+/** Everything `make_tiled_tma_atom` computes, for a flat GMEM tensor of rank 2
+ *  to 5. The rank-2 cta_tiler covers modes 0 and 1, as CuTe's by-mode
+ *  composition does; every later mode (a batch L, say) is left untiled, so it
+ *  contributes a box-1 descriptor dimension and its own TMA coordinate.
  *  Returns the atom facts, the descriptor fields, the TMA tensor's strides, and
  *  a per-SMEM-index table for the visualization.
  *
@@ -334,6 +341,9 @@ function tmaComputeAtom(cfg) {
   const [T0, T1] = tiler.extents;
   const [ts0, ts1] = tiler.strides;
   const tileSize = T0 * T1;
+  const rank = gShape.length;
+  if (rank < 2 || rank > TMA_MAX_RANK) throw new Error(
+    `gmem_tensor must have rank 2 to ${TMA_MAX_RANK}, got rank ${rank}.`);
   let sSize = 1;
   for (const s of sFlatShape) sSize *= s;
 
@@ -375,17 +385,38 @@ function tmaComputeAtom(cfg) {
 
   // sidx2gmode: smem offset -> gmem coordinate, via the CTA tile.
   // cta_v_map = make_identity_layout(gmem.shape).compose(cta_tiler), so tile
-  // element (m, n) sits at gmem coordinate (m*ts0, n*ts1).
+  // element (m, n) sits at gmem coordinate (m*ts0, n*ts1, 0, ...): the tile lies
+  // in modes 0 and 1, at index 0 of every later mode.
   const coordOf = (i) => {
     const d = inv[i];
     const m = d % T0;
-    return [m * ts0, ((d - m) / T0) * ts1];
+    const c = new Array(rank).fill(0);
+    c[0] = m * ts0; c[1] = ((d - m) / T0) * ts1;
+    return c;
   };
   const full = tmaInferBasisModes(coordOf, sSize);
 
   // Truncate at the first mode whose basis coefficient isn't a static 1 — the
   // leading run where +1 SMEM element means +1 GMEM element. That run is the
   // TMA vectorization. copy_traits_sm90_tma.hpp:775-784.
+  //
+  // Under a swizzle, CuTeDSL first cuts the innermost mode to fit the swizzle
+  // width: its largest divisor no wider than the swizzle (a 24-float row under
+  // a 64B swizzle keeps 12, not 16). The remainder steps the same axis by that
+  // divisor, so the truncation below drops it and the row takes several
+  // instructions. Pinned by the oracle; without a swizzle nothing is cut.
+  let swizzleCut = null;
+  if (swInfo.widthBytes > 0 && full.length && full[0].coef === 1) {
+    const capElems = Math.max(1, Math.floor(swInfo.widthBytes / elemBytes));
+    const e0 = full[0].extent;
+    if (e0 > capElems) {
+      let d = capElems;
+      while (e0 % d) d--;
+      swizzleCut = { from: e0, to: d, capElems };
+      full.splice(0, 1, { extent: d, axis: full[0].axis, coef: 1 },
+                        { extent: e0 / d, axis: full[0].axis, coef: d });
+    }
+  }
   let smemRank = 0;
   while (smemRank < full.length && full[smemRank].coef === 1) smemRank++;
   if (smemRank === 0) {
@@ -405,21 +436,21 @@ function tmaComputeAtom(cfg) {
   // type is the tensor's element type.)
   const tileG = kept.map(m => ({ extent: m.extent, axis: m.axis, coef: m.coef,
                                  stride: m.coef * gStride[m.axis] }));
-  const box = tmaCoalesce256(tileG);
+  const box = tmaCoalesce256(tileG, !(swInfo.widthBytes > 0));
 
   // Append size-1 modes for gmem axes the tile never touched, so the descriptor
   // still has a dimension (and therefore a coordinate) for them. :811-840
   const usedAxes = new Set();
   for (const b of box) for (const s of b.segs) usedAxes.add(s.axis);
-  for (let a = 0; a < 2; a++) {
+  for (let a = 0; a < rank; a++) {
     if (gShape[a] === 1 || gStride[a] === 0) continue;   // no contribution
     if (usedAxes.has(a)) continue;
     box.push({ extent: 1, stride: gStride[a], segs: [{ extent: 1, axis: a, coef: 1 }] });
   }
   if (box.length > TMA_MAX_RANK) {
     issues.push({ level: 'error', text:
-      `TMA descriptor rank ${box.length} > ${TMA_MAX_RANK}. CuTe groups trailing ` +
-      `modes to stay within the limit; a rank-2 tensor cannot reach it.` });
+      `TMA descriptor rank ${box.length} > ${TMA_MAX_RANK}: cuTensorMapEncodeTiled ` +
+      `takes at most ${TMA_MAX_RANK} dimensions. This tab does not group modes.` });
   }
 
   // fill_tma_gmem_shape_stride (:858-905). Note the shapes are the FULL gmem
@@ -450,7 +481,7 @@ function tmaComputeAtom(cfg) {
   // :969 — "Majorness of smem doesn't match majorness of gmem".
   if (probStride[0] !== 1) {
     const smemMajorAxis = box[0].segs.length ? box[0].segs[0].axis : 0;
-    const gmemMajorAxis = gStride[0] === 1 ? 0 : (gStride[1] === 1 ? 1 : -1);
+    const gmemMajorAxis = gStride.indexOf(1);
     issues.push({ level: 'error', text:
       `gmem_prob_stride[0] = ${probStride[0]}, must be 1 — "Majorness of smem ` +
       `doesn't match majorness of gmem" (copy_traits_sm90_tma.hpp:969). ` +
@@ -487,23 +518,36 @@ function tmaComputeAtom(cfg) {
       `multiple of 16B. cuTensorMapEncodeTiled rejects this at descriptor ` +
       `creation; CuTe does not check it.` });
   }
-  if (swInfo.widthBytes > 0 && innerBoxBytes > swInfo.widthBytes) {
-    issues.push({ level: 'warn', text:
-      `Innermost box = ${innerBoxBytes}B is wider than the ${swInfo.widthBytes}B ` +
-      `swizzle. The swizzle pattern repeats every ${swInfo.widthBytes}B, so the box ` +
-      `row must fit inside one period — cuTensorMapEncodeTiled rejects the ` +
-      `descriptor. Either narrow the box or use a wider swizzle.` });
-  }
+  // (The innermost box can no longer exceed the swizzle width: the cut above
+  // already narrowed it, which is what CuTeDSL does instead of failing.)
 
   let boxSize = 1;
   for (const b of box) boxSize *= b.extent;
   const numBitsPerTma = boxSize * elemBits;
   const instructions = sSize / boxSize;
 
+  // Hardware rules CuTe does not check: make_tiled_tma_atom builds these
+  // descriptors, and tests/gpu_check.py --tma shows them failing on the GPU.
+  const boxBytes = boxSize * elemBytes;
+  if (instructions > 1 && boxBytes % 128 !== 0) {
+    issues.push({ level: 'error', text:
+      `Each instruction moves ${boxBytes}B, so instruction i writes SMEM at offset ` +
+      `i &times; ${boxBytes}B. TMA requires 128B-aligned shared-memory addresses: ` +
+      `this faults with CUDA_ERROR_MISALIGNED_ADDRESS. CuTe builds the atom without complaint.` });
+  }
+  if (swInfo.widthBytes > 0 && box[0].extent * elemBytes < swInfo.widthBytes) {
+    issues.push({ level: 'error', text:
+      `Innermost box = ${box[0].extent * elemBytes}B is narrower than the ` +
+      `${swInfo.widthBytes}B swizzle. The TMA unit swizzles as if every box row were ` +
+      `${swInfo.widthBytes}B wide, so data lands where this SMEM layout does not expect it ` +
+      `(wrong values, or an illegal address past the tile). Use rows exactly as wide as ` +
+      `the swizzle. CuTe builds the atom without complaint.` });
+  }
+
   // The TMA tensor's strides (:1090-1120): for each gmem axis, which TMA
   // coordinate does moving one step along it change, and by how much.
   const tmaTensorStride = [];
-  for (let a = 0; a < 2; a++) {
+  for (let a = 0; a < rank; a++) {
     if (gShape[a] === 1 || gStride[a] === 0) { tmaTensorStride.push(0); continue; }
     let j = -1;
     for (let k = 0; k < box.length && j === -1; k++) {
@@ -530,7 +574,7 @@ function tmaComputeAtom(cfg) {
       smemIdx: i,
       tileIdx: inv[i],
       gcrd: c,
-      goff: c[0] * gStride[0] + c[1] * gStride[1],
+      goff: c.reduce((sum, v, a) => sum + v * gStride[a], 0),
       inst: Math.floor(i / boxSize),
       boxIdx: i % boxSize,
     };
@@ -538,7 +582,7 @@ function tmaComputeAtom(cfg) {
 
   return {
     issues, full, kept, dropped, smemRank, box, boxSize, instructions,
-    probShape, probStride, probStrideBytes, numBitsPerTma, innerBoxBytes,
+    probShape, probStride, probStrideBytes, numBitsPerTma, innerBoxBytes, swizzleCut,
     tmaTensorStride, cells, inv, sSize, elemBytes,
   };
 }
@@ -599,7 +643,7 @@ ${copyMoveField(id, 'tma')}
         <details class="cuo-section" open>
           <summary>2. gmem_tensor</summary>
           <div class="cuo-section-body">
-            ${layoutInputField({ id: `${id}-tma-gmem-input`, label: 'GMEM tensor &mdash; shape:stride', value: '(32, 64):(64, 1)', hint: 'flat rank 2' })}
+            ${layoutInputField({ id: `${id}-tma-gmem-input`, label: 'GMEM tensor &mdash; shape:stride', value: '(32, 64):(64, 1)', hint: 'flat rank 2 to 5; the tile covers modes 0 and 1, e.g. (M, K, L)' })}
             <div class="form-group">
               <label>element type</label>
               <select id="${id}-tma-dtype-input">${dtypeOptions('float')}</select>
@@ -636,15 +680,15 @@ ${copyMoveField(id, 'tma')}
           <div class="preset-list">
             <button class="preset-btn" onclick="setTMA('${id}','uint128_t','(16, 16):(16, 1)','3,4,3','(8, 8):(8, 1)','(8, 8)')">8&times;8, one 16B element per cell &mdash; the 128B swizzle at its smallest</button>
             <button class="preset-btn" onclick="setTMA('${id}','float','(32, 64):(64, 1)','3,4,3','(8, 32):(32, 1)','(8, 32)')">8&times;32 float + 128B swizzle &mdash; the default, 1 KB box</button>
-            <button class="preset-btn" onclick="setTMA('${id}','float','(32, 64):(64, 1)','none','(8, 32):(32, 1)','(8, 32)')">Same tile, no swizzle &mdash; identical box, SMEM unpermuted</button>
+            <button class="preset-btn" onclick="setTMA('${id}','float','(16, 16, 2):(16, 1, 256)','1,4,3','(8, 8):(8, 1)','(8, 8)')">Batched (M, K, L) &mdash; the L mode becomes TMA dim 2, box unchanged</button>
             <button class="preset-btn" onclick="setTMA('${id}','half_t','(32, 128):(128, 1)','3,4,3','(8, 64):(64, 1)','(8, 64)')">GMMA::Layout_K_SW128_Atom&lt;half_t&gt; &mdash; the real SMEM atom, 8&times;64</button>
             <button class="preset-btn" onclick="setTMA('${id}','half_t','(8, 8):(8, 1)','none','(1, 8):(8, 1)','(1, 8)')">1&times;8 half &mdash; the smallest legal atom, 16 B per instruction</button>
-            <button class="preset-btn" onclick="setTMA('${id}','half_t','(256, 128):(128, 1)','3,4,3','(64, 64):(64, 1)','(64, 64)')">64&times;64 half &mdash; a full GEMM stage, 8 KB box (big)</button>
-            <button class="preset-btn" onclick="setTMA('${id}','float','(32, 64):(64, 1)','3,4,3','(8, 64):(64, 1)','(8, 64)')">Box row 256 B vs a 128 B swizzle &mdash; rejected by the driver</button>
+            <button class="preset-btn" onclick="setTMA('${id}','float','(16, 16, 3):(16, 1, 320)','1,4,3','(8, 8):(8, 1)','(8, 8)')">Batched, padded batch stride &mdash; the descriptor's dim-2 stride is 1280 B</button>
+            <button class="preset-btn" onclick="setTMA('${id}','float','(32, 64):(64, 1)','3,4,3','(8, 64):(64, 1)','(8, 64)')">Box row 256 B vs a 128 B swizzle &mdash; cut to a 128 B half-row, 16 instructions</button>
             <button class="preset-btn" onclick="setTMA('${id}','float','(32, 64):(64, 1)','3,4,3','(8, 32):(1, 8)','(8, 32)')">M-major SMEM over a K-major tensor &mdash; majorness mismatch</button>
             <button class="preset-btn" onclick="setTMA('${id}','float','(32, 64):(64, 1)','3,4,3','(8, 32):(32, 1)','(8:2, 32)')">Strided tiler (8:2, 32) &mdash; box truncated, 8 instructions per tile</button>
-            <button class="preset-btn" onclick="setTMA('${id}','half_t','(256, 128):(128, 1)','3,4,3','(8, 64):(64, 1)','(8, 64)','tma_s2g')">TMA store &mdash; the same 8&times;64 half box, SMEM &rarr; GMEM</button>
-            <button class="preset-btn" onclick="setTMA('${id}','half_t','(256, 128):(128, 1)','3,4,3','(64, 64):(64, 1)','(64, 64)','tma_s2g')">TMA store &mdash; a 64&times;64 epilogue tile (big)</button>
+            <button class="preset-btn" onclick="setTMA('${id}','float','(16, 16, 1):(16, 1, 256)','1,4,3','(8, 8):(8, 1)','(8, 8)','tma_s2g')">TMA store, batched C with L = 1 &mdash; a size-1 mode gets no TMA coordinate</button>
+            <button class="preset-btn" onclick="setTMA('${id}','float','(16, 16, 2):(16, 1, 256)','1,4,3','(8, 8):(8, 1)','(8, 8)','tma_s2g')">TMA store &mdash; a batched epilogue tile</button>
           </div>
         </div>
 
@@ -690,7 +734,16 @@ ${copyMoveField(id, 'tma')}
           changes, so SMEM becomes the SRC pane and GMEM the DST pane.<br><br>
           <b>Not covered yet.</b> Multicast, reduce-store, im2col,
           <code>gather4</code>/<code>scatter4</code>, <code>internal_type</code>
-          recasts, rank &gt; 2 tensors, and <code>tma_partition</code>.
+          recasts, nested GMEM modes, and CTA tilers of rank &gt; 2.<br><br>
+          <b>Batched tensors.</b> A GMEM tensor may have up to 5 flat modes, as in
+          CUTLASS's <code>(M, K, L)</code>. The tiler covers modes 0 and 1; each later
+          mode is untiled, so it becomes its own descriptor dimension with box 1 and
+          its own TMA coordinate (<code>1@2</code>, ...). A mode of extent 1 gets
+          stride 0 instead.<br><br>
+          <b>The box is capped by the swizzle.</b> Under a swizzle, CuTe cuts the
+          innermost mode to its largest divisor that fits the swizzle width and never
+          merges the tile's modes, so a 256 B row under a 128 B swizzle takes two
+          instructions instead of failing.
         </div>
       </div>
 
@@ -803,13 +856,17 @@ function renderMakeTiledTmaAtom(tabId) {
     const elemBits = DTYPE_BITS[dtype];
     if (!elemBits) throw new Error(`Unknown element type "${dtype}"`);
 
-    // --- gmem tensor: flat rank 2, so a basis axis is just 0 or 1 ---
+    // --- gmem tensor: flat rank 2 to 5. The tile is modes 0 and 1; later
+    // modes (a batch L) are untiled and each becomes a descriptor dimension ---
     const gp = parseLayout(gmemStr);
-    if (gp.shape.some(Array.isArray) || gp.stride.some(Array.isArray)) {
+    if (!Array.isArray(gp.shape) || gp.shape.some(Array.isArray) || gp.stride.some(Array.isArray)) {
       throw new Error(
-        `gmem_tensor must be a flat rank-2 layout here (e.g. (256,128):(128,1)); ` +
-        `nested modes would make the TMA basis hierarchical, which this 2-D ` +
-        `grid cannot draw.`);
+        `gmem_tensor must be a flat layout of rank 2 to ${TMA_MAX_RANK} here ` +
+        `(e.g. (256,128):(128,1) or (256,128,4):(128,1,32768)); nested modes would ` +
+        `make the TMA basis hierarchical, which this tab does not model.`);
+    }
+    if (gp.shape.length < 2 || gp.shape.length > TMA_MAX_RANK) {
+      throw new Error(`gmem_tensor must have rank 2 to ${TMA_MAX_RANK}, got rank ${gp.shape.length}.`);
     }
     const gShape = gp.shape.slice(), gStride = gp.stride.slice();
     if (gShape.some(s => !Number.isFinite(s) || s <= 0)) {
@@ -853,7 +910,9 @@ function renderMakeTiledTmaAtom(tabId) {
     const sFlatShape = flatten(sShape), sFlatStride = flatten(sStride);
     const [S0, S1] = productEach(sShape);
 
-    const offenders = collectHighRank([['gmem_tensor', gmemStr], ['smem_layout', sm.layoutStr]]);
+    // A rank-3+ gmem tensor is drawn exactly as far as the CTA tile goes (modes 0
+    // and 1); only the coordinate-tensor picture is a slice, reported below.
+    const offenders = collectHighRank([['smem_layout', sm.layoutStr]]);
 
     const r = tmaComputeAtom({
       gShape, gStride, elemBits, swInfo,
@@ -873,6 +932,11 @@ function renderMakeTiledTmaAtom(tabId) {
       (r.dropped.length
         ? ` &rarr; truncated to <b>${tmaFormatModes(r.kept)}</b> at the first coef != 1`
         : ` (nothing truncated: every coefficient is 1)`) + `</div>` +
+      (r.swizzleCut
+        ? `<div class="cuo-result-line" style="color:#9ca3af">The innermost mode (${r.swizzleCut.from} elements) ` +
+          `is wider than the ${swInfo.widthBytes}B swizzle (${r.swizzleCut.capElems} ${dtype}), so it is cut to ` +
+          `${r.swizzleCut.to}, its largest divisor that fits; the rest of the row takes further instructions.</div>`
+        : '') +
       `<div class="cuo-result-line">TMA box = <b>(${r.box.map(b => b.extent).join(', ')})</b>` +
       `, ${r.boxSize} elements = ${r.numBitsPerTma / 8} B per instruction</div>` +
       `<div class="cuo-result-line">num_bits_per_tma = <b>${r.numBitsPerTma}</b>` +
@@ -888,6 +952,11 @@ function renderMakeTiledTmaAtom(tabId) {
     if (offenders.length) {
       warnParts.push(`Note: ${offenders.join(', ')} has rank > 2. The math is still ` +
         `correct, but the visualization flattens it to a 2-D grid.`);
+    }
+    if (gShape.length > 2) {
+      warnParts.push(`Note: gmem_tensor has rank ${gShape.length}. The CTA tile and box use ` +
+        `modes 0 and 1; modes 2+ each add a box-1 descriptor dimension. The coordinate ` +
+        `tensor is drawn at index 0 of modes 2+.`);
     }
     if (r.issues.length) {
       warnParts.push(`${r.issues.length} TMA constraint violation` +
@@ -962,7 +1031,9 @@ function tmaRenderBoxViz(tabId) {
     (s.instructions > 1 ? `, darker = later instruction` : '');
   const srcHeader =
     `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
-    `CTA tile ${T0}&times;${T1} at gmem coord (0,0) &mdash; value = offset from the ` +
+    `CTA tile ${T0}&times;${T1} at gmem coord (${s.gShape.map(() => 0).join(',')})` +
+    (s.gShape.length > 2 ? ` &mdash; cells name modes 0 and 1` : '') +
+    ` &mdash; value = offset from the ` +
     `tensor base pointer<br>${boxDesc}` +
     `</div>`;
   const srcSVG = buildColoredLayoutSVG([T0, T1], [1, T0], 'value', (m, n) => {
@@ -1077,22 +1148,26 @@ function tmaRenderTensorViz(tabId) {
   const host = document.getElementById(`${tabId}-tma-tensor-svg`);
   if (!s || !host) return;
   const strideStr = tmaFormatBasisStride(s.tmaTensorStride);
-  const full = `(0,0) o (${s.gShape.join(',')}):${strideStr}`;
+  const full = `(${s.gShape.map(() => 0).join(',')}) o (${s.gShape.join(',')}):${strideStr}`;
   // Draw the whole tensor. A budget that silently showed a corner made a 32x64
   // tensor look 16x16; ui.js's MAX_CELLS already refuses anything genuinely
   // undrawable, with a message, which beats a partial picture either way.
+  // A rank-3+ tensor is drawn as its slice at index 0 of modes 2+, so the
+  // grid stays the (mode 0, mode 1) plane the CTA tile lives in.
   const P0 = s.gShape[0], P1 = s.gShape[1];
   const ndim = Math.max(basisRank(s.tmaTensorStride), 2);
+  const slice = s.gShape.length > 2
+    ? `<br>drawn: tma_tensor[(None, None${', 0'.repeat(s.gShape.length - 2)})] &mdash; mode${s.gShape.length > 3 ? 's' : ''} ` +
+      `${s.gShape.slice(2).map((n, k) => `${k + 2} (extent ${n}, stride ${tmaFormatBasisStride([s.tmaTensorStride[k + 2]]).slice(1, -1)})`).join(', ')} at index 0`
+    : '';
   host.innerHTML =
     `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
-    `tma_tensor = ${full}` +
-
+    `tma_tensor = ${full}${slice}` +
     `</div>` +
-    buildBasisLayoutSVG([P0, P1], s.tmaTensorStride, ndim, null, new Set(['value']));
+    buildBasisLayoutSVG([P0, P1], s.tmaTensorStride.slice(0, 2), ndim, null, new Set(['value']));
   applyZoomState(`${tabId}-tma-tensor-svg`);
-  // "GMEM", not "SRC": this is the GMEM-side tensor, which is the source only
-  // because the one Op supported so far is a load. TMA store has the same tensor
-  // on its destination.
+  // "GMEM", not "SRC": this is the GMEM-side tensor, the source for the load
+  // and the destination for the store, the same tensor either way.
   document.getElementById(`${tabId}-tma-tensor-title`).textContent =
     `TMA tensor (GMEM) — (${s.gShape.join(',')}):${strideStr}`;
 }

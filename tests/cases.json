@@ -1842,6 +1842,411 @@
       "smem": "(2,256):(256,1)",
       "tiler": "(2,256)",
       "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-batched-kmajor",
+      "dtype": "half_t",
+      "gmem": "(256,128,4):(128,1,32768)",
+      "swizzle": "3,4,3",
+      "smem": "(64,64):(64,1)",
+      "tiler": "(64,64)"
+    },
+    {
+      "id": "tma-f16-batched-kmajor-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128,4):(128,1,32768)",
+      "swizzle": "3,4,3",
+      "smem": "(64,64):(64,1)",
+      "tiler": "(64,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-batched-mmajor",
+      "dtype": "half_t",
+      "gmem": "(256,128,4):(1,256,32768)",
+      "swizzle": "none",
+      "smem": "(64,64):(1,64)",
+      "tiler": "(64,64)"
+    },
+    {
+      "id": "tma-f16-batched-mmajor-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128,4):(1,256,32768)",
+      "swizzle": "none",
+      "smem": "(64,64):(1,64)",
+      "tiler": "(64,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f32-batched-padded",
+      "dtype": "float",
+      "gmem": "(64,32,3):(32,1,4096)",
+      "swizzle": "3,4,3",
+      "smem": "(8,32):(32,1)",
+      "tiler": "(8,32)"
+    },
+    {
+      "id": "tma-f32-batched-padded-s2g",
+      "dtype": "float",
+      "gmem": "(64,32,3):(32,1,4096)",
+      "swizzle": "3,4,3",
+      "smem": "(8,32):(32,1)",
+      "tiler": "(8,32)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-batched-L1",
+      "dtype": "half_t",
+      "gmem": "(256,128,1):(128,1,32768)",
+      "swizzle": "3,4,3",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)"
+    },
+    {
+      "id": "tma-f16-batched-L1-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128,1):(128,1,32768)",
+      "swizzle": "3,4,3",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-rank4",
+      "dtype": "half_t",
+      "gmem": "(64,64,2,3):(64,1,4096,8192)",
+      "swizzle": "3,4,3",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)"
+    },
+    {
+      "id": "tma-f16-rank4-s2g",
+      "dtype": "half_t",
+      "gmem": "(64,64,2,3):(64,1,4096,8192)",
+      "swizzle": "3,4,3",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-rank5",
+      "dtype": "half_t",
+      "gmem": "(64,64,2,3,2):(64,1,4096,8192,24576)",
+      "swizzle": "none",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)"
+    },
+    {
+      "id": "tma-f16-rank5-s2g",
+      "dtype": "half_t",
+      "gmem": "(64,64,2,3,2):(64,1,4096,8192,24576)",
+      "swizzle": "none",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f32-contig-sw128-nomerge",
+      "dtype": "float",
+      "gmem": "(64,32):(32,1)",
+      "swizzle": "3,4,3",
+      "smem": "(8,32):(32,1)",
+      "tiler": "(8,32)"
+    },
+    {
+      "id": "tma-f32-contig-sw128-nomerge-s2g",
+      "dtype": "float",
+      "gmem": "(64,32):(32,1)",
+      "swizzle": "3,4,3",
+      "smem": "(8,32):(32,1)",
+      "tiler": "(8,32)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f32-contig-nosw-merge",
+      "dtype": "float",
+      "gmem": "(64,32):(32,1)",
+      "swizzle": "none",
+      "smem": "(8,32):(32,1)",
+      "tiler": "(8,32)"
+    },
+    {
+      "id": "tma-f32-contig-nosw-merge-s2g",
+      "dtype": "float",
+      "gmem": "(64,32):(32,1)",
+      "swizzle": "none",
+      "smem": "(8,32):(32,1)",
+      "tiler": "(8,32)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f32-row8-sw128-nomerge",
+      "dtype": "float",
+      "gmem": "(64,8):(8,1)",
+      "swizzle": "3,4,3",
+      "smem": "(16,8):(8,1)",
+      "tiler": "(16,8)",
+      "hw_invalid": "32B box row under a 128B swizzle"
+    },
+    {
+      "id": "tma-f32-row8-sw128-nomerge-s2g",
+      "dtype": "float",
+      "gmem": "(64,8):(8,1)",
+      "swizzle": "3,4,3",
+      "smem": "(16,8):(8,1)",
+      "tiler": "(16,8)",
+      "op": "tma_s2g",
+      "hw_invalid": "32B box row under a 128B swizzle"
+    },
+    {
+      "id": "tma-f32-row32-sw64-cut",
+      "dtype": "float",
+      "gmem": "(64,32):(32,1)",
+      "swizzle": "2,4,3",
+      "smem": "(8,32):(32,1)",
+      "tiler": "(8,32)",
+      "hw_invalid": "64B instructions: SMEM destinations not 128B-aligned"
+    },
+    {
+      "id": "tma-f32-row32-sw64-cut-s2g",
+      "dtype": "float",
+      "gmem": "(64,32):(32,1)",
+      "swizzle": "2,4,3",
+      "smem": "(8,32):(32,1)",
+      "tiler": "(8,32)",
+      "op": "tma_s2g",
+      "hw_invalid": "64B instructions: SMEM destinations not 128B-aligned"
+    },
+    {
+      "id": "tma-f32-row64-sw128-cut",
+      "dtype": "float",
+      "gmem": "(64,64):(64,1)",
+      "swizzle": "3,4,3",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)"
+    },
+    {
+      "id": "tma-f32-row64-sw128-cut-s2g",
+      "dtype": "float",
+      "gmem": "(64,64):(64,1)",
+      "swizzle": "3,4,3",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f32-row24-sw64-cut-divisor",
+      "dtype": "float",
+      "gmem": "(64,24):(24,1)",
+      "swizzle": "2,4,3",
+      "smem": "(8,24):(24,1)",
+      "tiler": "(8,24)",
+      "hw_invalid": "48B box row under a 64B swizzle; destinations not 128B-aligned"
+    },
+    {
+      "id": "tma-f32-row24-sw64-cut-divisor-s2g",
+      "dtype": "float",
+      "gmem": "(64,24):(24,1)",
+      "swizzle": "2,4,3",
+      "smem": "(8,24):(24,1)",
+      "tiler": "(8,24)",
+      "op": "tma_s2g",
+      "hw_invalid": "48B box row under a 64B swizzle; destinations not 128B-aligned"
+    },
+    {
+      "id": "tma-f16-row128-sw252-cut",
+      "dtype": "half_t",
+      "gmem": "(64,128):(128,1)",
+      "swizzle": "2,5,2",
+      "smem": "(8,128):(128,1)",
+      "tiler": "(8,128)"
+    },
+    {
+      "id": "tma-f16-row128-sw252-cut-s2g",
+      "dtype": "half_t",
+      "gmem": "(64,128):(128,1)",
+      "swizzle": "2,5,2",
+      "smem": "(8,128):(128,1)",
+      "tiler": "(8,128)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-mmajor-sw128-cut",
+      "dtype": "half_t",
+      "gmem": "(128,64):(1,128)",
+      "swizzle": "3,4,3",
+      "smem": "(128,8):(1,128)",
+      "tiler": "(128,8)"
+    },
+    {
+      "id": "tma-f16-mmajor-sw128-cut-s2g",
+      "dtype": "half_t",
+      "gmem": "(128,64):(1,128)",
+      "swizzle": "3,4,3",
+      "smem": "(128,8):(1,128)",
+      "tiler": "(128,8)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f32-batched-contig-nosw",
+      "dtype": "float",
+      "gmem": "(64,32,3):(32,1,2048)",
+      "swizzle": "none",
+      "smem": "(8,32):(32,1)",
+      "tiler": "(8,32)"
+    },
+    {
+      "id": "tma-f32-batched-contig-nosw-s2g",
+      "dtype": "float",
+      "gmem": "(64,32,3):(32,1,2048)",
+      "swizzle": "none",
+      "smem": "(8,32):(32,1)",
+      "tiler": "(8,32)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-nosw-16B-pieces",
+      "dtype": "half_t",
+      "gmem": "(64,64):(64,1)",
+      "swizzle": "none",
+      "smem": "((4,2),8):((16,8),1)",
+      "tiler": "(8,8)",
+      "hw_invalid": "16B instructions: SMEM destinations not 128B-aligned"
+    },
+    {
+      "id": "tma-f16-nosw-16B-pieces-s2g",
+      "dtype": "half_t",
+      "gmem": "(64,64):(64,1)",
+      "swizzle": "none",
+      "smem": "((4,2),8):((16,8),1)",
+      "tiler": "(8,8)",
+      "op": "tma_s2g",
+      "hw_invalid": "16B instructions: SMEM destinations not 128B-aligned"
+    },
+    {
+      "id": "tma-f16-nosw-64B-pieces",
+      "dtype": "half_t",
+      "gmem": "(64,64):(64,1)",
+      "swizzle": "none",
+      "smem": "((4,2),32):((64,32),1)",
+      "tiler": "(8,32)",
+      "hw_invalid": "64B instructions: SMEM destinations not 128B-aligned"
+    },
+    {
+      "id": "tma-f16-nosw-64B-pieces-s2g",
+      "dtype": "half_t",
+      "gmem": "(64,64):(64,1)",
+      "swizzle": "none",
+      "smem": "((4,2),32):((64,32),1)",
+      "tiler": "(8,32)",
+      "op": "tma_s2g",
+      "hw_invalid": "64B instructions: SMEM destinations not 128B-aligned"
+    },
+    {
+      "id": "tma-f32-row8-sw32-match",
+      "dtype": "float",
+      "gmem": "(64,8):(8,1)",
+      "swizzle": "1,4,3",
+      "smem": "(8,8):(8,1)",
+      "tiler": "(8,8)"
+    },
+    {
+      "id": "tma-f32-row8-sw32-match-s2g",
+      "dtype": "float",
+      "gmem": "(64,8):(8,1)",
+      "swizzle": "1,4,3",
+      "smem": "(8,8):(8,1)",
+      "tiler": "(8,8)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f16-row16-sw64-narrow",
+      "dtype": "half_t",
+      "gmem": "(64,64):(64,1)",
+      "swizzle": "2,4,3",
+      "smem": "(8,16):(16,1)",
+      "tiler": "(8,16)",
+      "hw_invalid": "32B box row under a 64B swizzle"
+    },
+    {
+      "id": "tma-f16-row16-sw64-narrow-s2g",
+      "dtype": "half_t",
+      "gmem": "(64,64):(64,1)",
+      "swizzle": "2,4,3",
+      "smem": "(8,16):(16,1)",
+      "tiler": "(8,16)",
+      "op": "tma_s2g",
+      "hw_invalid": "32B box row under a 64B swizzle"
+    },
+    {
+      "id": "tma-f16-row32-sw128-narrow",
+      "dtype": "half_t",
+      "gmem": "(64,64):(64,1)",
+      "swizzle": "3,4,3",
+      "smem": "(8,32):(32,1)",
+      "tiler": "(8,32)",
+      "hw_invalid": "64B box row under a 128B swizzle"
+    },
+    {
+      "id": "tma-f16-row32-sw128-narrow-s2g",
+      "dtype": "half_t",
+      "gmem": "(64,64):(64,1)",
+      "swizzle": "3,4,3",
+      "smem": "(8,32):(32,1)",
+      "tiler": "(8,32)",
+      "op": "tma_s2g",
+      "hw_invalid": "64B box row under a 128B swizzle"
+    },
+    {
+      "id": "tma-f32-batched-small",
+      "dtype": "float",
+      "gmem": "(16,16,2):(16,1,256)",
+      "swizzle": "1,4,3",
+      "smem": "(8,8):(8,1)",
+      "tiler": "(8,8)"
+    },
+    {
+      "id": "tma-f32-batched-small-s2g",
+      "dtype": "float",
+      "gmem": "(16,16,2):(16,1,256)",
+      "swizzle": "1,4,3",
+      "smem": "(8,8):(8,1)",
+      "tiler": "(8,8)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f32-batched-small-padded",
+      "dtype": "float",
+      "gmem": "(16,16,3):(16,1,320)",
+      "swizzle": "1,4,3",
+      "smem": "(8,8):(8,1)",
+      "tiler": "(8,8)"
+    },
+    {
+      "id": "tma-f32-batched-small-padded-s2g",
+      "dtype": "float",
+      "gmem": "(16,16,3):(16,1,320)",
+      "swizzle": "1,4,3",
+      "smem": "(8,8):(8,1)",
+      "tiler": "(8,8)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tma-f32-batched-small-L1",
+      "dtype": "float",
+      "gmem": "(16,16,1):(16,1,256)",
+      "swizzle": "1,4,3",
+      "smem": "(8,8):(8,1)",
+      "tiler": "(8,8)"
+    },
+    {
+      "id": "tma-f32-batched-small-L1-s2g",
+      "dtype": "float",
+      "gmem": "(16,16,1):(16,1,256)",
+      "swizzle": "1,4,3",
+      "smem": "(8,8):(8,1)",
+      "tiler": "(8,8)",
+      "op": "tma_s2g"
     }
   ],
   "_comment_tma_partition": [
@@ -2025,6 +2430,99 @@
       "swizzle": "none",
       "smem": "(64,64):(1,64)",
       "tiler": "(64,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tp-f16-batched",
+      "dtype": "half_t",
+      "gmem": "(256,128,4):(128,1,32768)",
+      "swizzle": "3,4,3",
+      "smem": "(64,64):(64,1)",
+      "tiler": "(64,64)"
+    },
+    {
+      "id": "tp-f16-batched-s2g",
+      "dtype": "half_t",
+      "gmem": "(256,128,4):(128,1,32768)",
+      "swizzle": "3,4,3",
+      "smem": "(64,64):(64,1)",
+      "tiler": "(64,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tp-f16-batched-iter8",
+      "dtype": "half_t",
+      "gmem": "(64,128,3):(128,1,8192)",
+      "swizzle": "none",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)",
+      "atom_smem": "(1,64):(64,1)",
+      "atom_tiler": "(1,64)"
+    },
+    {
+      "id": "tp-f16-batched-iter8-s2g",
+      "dtype": "half_t",
+      "gmem": "(64,128,3):(128,1,8192)",
+      "swizzle": "none",
+      "smem": "(8,64):(64,1)",
+      "tiler": "(8,64)",
+      "atom_smem": "(1,64):(64,1)",
+      "atom_tiler": "(1,64)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tp-f32-batched-mmajor",
+      "dtype": "float",
+      "gmem": "(64,32,2):(1,64,2048)",
+      "swizzle": "none",
+      "smem": "(32,16):(1,32)",
+      "tiler": "(32,16)"
+    },
+    {
+      "id": "tp-f32-batched-mmajor-s2g",
+      "dtype": "float",
+      "gmem": "(64,32,2):(1,64,2048)",
+      "swizzle": "none",
+      "smem": "(32,16):(1,32)",
+      "tiler": "(32,16)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tp-f32-batched-small-2pass",
+      "dtype": "float",
+      "gmem": "(16,16,2):(16,1,256)",
+      "swizzle": "none",
+      "smem": "(8,8):(8,1)",
+      "tiler": "(8,8)",
+      "atom_smem": "(4,8):(8,1)",
+      "atom_tiler": "(4,8)"
+    },
+    {
+      "id": "tp-f32-batched-small-2pass-s2g",
+      "dtype": "float",
+      "gmem": "(16,16,2):(16,1,256)",
+      "swizzle": "none",
+      "smem": "(8,8):(8,1)",
+      "tiler": "(8,8)",
+      "atom_smem": "(4,8):(8,1)",
+      "atom_tiler": "(4,8)",
+      "op": "tma_s2g"
+    },
+    {
+      "id": "tp-f32-batched-small-mmajor",
+      "dtype": "float",
+      "gmem": "(16,16,2):(1,16,256)",
+      "swizzle": "none",
+      "smem": "(8,8):(1,8)",
+      "tiler": "(8,8)"
+    },
+    {
+      "id": "tp-f32-batched-small-mmajor-s2g",
+      "dtype": "float",
+      "gmem": "(16,16,2):(1,16,256)",
+      "swizzle": "none",
+      "smem": "(8,8):(1,8)",
+      "tiler": "(8,8)",
       "op": "tma_s2g"
     }
   ],

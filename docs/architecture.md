@@ -1025,8 +1025,22 @@ so `tmaInferBasisModes` reads the modes off the *function* instead: each mode's 
 coordinate delta, extended while the block repeats. A composition of layouts is a layout, so the
 greedy decomposition is exact, and because neighbouring modes merge only when their deltas agree the
 result is already coalesced. A delta that moves along two axes at once means the composition is
-undefined — that is a real error, not an inference failure. **This is why the tab requires a flat
-rank-2 GMEM tensor**: it keeps every basis axis a plain 0 or 1.
+undefined — that is a real error, not an inference failure. **This is why the GMEM tensor must be
+flat**: every basis axis is then a plain mode index.
+
+**Rank 2 to 5, tile in modes 0 and 1.** The GMEM tensor may be a flat `(M, K, L, ...)` of rank up to
+5 (the descriptor limit); the CTA tiler stays rank 2, as in CuTe, where a rank-2 tiler composes with
+modes 0 and 1 only. The tile therefore sits at index 0 of every later mode. Each untiled mode
+becomes its own box-1 descriptor dimension and TMA coordinate (`1@2`, `1@3`, ...), never merged with
+a neighbour even when contiguous; a mode of extent 1 gets stride 0 and no dimension. The CTA-tile
+and SMEM panes are unchanged; the coordinate-tensor pane draws the slice at index 0 of modes 2+ and
+says so. The `tma-*-batched*`, `rank4`, `rank5` and `tp-*-batched*` oracle cases pin all of this.
+
+**Under a swizzle, CuTeDSL cuts and does not merge.** Two oracle-pinned rules the port originally
+missed, independent of rank: (1) the tile's modes are never coalesced when a swizzle is present, even
+contiguous ones under 256 elements; (2) the innermost mode is cut to its largest divisor no wider
+than the swizzle width (24 floats under a 64B swizzle become 12), so the rest of the row is truncated
+into further instructions. Without a swizzle, the `coalesce_256` merge stands.
 
 **The swizzle is a picker, not text.** `CUtensorMapSwizzle` is a closed enum (NONE / 32B / 64B /
 128B), so section 3 offers a `<select>` labelled with both spellings — the `Sw<B,M,S>` CuTe prints
@@ -1084,9 +1098,21 @@ from `SWIZZLE_NONE` and the tile, not the swizzle, is the problem. Keep the tab'
 `renderAllTabs` builds every tab on panel creation, and a 64x64 tile is ~8k SVG nodes per pane.
 
 The floors here are **byte** alignments, not tile sizes: the innermost box row must be a multiple of
-16B (and no wider than the swizzle), and every non-innermost gmem stride must be a multiple of 16B.
-For `half_t` the smallest legal atom is a 1x8 tile moving 16 B. The `128` in "128B swizzle" is a
-*ceiling* on the box row, never a minimum.
+16B, and every non-innermost gmem stride must be a multiple of 16B. For `half_t` the smallest legal
+single-instruction atom is a 1x8 tile moving 16 B.
+
+**Two hardware rules CuTe does not check** are reported as errors in the descriptor panel, because
+CuTeDSL builds these atoms and the GPU then rejects them (`tests/gpu_check.py --tma`):
+- When a tile takes several instructions, instruction *i* writes SMEM at `i × box bytes`, and TMA
+  needs 128B-aligned shared-memory addresses: anything but a multiple of 128B per instruction faults
+  with `CUDA_ERROR_MISALIGNED_ADDRESS`, with or without a swizzle.
+- Under a swizzle, the box row must be exactly as wide as the swizzle. The TMA unit swizzles as if
+  every row were full width, so a narrower row lands where CuTe's compact SMEM layout does not
+  expect it (wrong data, or an illegal address past the tile). The swizzle width is therefore the
+  required row width, not a ceiling.
+Cases marked `hw_invalid` in `tests/cases.json` must be flagged by the tab (`run.js`) and must fail
+on the GPU (`gpu_check.py --tma`, each in its own process because a TMA fault poisons the context);
+every other case must be clean and execute bit-exact.
 
 **Viz order is box, then TMA tensor, then descriptor — and the descriptor ships folded.** It is
 reference material (what `cuTensorMapEncodeTiled` was actually handed), not something you read on

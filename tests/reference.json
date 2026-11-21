@@ -562818,6 +562818,42 @@
    "num_val": 512,
    "tma_tensor": "(256,128):(1@1,1@0)"
   },
+  "tma-f16-batched-L1": {
+   "layout_src_tv": "(1,512):(0,1)",
+   "num_bits": 8192,
+   "num_val": 512,
+   "tma_tensor": "(256,128,1):(1@1,1@0,0)"
+  },
+  "tma-f16-batched-L1-s2g": {
+   "layout_src_tv": "(1,512):(0,1)",
+   "num_bits": 8192,
+   "num_val": 512,
+   "tma_tensor": "(256,128,1):(1@1,1@0,0)"
+  },
+  "tma-f16-batched-kmajor": {
+   "layout_src_tv": "(1,4096):(0,1)",
+   "num_bits": 65536,
+   "num_val": 4096,
+   "tma_tensor": "(256,128,4):(1@1,1@0,1@2)"
+  },
+  "tma-f16-batched-kmajor-s2g": {
+   "layout_src_tv": "(1,4096):(0,1)",
+   "num_bits": 65536,
+   "num_val": 4096,
+   "tma_tensor": "(256,128,4):(1@1,1@0,1@2)"
+  },
+  "tma-f16-batched-mmajor": {
+   "layout_src_tv": "(1,4096):(0,1)",
+   "num_bits": 65536,
+   "num_val": 4096,
+   "tma_tensor": "(256,128,4):(1@0,1@1,1@2)"
+  },
+  "tma-f16-batched-mmajor-s2g": {
+   "layout_src_tv": "(1,4096):(0,1)",
+   "num_bits": 65536,
+   "num_val": 4096,
+   "tma_tensor": "(256,128,4):(1@0,1@1,1@2)"
+  },
   "tma-f16-colmajor": {
    "layout_src_tv": "(1,4096):(0,1)",
    "num_bits": 65536,
@@ -562829,6 +562865,18 @@
    "num_bits": 65536,
    "num_val": 4096,
    "tma_tensor": "(256,128):(1@0,1@1)"
+  },
+  "tma-f16-mmajor-sw128-cut": {
+   "layout_src_tv": "(1,64):(0,1)",
+   "num_bits": 1024,
+   "num_val": 64,
+   "tma_tensor": "(128,64):(1@0,1@1)"
+  },
+  "tma-f16-mmajor-sw128-cut-s2g": {
+   "layout_src_tv": "(1,64):(0,1)",
+   "num_bits": 1024,
+   "num_val": 64,
+   "tma_tensor": "(128,64):(1@0,1@1)"
   },
   "tma-f16-none": {
    "layout_src_tv": "(1,512):(0,1)",
@@ -562842,6 +562890,54 @@
    "num_val": 512,
    "tma_tensor": "(256,128):(1@1,1@0)"
   },
+  "tma-f16-nosw-16B-pieces": {
+   "layout_src_tv": "(1,8):(0,1)",
+   "num_bits": 128,
+   "num_val": 8,
+   "tma_tensor": "(64,64):(1@1,1@0)"
+  },
+  "tma-f16-nosw-16B-pieces-s2g": {
+   "layout_src_tv": "(1,8):(0,1)",
+   "num_bits": 128,
+   "num_val": 8,
+   "tma_tensor": "(64,64):(1@1,1@0)"
+  },
+  "tma-f16-nosw-64B-pieces": {
+   "layout_src_tv": "(1,32):(0,1)",
+   "num_bits": 512,
+   "num_val": 32,
+   "tma_tensor": "(64,64):(1@1,1@0)"
+  },
+  "tma-f16-nosw-64B-pieces-s2g": {
+   "layout_src_tv": "(1,32):(0,1)",
+   "num_bits": 512,
+   "num_val": 32,
+   "tma_tensor": "(64,64):(1@1,1@0)"
+  },
+  "tma-f16-rank4": {
+   "layout_src_tv": "(1,512):(0,1)",
+   "num_bits": 8192,
+   "num_val": 512,
+   "tma_tensor": "(64,64,2,3):(1@1,1@0,1@2,1@3)"
+  },
+  "tma-f16-rank4-s2g": {
+   "layout_src_tv": "(1,512):(0,1)",
+   "num_bits": 8192,
+   "num_val": 512,
+   "tma_tensor": "(64,64,2,3):(1@1,1@0,1@2,1@3)"
+  },
+  "tma-f16-rank5": {
+   "layout_src_tv": "(1,512):(0,1)",
+   "num_bits": 8192,
+   "num_val": 512,
+   "tma_tensor": "(64,64,2,3,2):(1@1,1@0,1@2,1@3,1@4)"
+  },
+  "tma-f16-rank5-s2g": {
+   "layout_src_tv": "(1,512):(0,1)",
+   "num_bits": 8192,
+   "num_val": 512,
+   "tma_tensor": "(64,64,2,3,2):(1@1,1@0,1@2,1@3,1@4)"
+  },
   "tma-f16-reshape": {
    "layout_src_tv": "(1,2048):(0,1)",
    "num_bits": 32768,
@@ -562854,6 +562950,42 @@
    "num_val": 2048,
    "tma_tensor": "(256,128):(1@1,1@0)"
   },
+  "tma-f16-row128-sw252-cut": {
+   "layout_src_tv": "(1,64):(0,1)",
+   "num_bits": 1024,
+   "num_val": 64,
+   "tma_tensor": "(64,128):(1@1,1@0)"
+  },
+  "tma-f16-row128-sw252-cut-s2g": {
+   "layout_src_tv": "(1,64):(0,1)",
+   "num_bits": 1024,
+   "num_val": 64,
+   "tma_tensor": "(64,128):(1@1,1@0)"
+  },
+  "tma-f16-row16-sw64-narrow": {
+   "layout_src_tv": "(1,128):(0,1)",
+   "num_bits": 2048,
+   "num_val": 128,
+   "tma_tensor": "(64,64):(1@1,1@0)"
+  },
+  "tma-f16-row16-sw64-narrow-s2g": {
+   "layout_src_tv": "(1,128):(0,1)",
+   "num_bits": 2048,
+   "num_val": 128,
+   "tma_tensor": "(64,64):(1@1,1@0)"
+  },
+  "tma-f16-row32-sw128-narrow": {
+   "layout_src_tv": "(1,256):(0,1)",
+   "num_bits": 4096,
+   "num_val": 256,
+   "tma_tensor": "(64,64):(1@1,1@0)"
+  },
+  "tma-f16-row32-sw128-narrow-s2g": {
+   "layout_src_tv": "(1,256):(0,1)",
+   "num_bits": 4096,
+   "num_val": 256,
+   "tma_tensor": "(64,64):(1@1,1@0)"
+  },
   "tma-f32-32x32": {
    "layout_src_tv": "(1,1024):(0,1)",
    "num_bits": 32768,
@@ -562865,6 +562997,150 @@
    "num_bits": 32768,
    "num_val": 1024,
    "tma_tensor": "(128,128):(1@1,1@0)"
+  },
+  "tma-f32-batched-contig-nosw": {
+   "layout_src_tv": "(1,256):(0,1)",
+   "num_bits": 8192,
+   "num_val": 256,
+   "tma_tensor": "(64,32,3):(32@0,1@0,1@1)"
+  },
+  "tma-f32-batched-contig-nosw-s2g": {
+   "layout_src_tv": "(1,256):(0,1)",
+   "num_bits": 8192,
+   "num_val": 256,
+   "tma_tensor": "(64,32,3):(32@0,1@0,1@1)"
+  },
+  "tma-f32-batched-padded": {
+   "layout_src_tv": "(1,256):(0,1)",
+   "num_bits": 8192,
+   "num_val": 256,
+   "tma_tensor": "(64,32,3):(1@1,1@0,1@2)"
+  },
+  "tma-f32-batched-padded-s2g": {
+   "layout_src_tv": "(1,256):(0,1)",
+   "num_bits": 8192,
+   "num_val": 256,
+   "tma_tensor": "(64,32,3):(1@1,1@0,1@2)"
+  },
+  "tma-f32-batched-small": {
+   "layout_src_tv": "(1,64):(0,1)",
+   "num_bits": 2048,
+   "num_val": 64,
+   "tma_tensor": "(16,16,2):(1@1,1@0,1@2)"
+  },
+  "tma-f32-batched-small-L1": {
+   "layout_src_tv": "(1,64):(0,1)",
+   "num_bits": 2048,
+   "num_val": 64,
+   "tma_tensor": "(16,16,1):(1@1,1@0,0)"
+  },
+  "tma-f32-batched-small-L1-s2g": {
+   "layout_src_tv": "(1,64):(0,1)",
+   "num_bits": 2048,
+   "num_val": 64,
+   "tma_tensor": "(16,16,1):(1@1,1@0,0)"
+  },
+  "tma-f32-batched-small-padded": {
+   "layout_src_tv": "(1,64):(0,1)",
+   "num_bits": 2048,
+   "num_val": 64,
+   "tma_tensor": "(16,16,3):(1@1,1@0,1@2)"
+  },
+  "tma-f32-batched-small-padded-s2g": {
+   "layout_src_tv": "(1,64):(0,1)",
+   "num_bits": 2048,
+   "num_val": 64,
+   "tma_tensor": "(16,16,3):(1@1,1@0,1@2)"
+  },
+  "tma-f32-batched-small-s2g": {
+   "layout_src_tv": "(1,64):(0,1)",
+   "num_bits": 2048,
+   "num_val": 64,
+   "tma_tensor": "(16,16,2):(1@1,1@0,1@2)"
+  },
+  "tma-f32-contig-nosw-merge": {
+   "layout_src_tv": "(1,256):(0,1)",
+   "num_bits": 8192,
+   "num_val": 256,
+   "tma_tensor": "(64,32):(32@0,1@0)"
+  },
+  "tma-f32-contig-nosw-merge-s2g": {
+   "layout_src_tv": "(1,256):(0,1)",
+   "num_bits": 8192,
+   "num_val": 256,
+   "tma_tensor": "(64,32):(32@0,1@0)"
+  },
+  "tma-f32-contig-sw128-nomerge": {
+   "layout_src_tv": "(1,256):(0,1)",
+   "num_bits": 8192,
+   "num_val": 256,
+   "tma_tensor": "(64,32):(1@1,1@0)"
+  },
+  "tma-f32-contig-sw128-nomerge-s2g": {
+   "layout_src_tv": "(1,256):(0,1)",
+   "num_bits": 8192,
+   "num_val": 256,
+   "tma_tensor": "(64,32):(1@1,1@0)"
+  },
+  "tma-f32-row24-sw64-cut-divisor": {
+   "layout_src_tv": "(1,12):(0,1)",
+   "num_bits": 384,
+   "num_val": 12,
+   "tma_tensor": "(64,24):(1@1,1@0)"
+  },
+  "tma-f32-row24-sw64-cut-divisor-s2g": {
+   "layout_src_tv": "(1,12):(0,1)",
+   "num_bits": 384,
+   "num_val": 12,
+   "tma_tensor": "(64,24):(1@1,1@0)"
+  },
+  "tma-f32-row32-sw64-cut": {
+   "layout_src_tv": "(1,16):(0,1)",
+   "num_bits": 512,
+   "num_val": 16,
+   "tma_tensor": "(64,32):(1@1,1@0)"
+  },
+  "tma-f32-row32-sw64-cut-s2g": {
+   "layout_src_tv": "(1,16):(0,1)",
+   "num_bits": 512,
+   "num_val": 16,
+   "tma_tensor": "(64,32):(1@1,1@0)"
+  },
+  "tma-f32-row64-sw128-cut": {
+   "layout_src_tv": "(1,32):(0,1)",
+   "num_bits": 1024,
+   "num_val": 32,
+   "tma_tensor": "(64,64):(1@1,1@0)"
+  },
+  "tma-f32-row64-sw128-cut-s2g": {
+   "layout_src_tv": "(1,32):(0,1)",
+   "num_bits": 1024,
+   "num_val": 32,
+   "tma_tensor": "(64,64):(1@1,1@0)"
+  },
+  "tma-f32-row8-sw128-nomerge": {
+   "layout_src_tv": "(1,128):(0,1)",
+   "num_bits": 4096,
+   "num_val": 128,
+   "tma_tensor": "(64,8):(1@1,1@0)"
+  },
+  "tma-f32-row8-sw128-nomerge-s2g": {
+   "layout_src_tv": "(1,128):(0,1)",
+   "num_bits": 4096,
+   "num_val": 128,
+   "tma_tensor": "(64,8):(1@1,1@0)"
+  },
+  "tma-f32-row8-sw32-match": {
+   "layout_src_tv": "(1,64):(0,1)",
+   "num_bits": 2048,
+   "num_val": 64,
+   "tma_tensor": "(64,8):(1@1,1@0)"
+  },
+  "tma-f32-row8-sw32-match-s2g": {
+   "layout_src_tv": "(1,64):(0,1)",
+   "num_bits": 2048,
+   "num_val": 64,
+   "tma_tensor": "(64,8):(1@1,1@0)"
   },
   "tma-u128-8x8-sw128": {
    "layout_src_tv": "(1,64):(0,1)",
@@ -562907,6 +563183,34 @@
    "smem_grouped": "S<3,4,3>o0o((8,64)):((64,1))",
    "tAgA": "(((64,8),1),(32,2)):(((1@0,1@1),0),(8@1,64@0))",
    "tAsA": "S<3,4,3>o0o((512,1)):((1,0))"
+  },
+  "tp-f16-batched": {
+   "gmem_grouped": "((64,64),(4,2,4)):((1@1,1@0),(64@1,64@0,1@2))",
+   "num_val": 4096,
+   "smem_grouped": "S<3,4,3>o0o((64,64)):((64,1))",
+   "tAgA": "(((64,64),1),(4,2,4)):(((1@0,1@1),0),(64@1,64@0,1@2))",
+   "tAsA": "S<3,4,3>o0o((4096,1)):((1,0))"
+  },
+  "tp-f16-batched-iter8": {
+   "gmem_grouped": "((8,64),(8,2,3)):((1@1,1@0),(8@1,64@0,1@2))",
+   "num_val": 64,
+   "smem_grouped": "((8,64)):((64,1))",
+   "tAgA": "((64,8),(8,2,3)):((1@0,1@1),(8@1,64@0,1@2))",
+   "tAsA": "((64,8)):((1,64))"
+  },
+  "tp-f16-batched-iter8-s2g": {
+   "gmem_grouped": "((8,64),(8,2,3)):((1@1,1@0),(8@1,64@0,1@2))",
+   "num_val": 64,
+   "smem_grouped": "((8,64)):((64,1))",
+   "tAgA": "((64,8),(8,2,3)):((1@0,1@1),(8@1,64@0,1@2))",
+   "tAsA": "((64,8)):((1,64))"
+  },
+  "tp-f16-batched-s2g": {
+   "gmem_grouped": "((64,64),(4,2,4)):((1@1,1@0),(64@1,64@0,1@2))",
+   "num_val": 4096,
+   "smem_grouped": "S<3,4,3>o0o((64,64)):((64,1))",
+   "tAgA": "(((64,64),1),(4,2,4)):(((1@0,1@1),0),(64@1,64@0,1@2))",
+   "tAsA": "S<3,4,3>o0o((4096,1)):((1,0))"
   },
   "tp-f16-col": {
    "gmem_grouped": "((64,64),(4,2)):((1@0,1@1),(64@0,64@1))",
@@ -563005,6 +563309,48 @@
    "smem_grouped": "((32,32)):((32,1))",
    "tAgA": "(((32,32),1),(4,4)):(((1@0,1@1),0),(32@1,32@0))",
    "tAsA": "((1024,1)):((1,0))"
+  },
+  "tp-f32-batched-mmajor": {
+   "gmem_grouped": "((32,16),(2,2,2)):((1@0,1@1),(32@0,16@1,1@2))",
+   "num_val": 512,
+   "smem_grouped": "((32,16)):((1,32))",
+   "tAgA": "(((32,16),1),(2,2,2)):(((1@0,1@1),0),(32@0,16@1,1@2))",
+   "tAsA": "((512,1)):((1,0))"
+  },
+  "tp-f32-batched-mmajor-s2g": {
+   "gmem_grouped": "((32,16),(2,2,2)):((1@0,1@1),(32@0,16@1,1@2))",
+   "num_val": 512,
+   "smem_grouped": "((32,16)):((1,32))",
+   "tAgA": "(((32,16),1),(2,2,2)):(((1@0,1@1),0),(32@0,16@1,1@2))",
+   "tAsA": "((512,1)):((1,0))"
+  },
+  "tp-f32-batched-small-2pass": {
+   "gmem_grouped": "((8,8),(2,2,2)):((1@1,1@0),(8@1,8@0,1@2))",
+   "num_val": 32,
+   "smem_grouped": "((8,8)):((8,1))",
+   "tAgA": "(((8,4),2),(2,2,2)):(((1@0,1@1),4@1),(8@1,8@0,1@2))",
+   "tAsA": "((32,2)):((1,32))"
+  },
+  "tp-f32-batched-small-2pass-s2g": {
+   "gmem_grouped": "((8,8),(2,2,2)):((1@1,1@0),(8@1,8@0,1@2))",
+   "num_val": 32,
+   "smem_grouped": "((8,8)):((8,1))",
+   "tAgA": "(((8,4),2),(2,2,2)):(((1@0,1@1),4@1),(8@1,8@0,1@2))",
+   "tAsA": "((32,2)):((1,32))"
+  },
+  "tp-f32-batched-small-mmajor": {
+   "gmem_grouped": "((8,8),(2,2,2)):((1@0,1@1),(8@0,8@1,1@2))",
+   "num_val": 64,
+   "smem_grouped": "((8,8)):((1,8))",
+   "tAgA": "(((8,8),1),(2,2,2)):(((1@0,1@1),0),(8@0,8@1,1@2))",
+   "tAsA": "((64,1)):((1,0))"
+  },
+  "tp-f32-batched-small-mmajor-s2g": {
+   "gmem_grouped": "((8,8),(2,2,2)):((1@0,1@1),(8@0,8@1,1@2))",
+   "num_val": 64,
+   "smem_grouped": "((8,8)):((1,8))",
+   "tAgA": "(((8,8),1),(2,2,2)):(((1@0,1@1),0),(8@0,8@1,1@2))",
+   "tAsA": "((64,1)):((1,0))"
   }
  },
  "warpgroup_gemm": {

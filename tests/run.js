@@ -655,10 +655,16 @@ if (section('tma_atom')) {
             V.formatLayoutStr(gShape, a.tmaTensorStride).replace(/\s+/g, ''),
             ref.tma_tensor);
       // Any host-assert violation the tab reports is a claim about CuTe's own
-      // preconditions; a case CuTe accepted must not be flagged as an error.
+      // preconditions; a case CuTe accepted must not be flagged as an error --
+      // unless the case is marked `hw_invalid`: CuTe accepts it, but the GPU
+      // does not (tests/gpu_check.py --tma checks that it really fails). Those
+      // must be flagged, so the tab's hardware diagnostics are tested both ways.
       const errs = a.issues.filter(i => i.level === 'error');
-      check(c.id, 'error-level issues on a case CuTe accepted',
-            errs.map(i => i.text).join(' | ') || 'none', 'none');
+      if (c.hw_invalid)
+        check(c.id, `hardware failure (${c.hw_invalid}) is flagged`, errs.length > 0, true);
+      else
+        check(c.id, 'error-level issues on a case CuTe accepted',
+              errs.map(i => i.text).join(' | ') || 'none', 'none');
     });
   }
 }

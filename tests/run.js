@@ -382,7 +382,8 @@ if (section('ldmatrix_atom')) {
       check(c.id, 'live_lanes', a.liveLanes,
             (spec.matrixBytes / 16) * c.num_matrices);
       check(c.id, 'live_lanes_eq_rows', a.liveLanes, M);
-      check(c.id, 'src_broadcast', ref.src.size / ref.src.cosize, 32 / a.liveLanes);
+      // On the ADDRESS side: SRC for ldmatrix, DST for stmatrix.
+      check(c.id, 'address_broadcast', ref[a.addrSide].size / ref[a.addrSide].cosize, 32 / a.liveLanes);
 
       // The Op's own parameter domains, as __post_init__ enforces them. A tab
       // that offered an out-of-domain num_matrices would only produce errors.
@@ -564,7 +565,7 @@ for (const name of ['make_tiled_copy_ab', 'warpgroup_make_tiled_copy_ab']) if (s
       const mmaAtom = mmaAtomOf(c);
       const mma = V.mtmComputeTiledMma(mmaAtom,
         V.mtmParseAtomLayout(c.atom_layout), V.mtmParsePerm(c.perm || ''));
-      const dtype = c.atom ? mmaAtom.dtypes[c.operand] : c.operand === 'C' ? c.acc_dtype : c.ab_dtype;
+      const dtype = c.copy_dtype || (c.atom ? mmaAtom.dtypes[c.operand] : c.operand === 'C' ? c.acc_dtype : c.ab_dtype);
       const atom = V.mcabCopyAtom(c.copy_op, dtype, c.num_matrices, c.transpose, c.bits);
       if (ref.descriptor) {
         // CuTeDSL builds a degenerate copy for a descriptor operand: every
@@ -603,10 +604,10 @@ for (const name of ['make_tiled_copy_ab', 'warpgroup_make_tiled_copy_ab']) if (s
           for (const e of grid[m][n].entries) {
             entries++;
             if (Number(oracle[e.t + nT * e.v]) !== m + r.tile[0] * n) valid = false;
-            if (side === 'src' && atom.threads === 32 && e.t % 32 >= atom.liveLanes) valid = false;
+            if (side === (atom.addrSide || 'src') && atom.threads === 32 && e.t % 32 >= atom.liveLanes) valid = false;
           }
         }
-        const active = side === 'src' && atom.threads === 32 ? atom.liveLanes / 32 : 1;
+        const active = side === (atom.addrSide || 'src') && atom.threads === 32 ? atom.liveLanes / 32 : 1;
         check(c.id, `${side} grid follows oracle with no holes`, valid, true);
         check(c.id, `${side} grid entries`, entries, nT * nV * active);
       }

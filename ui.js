@@ -1495,6 +1495,14 @@ const COPY_OP_MOVES = {
   ldmatrix16x8x8b: [
     ['SMEM', 'RMEM'],
   ],
+  // stmatrix is ldmatrix's mirror: registers -> .shared::cta, fixed by the
+  // instruction encoding, so a single pairing.
+  stmatrix: [
+    ['RMEM', 'SMEM'],
+  ],
+  stmatrix16x8x8b: [
+    ['RMEM', 'SMEM'],
+  ],
   ldmatrix16x16x8b: [
     ['SMEM', 'RMEM'],
   ],
@@ -1877,7 +1885,7 @@ const FEATURE_SPEC = {
   partition_sd:        { inputs: 4, methods: ['url'], legacyInputs: 8 },  // url: side, encoded copy URL, thread, tensor; legacy constructor fields remain accepted
   swizzle:         { inputs: 2 },
   make_mma_atom:   { inputs: 4, optional: 5 },  // warpgroup adds N, A source, A/B major modes, B dtype
-  make_tiled_copy_ab: { inputs: 12, optional: 7 }, // operand, MMA op/ab/acc/K, atom layout, perm, copy Op/nm/trans/bits, view [, focus, compare [, WGMMA N, A source, A/B major, B dtype]]
+  make_tiled_copy_ab: { inputs: 12, optional: 8 }, // operand, MMA op/ab/acc/K, atom layout, perm, copy Op/nm/trans/bits, view [, focus, compare [, WGMMA N, A source, A/B major, B dtype] [, C copy dtype]]
   make_tiled_mma:  { inputs: 6, optional: 5 },  // legacy constructor; WGMMA appends N/source/major modes/B dtype
   retile: { inputs: 6 }, // tiled TV, tiler, atom values, dtype, RMEM input, thread
   partition_abc:   { inputs: 9, optional: 6 },  // operand, op, ab, acc, K, atom_layout_mnk, perm, thr, tensor [, fragment slice [, WGMMA N, A source, A/B major, B dtype]]

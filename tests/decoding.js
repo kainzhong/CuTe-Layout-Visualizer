@@ -112,13 +112,14 @@ function runDecodingTests(V, T) {
     // only test atom exports the UI can produce. FP8 TiledCopy decoding remains
     // covered below by the partition corpus.
     // C copies the accumulator; its N-and-K-split TiledCopy is refused (see run.js).
-    const copyDtype=c=>c.operand==='C'?c.acc_dtype:c.ab_dtype;
+    const copyDtype=c=>c.copy_dtype||(c.operand==='C'?c.acc_dtype:c.ab_dtype);
     const nkSplitC=c=>{const [,n,k]=c.atom_layout.split(':')[0].match(/\d+/g).map(Number);return c.operand==='C'&&n>1&&k>1;};
     for(const c of cases.make_tiled_copy_ab.filter(c=>V.DTYPE_BITS[copyDtype(c)]&&!nkSplitC(c))) guard(`CopyAtom + TiledMMA -> TiledCopy/${c.id}`,()=>{
       const mmaURL=exported('make_tiled_mma',c.op,c.ab_dtype,c.acc_dtype,c.k,c.atom_layout,c.perm||'na');
       const cpURL=exported('make_copy_atom',c.copy_op,c.bits,copyDtype(c),c.num_matrices,c.transpose?1:0);
       const cp=V.mcaDecodeAtomURL(cpURL), mp=decoded(mmaURL);
-      const url=exported('make_tiled_copy_ab',c.operand,...mp.inputs,cp.opKey,cp.nm,cp.trans?1:0,cp.numBits,'warp','na','src_dst');
+      // Operand C's own copy dtype is the optional field after the (empty) warp-MMA tail.
+      const url=exported('make_tiled_copy_ab',c.operand,...mp.inputs,cp.opKey,cp.nm,cp.trans?1:0,cp.numBits,'warp','na','src_dst',...(c.copy_dtype?[c.copy_dtype]:[]));
       const copy=V.mtcDecodeURL(decoded(url));
       const r=refs.make_tiled_copy_ab[c.id];
       equalLayout(c.id+'/tiled TV',copy.tv,r.tv);

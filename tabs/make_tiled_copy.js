@@ -773,7 +773,7 @@ function mtcDecodeURL(parsed) {
   const a = parsed.inputs;
   if (parsed.feature === 'make_tiled_copy_ab') {
     const { atom: mmaAtom, tiled: mma } = mtmDecodeConstructor(mcabConstructorFromURL(a));
-    const dtype = mmaAtom.dtypes[a[0]] || mmaAtom.dtypes.A;
+    const dtype = mcabCopyDtype(mmaAtom, a[0], mcabURLCopyDtype(a)) || mmaAtom.dtypes.A;
     const atom = mcabCopyAtom(a[7], dtype, Number(a[8]), a[9] === '1', Number(a[10]));
     const copy = mcabComputeTiledCopy(mma, a[0], atom);
     return { tv: copy.tv, tile: copy.tile, tiler: copy.tile.map(n => new Layout(n)),
@@ -848,7 +848,8 @@ function mtcSyncManualConstructor(tabId, p) {
   const kind = read('kind'), mma = kind === 'make_tiled_copy_ab';
   const show = (key, visible) => { document.getElementById(`${tabId}-${p}-${key}-group`).style.display = visible ? '' : 'none'; };
   show('mma', mma); show('primitive', kind === 'make_tiled_copy');
-  show('derived', kind === 'make_tiled_copy_tv'); show('dtype', !mma);
+  // An MMA-derived C copy carries its own value type (the epilogue output).
+  show('derived', kind === 'make_tiled_copy_tv'); show('dtype', !mma || read('operand') === 'C');
   const copy = document.getElementById(`${tabId}-${p}-atom-copy-input`), before = copy.value;
   const ops = mma ? mcabCopyOps(read('operand')) : Object.keys(MTC_OPS);
   copy.innerHTML = ops.map(key => `<option value="${key}">${mma ? mcabCopyLabel(key) : MTC_OPS[key].label}</option>`).join('');
@@ -866,8 +867,12 @@ function mtcReadManualConstructor(tabId, p) {
   if (feature === 'make_tiled_copy_ab') {
     const { head, tail } = mtmSplitConstructor(mtmReadConstructorControls(tabId, `${p}-mma`));
     // make_tiled_copy_ab URL order: the Op-specific TiledMMA tail goes last.
+    // Operand C's copy dtype follows the Op-specific tail (mcabURLCopyDtype),
+    // written only when it differs from the accumulator.
+    const { atom } = mtmDecodeConstructor(mtmJoinConstructor(head, tail));
+    const cd = read('operand') === 'C' && read('dtype') !== atom.dtypes.C ? [read('dtype')] : [];
     return {feature, inputs: [read('operand'), ...head, read('atom-copy'), read('atom-nm'), read('atom-trans'), read('atom-bits'), 'warp',
-      ...(tail.length ? ['na', 'src_dst', ...tail] : [])]};
+      ...(tail.length || cd.length ? ['na', 'src_dst', ...tail, ...cd] : [])]};
   }
   return {feature, inputs: [read('atom-copy'), read('atom-bits'), read('dtype'),
     ...(feature === 'make_tiled_copy' ? [read('tv'), read('tiler')] : [read('thr'), read('val')])]};
@@ -887,6 +892,7 @@ function mtcWriteManualConstructor(tabId, p, parsed, sourceURL) {
     write('operand', a[0]); mtcSyncManualConstructor(tabId, p); write('atom-copy', a[7]);
     mtcSyncManualConstructor(tabId, p);
     write('atom-nm', a[8]); write('atom-trans', a[9]); write('atom-bits', a[10]);
+    if (a[0] === 'C') write('dtype', decoded.dtype);
   } else {
     write('atom-copy', a[0]); write('atom-bits', a[1]); write('dtype', a[2]);
     if (parsed.feature === 'make_tiled_copy') { write('tv', a[3]); write('tiler', a[4]); }

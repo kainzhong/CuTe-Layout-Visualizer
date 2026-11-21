@@ -59,6 +59,33 @@ const MCA_OPS = {
           'what makes its <code>ValLayoutSrc</code> a rank-4 thread mode. Useful for ' +
           'vectorizing against Ampere-style 8x8 thread-value layouts.',
   },
+  // The StMatrix family: warp-collective RMEM->SMEM stores, ldmatrix's mirror.
+  // Same geometry table (MCA_LDSM_SPECS), with `store: true` swapping which
+  // side carries the SMEM row addresses.
+  stmatrix: {
+    label: 'warp.StMatrix8x8x16bOp',
+    ctor: 'cute.nvgpu.warp.StMatrix8x8x16bOp(transpose, num_matrices)',
+    kind: 'ldmatrix',
+    ldsm: 'stsm8x8x16b',
+    cpasync: false,
+    params: ['transpose', 'num_matrices'],
+    note: 'The 8x8 <code>.m8n8</code> store over 16-bit units: the mirror of ' +
+          '<code>LdMatrix8x8x16bOp</code>. Its ValLayoutSrc is the ldmatrix ValLayoutDst ' +
+          'and vice versa, for every dtype and parameter. This is the RMEM &rarr; SMEM ' +
+          'store an SM90 epilogue uses.',
+  },
+  stmatrix16x8x8b: {
+    label: 'warp.StMatrix16x8x8bOp',
+    ctor: 'cute.nvgpu.warp.StMatrix16x8x8bOp(transpose, num_matrices)',
+    kind: 'ldmatrix',
+    ldsm: 'stsm16x8x8b',
+    cpasync: false,
+    params: ['transpose', 'num_matrices'],
+    note: 'PTX <code>stmatrix.m16n8.trans.b8</code>. Its register side matches ' +
+          '<code>LdMatrix16x8x8bOp</code>\'s destination, but its addresses are the plain ' +
+          '"lane <i>t</i> addresses row <i>t</i>" form: the permutation lives on the ' +
+          'ldmatrix side, which is built to match this store.',
+  },
   ldmatrix16x16x8b: {
     label: 'warp.LdMatrix16x16x8bOp',
     ctor: 'cute.nvgpu.warp.LdMatrix16x16x8bOp(transpose, num_matrices, unpack_bits=None)',
@@ -127,6 +154,32 @@ const MCA_LDSM_SPECS = {
     unpackBits: [0, 4, 6],
     kind: 'b8',
   },
+  // StMatrix. `store: true`: the computed layouts are swapped, so SRC is the
+  // register side and DST the SMEM row addresses. Checked against CuTeDSL for
+  // every dtype x num_matrices x transpose (section `ldmatrix_atom`).
+  stsm8x8x16b: {
+    op: 'StMatrix8x8x16bOp',
+    ptx: 'stmatrix.sync.aligned.m8n8.x{1,2,4}[.trans].shared.b16',
+    matrix: '8x8', unitBits: 16, matrixBytes: 128,
+    numMatrices: [1, 2, 4],
+    transpose: 'optional',
+    unpackBits: null,
+    kind: 'b16',
+    store: true,
+  },
+  stsm16x8x8b: {
+    op: 'StMatrix16x8x8bOp',
+    ptx: 'stmatrix.sync.aligned.m16n8.x{1,2,4}.trans.shared.b8',
+    // Register side = LdMatrix16x8x8bOp's destination; address side is plain
+    // (kind 'b8'), not the ldmatrix's rank-4 permutation. num_matrices 1 is
+    // legal here although the ldmatrix twin rejects it.
+    matrix: '16x8', unitBits: 8, matrixBytes: 128,
+    numMatrices: [1, 2, 4],
+    transpose: 'required',
+    unpackBits: null,
+    kind: 'b8',
+    store: true,
+  },
 };
 
 // Presets, one row per configuration. Kept as data rather than hand-written
@@ -157,6 +210,12 @@ const MCA_PRESETS = [
   { op: 'ldmatrix16x16x8b', bits: 128, dtype: 'int8_t', nm: 1, tr: 1, label: '.x1 int8_t &mdash; 16 lanes per matrix' },
   { op: 'ldmatrix16x16x8b', bits: 128, dtype: 'int8_t', nm: 2, tr: 1, label: '.x2 int8_t &mdash; all 32 lanes' },
   { op: 'ldmatrix16x16x8b', bits: 128, dtype: 'half_t', nm: 2, tr: 1, label: '.x2 half_t &mdash; 32x8 tile' },
+  { op: 'stmatrix', bits: 128, dtype: 'half_t', nm: 4, tr: 0, label: '.x4 half_t &mdash; the epilogue store, all 32 lanes address' },
+  { op: 'stmatrix', bits: 128, dtype: 'half_t', nm: 4, tr: 1, label: '.x4.trans half_t &mdash; store into M-major SMEM' },
+  { op: 'stmatrix', bits: 128, dtype: 'half_t', nm: 1, tr: 0, label: '.x1 half_t &mdash; 8 lanes address' },
+  { op: 'stmatrix16x8x8b', bits: 128, dtype: 'int8_t', nm: 4, tr: 1, label: '.x4 int8_t &mdash; plain addressing' },
+  { op: 'stmatrix16x8x8b', bits: 128, dtype: 'uint8_t', nm: 2, tr: 1, label: '.x2 uint8_t &mdash; 16 lanes address' },
+  { op: 'stmatrix16x8x8b', bits: 128, dtype: 'int8_t', nm: 1, tr: 1, label: '.x1 int8_t &mdash; 8 lanes address (no ldmatrix twin)' },
 ];
 
 /** Preset buttons for every Op, each tagged with `data-op` so
@@ -199,7 +258,7 @@ function mcaSyncPresets(tabId, opKey) {
  *  {shape, stride} pairs in this repo's Layout convention. */
 function mcaLdmatrixAtom(opKey, elemBits, numMatrices, transpose) {
   const spec = MCA_LDSM_SPECS[opKey];
-  if (!spec) throw new Error(`Unknown LdMatrix Op "${opKey}"`);
+  if (!spec) throw new Error(`Unknown LdMatrix/StMatrix Op "${opKey}"`);
   const e = elemBits;
   const k = numMatrices;
 
@@ -212,7 +271,7 @@ function mcaLdmatrixAtom(opKey, elemBits, numMatrices, transpose) {
                     `"Op only supports transpose" when transpose=False.`);
   if (e > MCA_LDSM_MAX_ELEM_BITS)
     throw new Error(
-      `ldmatrix is undefined for ${e}-bit elements: one lane addresses a ` +
+      `${spec.store ? 'stmatrix' : 'ldmatrix'} is undefined for ${e}-bit elements: one lane addresses a ` +
       `${MCA_LDSM_ROW_BITS}-bit row, so an element wider than ` +
       `${MCA_LDSM_MAX_ELEM_BITS} bits leaves fewer than 2 elements per row and ` +
       `the ${spec.matrix} matrix degenerates.`);
@@ -283,8 +342,11 @@ function mcaLdmatrixAtom(opKey, elemBits, numMatrices, transpose) {
           stride: [thr.stride, [1, 16 * s, 8 * s, spec.matrixBytes * s]] };
   }
 
+  // stmatrix is the mirror: the SMEM row addresses are its DESTINATION and the
+  // register fragment its SOURCE. `addrSide` names the side the lanes address.
+  if (spec.store) [src, dst] = [dst, src];
   return {
-    opKey, spec,
+    opKey, spec, addrSide: spec.store ? 'dst' : 'src', regSide: spec.store ? 'src' : 'dst',
     thrId: { shape: 32, stride: 1 },   // Layout<_32>; CuTeDSL prints 32:1
     src, dst,
     tile: { shape: [M, N], stride: [N, 1] },  // row-major: flat = m*N + n
@@ -318,6 +380,8 @@ ${copyMoveField(id, 'mca')}
                 <option value="ldmatrix">warp.LdMatrix8x8x16bOp</option>
                 <option value="ldmatrix16x8x8b">warp.LdMatrix16x8x8bOp</option>
                 <option value="ldmatrix16x16x8b">warp.LdMatrix16x16x8bOp</option>
+                <option value="stmatrix">warp.StMatrix8x8x16bOp</option>
+                <option value="stmatrix16x8x8b">warp.StMatrix16x8x8bOp</option>
               </select>
             </div>
             <div id="${id}-mca-ldsm-params" style="display:none">
@@ -413,8 +477,15 @@ ${copyMoveField(id, 'mca')}
           unpacking is outside this layout visualization. On the supported
           8-bit Ops it changes the instruction's data interpretation, while
           leaving the SRC/DST ownership layouts unchanged. The 16-bit Op
-          rejects unpacking. <code>LdMatrix8x16x8bOp</code> and the
-          <code>StMatrix*</code> set are the family members still missing.<br><br>
+          rejects unpacking. <code>LdMatrix8x16x8bOp</code> is the family member
+          still missing.<br><br>
+          <b>StMatrix is ldmatrix in reverse.</b> <code>StMatrix8x8x16bOp</code>
+          and <code>StMatrix16x8x8bOp</code> store registers to SMEM, so the
+          <em>destination</em> is the addressing pattern and the <em>source</em> is
+          the register fragment. For the 8x8 Op the two layouts are exactly
+          ldmatrix's, swapped. The 16x8 Op's addresses are the plain form:
+          <code>LdMatrix16x8x8bOp</code>'s permutation exists to match this
+          store. Its <code>num_matrices</code> may be 1, 2 or 4.<br><br>
           <b>num_bits_per_copy is ignored by ldmatrix.</b> The instruction's
           width is fixed by the Op, so <code>_make_trait</code> never reads the
           argument &mdash; you can pass one and it changes nothing. The field is
@@ -564,15 +635,18 @@ function mcaRenderLdmatrix(tabId, opKey, op, dtype, elemBits, prev) {
   // showWarn writes textContent, like every other tab's warnings — plain text
   // only, no markup.
   const notes = [];
+  // Address side vs register side: SRC/DST for ldmatrix, DST/SRC for stmatrix.
+  const Addr = a.addrSide === 'src' ? 'Src' : 'Dst', Reg = a.regSide === 'src' ? 'Src' : 'Dst';
+  const regL = a[a.regSide], addrL = a[a.addrSide];
   if (transpose && elemBits !== spec.unitBits) {
     notes.push(
       `.trans on ${spec.op} is a ${spec.unitBits}-bit transpose, but ${dtype} is ` +
       `${elemBits}-bit. ` +
       (elemBits < spec.unitBits
         ? `${spec.unitBits / elemBits} adjacent ${dtype} elements move as one unit and stay ` +
-          `adjacent — that is the leading value mode of ValLayoutDst.`
+          `adjacent — that is the leading value mode of ValLayout${Reg}.`
         : `One ${dtype} element spans ${elemBits / spec.unitBits} units, which the transpose ` +
-          `separates, so the thread mode covers only ${product(a.dst.shape[0])} of the 32 ` +
+          `separates, so the thread mode covers only ${product(regL.shape[0])} of the 32 ` +
           `lanes. CuTeDSL returns this layout without complaint; whether it is the ` +
           `instruction you meant is another matter.`));
   }
@@ -580,8 +654,8 @@ function mcaRenderLdmatrix(tabId, opKey, op, dtype, elemBits, prev) {
     notes.push(
       `.x${nm} consumes addresses from ${a.liveLanes} of the 32 lanes. The other ` +
       `${32 - a.liveLanes} still execute the instruction and still hand over an operand — ` +
-      `CuTe maps them with a stride-0 thread mode, so size(ValLayoutSrc) = ` +
-      `${product(a.src.shape[0]) * product(a.src.shape[1])} against cosize = ` +
+      `CuTe maps them with a stride-0 thread mode, so size(ValLayout${Addr}) = ` +
+      `${product(addrL.shape[0]) * product(addrL.shape[1])} against cosize = ` +
       `${a.tile.shape[0] * a.tile.shape[1]}. They are drawn in transparent grey.`);
   }
   if (notes.length) showWarn(`${tabId}-mca-warning`, notes.join('  '));
@@ -612,16 +686,20 @@ function mcaRenderLdmatrix(tabId, opKey, op, dtype, elemBits, prev) {
     `<code>num_bits_per_copy</code> is <b>not</b> read for this Op &mdash; the width is fixed ` +
     `by the instruction, so <code>_make_trait</code> ignores the argument.</div>`;
 
+  const addrDesc = `<b>${Addr.toUpperCase()}</b> is the <em>addressing</em> pattern: which lane hands over the ` +
+    `address of which 16 B row`;
+  const regDesc = spec.store
+    ? `<b>SRC</b> is the <em>register fragment</em>: which lane holds which element before the store`
+    : `<b>DST</b> is the <em>register outcome</em>: which lane ends up holding which element`;
   document.getElementById(`${tabId}-mca-viz-desc`).innerHTML =
     `The same ${a.tile.shape[0]}&times;${a.tile.shape[1]} tile, indexed two ways. ` +
-    `<b>SRC</b> is the <em>addressing</em> pattern: which lane hands over the ` +
-    `address of which 16 B row. <b>DST</b> is the <em>register outcome</em>: ` +
-    `which lane ends up holding which element. They cover the same cells and ` +
+    (spec.store ? `${regDesc}. ${addrDesc}. ` : `${addrDesc}. ${regDesc}. `) +
+    `They cover the same cells and ` +
     `nothing more &mdash; there is no <code>(t, v)</code>-to-<code>(t, v)</code> ` +
     `correspondence between them, because the data crosses lanes inside the ` +
     `instruction. Cell colour is the thread id.` +
     (a.liveLanes < 32
-      ? ` Lanes handling no address are <b>disabled</b> on the src side: they hand ` +
+      ? ` Lanes handling no address are <b>disabled</b> on the ${a.addrSide} side: they hand ` +
         `over an operand that <code>.x${nm}</code> discards, so they are drawn in ` +
         `transparent grey on top of the live lane they alias.`
       : ` Every lane's address is consumed here, so nothing is greyed out.`) +
@@ -784,21 +862,25 @@ function mcaDrawLdmatrix(tabId, s) {
     const L = side === 'src' ? a.src : a.dst;
     const str = side === 'src' ? a.srcStr : a.dstStr;
     const numV = product(L.shape[1]);
-    const head = side === 'src'
-      ? `ValLayoutSrc = ${str} — ${a.liveLanes} of 32 lanes supply an address, ` +
+    const name = side === 'src' ? 'ValLayoutSrc' : 'ValLayoutDst';
+    // The address side gets the live-lane count and the greyed broadcast lanes;
+    // the register side is every lane's fragment.
+    const head = side === a.addrSide
+      ? `${name} = ${str} — ${a.liveLanes} of 32 lanes supply an address, ` +
         `${numV} ${s.dtype} per row`
-      : `ValLayoutDst = ${str} — ${numV} ${s.dtype} per lane` +
+      : `${name} = ${str} — ${numV} ${s.dtype} per lane` +
         (a.numMatrices > 1 ? `, ${a.numMatrices} matrices` : '');
     document.getElementById(`${tabId}-mca-${side}-svg`).innerHTML =
       `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">${head}</div>` +
       buildTVSVG(L.shape, L.stride, a.tile.shape, a.tile.stride, false, 'row', null, labelMode,
-                 { dimTids: side === 'src' ? dimTids : null,
+                 { dimTids: side === a.addrSide ? dimTids : null,
                    cellIndex: (m, n) => m * N + n });
     applyZoomState(`${tabId}-mca-${side}-svg`);
   }
   const q = `.x${a.numMatrices}${a.transpose ? '.trans' : ''}`;
+  const shape = a.spec.matrix === '8x8' ? 'm8n8' : a.spec.matrix === '16x8' ? 'm16n8' : 'm16n16';
   document.getElementById(`${tabId}-mca-atom-title`).textContent =
-    `ldmatrix.m8n8${q} — ${s.dtype} → ${M}×${N} tile, ${a.liveLanes}/32 lanes addressing`;
+    `${a.spec.store ? 'stmatrix' : 'ldmatrix'}.${shape}${q} — ${s.dtype} → ${M}×${N} tile, ${a.liveLanes}/32 lanes addressing`;
 }
 
 

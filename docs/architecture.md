@@ -867,10 +867,19 @@ in `DTYPE_BITS`.
 **`num_bits_per_copy` is ignored by this Op** (`_make_trait` never reads it). The field is *disabled*
 rather than hidden, so the absence is legible rather than mysterious.
 
+**StMatrix shares the table.** `StMatrix8x8x16bOp` and `StMatrix16x8x8bOp` are `MCA_LDSM_SPECS`
+entries with `store: true`; `mcaLdmatrixAtom` computes the same geometry and swaps SRC and DST, and
+reports `addrSide` / `regSide` so the render, the greyed broadcast lanes, the broadcast check in
+`run.js` and `make_tiled_copy_C`'s grid filter all follow the address side (DST for a store). Checked
+against CuTeDSL for every dtype x `num_matrices` x transpose (90 `stsm-*` cases in `ldmatrix_atom`):
+the 8x8 Op is exactly ldmatrix's two layouts swapped; the 16x8 Op's register side is
+`LdMatrix16x8x8bOp`'s destination but its addresses are the plain form (kind `b8`), because the
+ldmatrix's permutation exists to match this store; and it accepts `num_matrices = 1`, which the
+ldmatrix rejects. `COPY_OP_MOVES` gives both RMEM→SMEM.
+
 **Still missing from the family**: `LdMatrix8x16x8bOp` (the third 8-bit Op — `transpose` is
 *rejected* on it, `num_matrices` is `{1,2,4}`, and without unpacking the DSL notes it is equivalent
-to `8x8x16b`), and the whole `StMatrix*` set, which is the same shape of work in the RMEM→SMEM
-direction and would need `COPY_OP_MOVES` entries pointing the other way.
+to `8x8x16b`).
 
 **The atom's tile is ROW-major in its own codomain** — flat = `m*N + n`,
 `(matrixBytes/16)*num_matrices` rows of `128/elemBits` elements, one lane-addressed row per grid row.
@@ -1774,14 +1783,27 @@ Badges follow `COPY_OP_MOVES`: SMEM for SRC and RMEM for DST. In MMA/COPY mode t
 
 Operand C (`make_tiled_copy_C`) uses the accumulator's TV layout and M×N tile through the
 same `mcabComputeTiledCopy` path. The offered Ops depend on the operand
-(`MCAB_OPERAND_COPY_OPS`): A/B offer ldmatrix and the SIMT load `s2r`; C offers `r2s`
-(the epilogue store, RMEM → SMEM) and `s2r` (loading a C source). Both are CuTeDSL's
+(`MCAB_OPERAND_COPY_OPS`): A/B offer ldmatrix and the SIMT load `s2r`; C offers StMatrix and `r2s`
+(epilogue stores, RMEM → SMEM) and `s2r` (loading a C source). `r2s`/`s2r` are CuTeDSL's
 `CopyUniversalOp` presented in that direction, so their badges come from `COPY_OP_MOVES`.
+For a StMatrix atom CuTe's reference layout is the register side (SRC), so `mcabCopyAtom` sets
+`ref` and `values` from it and records `addrSide` for the ignored-lane filter.
+
+**C's copy dtype.** A/B copy their operand's own type. C's CopyAtom may carry the epilogue's output
+type (`mcabCopyDtype`), because kernels convert float accumulators before `stmatrix`; the TiledCopy
+is in element coordinates, so only the atom's value count changes. The control defaults to "same as
+the accumulator". In the URL it is an optional field after the Op-specific WGMMA tail
+(`mcabURLCopyDtype`: index 14 for warp MMA, 19 for WGMMA), written only when set, so older URLs
+parse unchanged; the shared TiledCopy editor reuses its Value dtype control for it. GPU validation
+(`gpu_check.py --stmatrix`) fills each thread's accumulator fragment with element indices, retiles,
+stmatrix-stores into SMEM (N-major, or M-major for `.trans`) and requires every element at its own
+index; all 15 warp-MMA cases pass on GB200. An N permutation that interleaves columns is a valid
+TiledCopy but needs SMEM laid out in the permuted order; with a plain tile CuTe refuses to compile
+the copy for lack of 16 B alignment, which is a property of the SMEM tensor this tab does not model.
 The Op picker is rebuilt by `mcabSyncCopyOptions` before any imported or preset value is
 assigned, and the shared TiledCopy editor (`mtcSyncManualConstructor`) does the same after
 writing the operand. A decoded `universal` CopyAtom becomes `r2s` for C and `s2r` for A/B.
 In MMA/COPY the right pane is the copy's register side: DST for a load, SRC for the store.
-StMatrix is not offered yet; it needs its own CopyAtom traits and a GPU check.
 
 C is refused when `atom_layout_mnk` replicates along both N and K. CuTe's `get_layoutC_TV`
 lacks the stride-0 K step of its A/B siblings (the `tiled_mma` section pins this divergence),

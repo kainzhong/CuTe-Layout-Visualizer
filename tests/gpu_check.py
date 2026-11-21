@@ -3,6 +3,7 @@
 
     python3 tests/gpu_check.py
     python3 tests/gpu_check.py --tma     # TMA store, SM90+
+    python3 tests/gpu_check.py --stmatrix  # StMatrix epilogue store, SM90+
 
 NOT part of `npm test`, and not part of `npm run reference` -- both of those are
 deliberately GPU-free (see tests/README.md). This is the check you run BEFORE
@@ -472,7 +473,114 @@ def main():
     return 0
 
 
+def run_stmatrix_tiled_c(case):
+    """make_tiled_copy_C with a StMatrix atom, executed: every thread fills its
+    accumulator fragment with each element's logical index m*N + n, retiles it
+    to the TiledCopy, stmatrix-stores it into SMEM, and the CTA copies SMEM
+    out. Every element must land at its own index. stmatrix moves bits, so the
+    kernel uses the same-width integer type (16-bit indices stay exact; 8-bit
+    ones are compared mod 256). Returns the number of wrong elements."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from gen_reference import make_any_mma_op, parse_tiled_mma_perm, parse_layout
+    from cutlass.memory import SmemAllocator
+    cfg = {"op": case["op"], "ab_dtype": case["ab_dtype"], "acc_dtype": case["acc_dtype"], "k": case["k"]}
+    width = {"half_t": 16, "bfloat16_t": 16, "uint16_t": 16, "int8_t": 8, "uint8_t": 8}[
+        case.get("copy_dtype") or case["acc_dtype"]]
+    ity, nty = (cutlass.Int16, np.int16) if width == 16 else (cutlass.Int8, np.int8)
+    st = {"stmatrix": warp.StMatrix8x8x16bOp, "stmatrix16x8x8b": warp.StMatrix16x8x8bOp}[case["copy_op"]]
+    trans, nm = bool(case["transpose"]), case["num_matrices"]
+
+    def build():
+        tmma = cute.make_tiled_mma(cute.make_mma_atom(make_any_mma_op(cfg)),
+                                   parse_layout(case["atom_layout"]), parse_tiled_mma_perm(case["perm"]))
+        return tmma, cute.make_tiled_copy_C(cute.make_copy_atom(st(transpose=trans, num_matrices=nm), ity), tmma)
+
+    # Host-side sizes (the same construction, traced once).
+    sizes = {}
+
+    @cute.jit
+    def probe():
+        tmma, _ = build()
+        sizes["M"], sizes["N"] = int(tmma.get_tile_size(0)), int(tmma.get_tile_size(1))
+        sizes["T"] = int(cute.size(tmma))
+    try:
+        probe()
+    except Exception:                                       # noqa: BLE001
+        pass
+    M, N, T = sizes["M"], sizes["N"], sizes["T"]
+    # stmatrix writes 16 B rows: along N for the plain form, along M for .trans,
+    # so the SMEM tile is N-major or M-major to match.
+    slay_args = ((M, N), (1, M)) if trans else ((M, N), (N, 1))
+
+    @cute.kernel
+    def kern(pout: cute.Pointer):
+        tid, _, _ = cute.arch.thread_idx()
+        tmma, tc = build()
+        thr_mma, thr_copy = tmma.get_slice(tid), tc.get_slice(tid)
+        sC = SmemAllocator().allocate_tensor(ity, cute.make_layout(slay_args[0], stride=slay_args[1]), 128)
+        tCcC = thr_mma.partition_C(cute.make_identity_tensor((M, N)))
+        frag = cute.make_fragment_like(tCcC, ity)
+        for i in cutlass.range_constexpr(cute.size(frag)):
+            m, n = tCcC[i]
+            frag[i] = ity(m * N + n)
+        cute.copy(tc, thr_copy.retile(frag), thr_copy.partition_D(sC))
+        cute.arch.barrier()
+        gOut = cute.make_tensor(pout, cute.make_layout((M, N), stride=(N, 1)))
+        for k in cutlass.range_constexpr((M * N + T - 1) // T):
+            i = tid + k * T
+            if i < M * N:
+                gOut[i] = sC[i]
+
+    @cute.jit
+    def launch(pout: cute.Pointer):
+        kern(pout).launch(grid=(1, 1, 1), block=(T, 1, 1), smem=M * N * width // 8 + 256)
+
+    out = np.full((M, N), -1, nty)
+    pout = to_device(out)
+    p = cute.runtime.make_ptr(ity, int(pout), cute.AddressSpace.gmem, assumed_align=16)
+    cute.compile(launch, p)(p)
+    ck(drv.cuCtxSynchronize())
+    got = from_device(pout, out).astype(np.int64)
+    want = (np.arange(M * N).reshape(M, N) & (0xFFFF if width == 16 else 0xFF)).astype(np.int64)
+    if width == 16:
+        want = np.where(want >= 0x8000, want - 0x10000, want)
+    else:
+        want = np.where(want >= 0x80, want - 0x100, want)
+    return int((got != want).sum())
+
+
+def stmatrix_main():
+    import json
+    from pathlib import Path
+    ck(drv.cuInit(0))
+    dev = ck(drv.cuDeviceGet(0))
+    major = ck(drv.cuDeviceGetAttribute(
+        drv.CUdevice_attribute.CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, dev))
+    if major < 9:
+        sys.exit(f"stmatrix requires SM90 or newer; this device is SM{major}x.")
+    ck(drv.cuCtxCreate(0, dev))
+    case_filter = sys.argv[sys.argv.index("--case") + 1] if "--case" in sys.argv else ""
+    # Warp-MMA make_tiled_copy_C cases with a StMatrix atom. (WGMMA cases share
+    # the instruction; their layouts are oracle-checked in the SM90a worker.)
+    cases = [c for c in json.loads(Path(__file__).with_name("cases.json").read_text())["make_tiled_copy_ab"]
+             if c["operand"] == "C" and c["copy_op"].startswith("stmatrix") and case_filter in c["id"]]
+    print("make_tiled_copy_C(StMatrix) -- retile, stmatrix to SMEM, compare every element")
+    failures = []
+    for case in cases:
+        try:
+            bad = run_stmatrix_tiled_c(case)
+            if bad:
+                raise AssertionError(f"{bad} elements misplaced")
+            print(f"  ok    {case['id']}", flush=True)
+        except Exception as e:                              # noqa: BLE001
+            print(f"  FAIL  {case['id']}  {type(e).__name__}: {' '.join(str(e).split())[:220]}", flush=True)
+            failures.append(case["id"])
+    print(f"{len(cases) - len(failures)}/{len(cases)} StMatrix cases executed correctly")
+    return 1 if failures else 0
+
+
 if __name__ == "__main__":
     sys.exit(warpgroup_main() if "--warpgroup" in sys.argv
              else tma_one_main() if "--tma-one" in sys.argv
+             else stmatrix_main() if "--stmatrix" in sys.argv
              else tma_main() if "--tma" in sys.argv else main())

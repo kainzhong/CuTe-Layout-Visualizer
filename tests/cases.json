@@ -1340,6 +1340,636 @@
       "num_matrices": 2,
       "transpose": true,
       "unpack_bits": 4
+    },
+    {
+      "id": "stsm-8x8x16b-int8_t-x1-N",
+      "op": "stsm8x8x16b",
+      "dtype": "int8_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-int8_t-x1-T",
+      "op": "stsm8x8x16b",
+      "dtype": "int8_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-int8_t-x2-N",
+      "op": "stsm8x8x16b",
+      "dtype": "int8_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-int8_t-x2-T",
+      "op": "stsm8x8x16b",
+      "dtype": "int8_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-int8_t-x4-N",
+      "op": "stsm8x8x16b",
+      "dtype": "int8_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-int8_t-x4-T",
+      "op": "stsm8x8x16b",
+      "dtype": "int8_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-uint8_t-x1-N",
+      "op": "stsm8x8x16b",
+      "dtype": "uint8_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-uint8_t-x1-T",
+      "op": "stsm8x8x16b",
+      "dtype": "uint8_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-uint8_t-x2-N",
+      "op": "stsm8x8x16b",
+      "dtype": "uint8_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-uint8_t-x2-T",
+      "op": "stsm8x8x16b",
+      "dtype": "uint8_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-uint8_t-x4-N",
+      "op": "stsm8x8x16b",
+      "dtype": "uint8_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-uint8_t-x4-T",
+      "op": "stsm8x8x16b",
+      "dtype": "uint8_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-half_t-x1-N",
+      "op": "stsm8x8x16b",
+      "dtype": "half_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-half_t-x1-T",
+      "op": "stsm8x8x16b",
+      "dtype": "half_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-half_t-x2-N",
+      "op": "stsm8x8x16b",
+      "dtype": "half_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-half_t-x2-T",
+      "op": "stsm8x8x16b",
+      "dtype": "half_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-half_t-x4-N",
+      "op": "stsm8x8x16b",
+      "dtype": "half_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-half_t-x4-T",
+      "op": "stsm8x8x16b",
+      "dtype": "half_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-bfloat16_t-x1-N",
+      "op": "stsm8x8x16b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-bfloat16_t-x1-T",
+      "op": "stsm8x8x16b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-bfloat16_t-x2-N",
+      "op": "stsm8x8x16b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-bfloat16_t-x2-T",
+      "op": "stsm8x8x16b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-bfloat16_t-x4-N",
+      "op": "stsm8x8x16b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-bfloat16_t-x4-T",
+      "op": "stsm8x8x16b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-uint16_t-x1-N",
+      "op": "stsm8x8x16b",
+      "dtype": "uint16_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-uint16_t-x1-T",
+      "op": "stsm8x8x16b",
+      "dtype": "uint16_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-uint16_t-x2-N",
+      "op": "stsm8x8x16b",
+      "dtype": "uint16_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-uint16_t-x2-T",
+      "op": "stsm8x8x16b",
+      "dtype": "uint16_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-uint16_t-x4-N",
+      "op": "stsm8x8x16b",
+      "dtype": "uint16_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-uint16_t-x4-T",
+      "op": "stsm8x8x16b",
+      "dtype": "uint16_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-float-x1-N",
+      "op": "stsm8x8x16b",
+      "dtype": "float",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-float-x1-T",
+      "op": "stsm8x8x16b",
+      "dtype": "float",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-float-x2-N",
+      "op": "stsm8x8x16b",
+      "dtype": "float",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-float-x2-T",
+      "op": "stsm8x8x16b",
+      "dtype": "float",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-float-x4-N",
+      "op": "stsm8x8x16b",
+      "dtype": "float",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-float-x4-T",
+      "op": "stsm8x8x16b",
+      "dtype": "float",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-int32_t-x1-N",
+      "op": "stsm8x8x16b",
+      "dtype": "int32_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-int32_t-x1-T",
+      "op": "stsm8x8x16b",
+      "dtype": "int32_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-int32_t-x2-N",
+      "op": "stsm8x8x16b",
+      "dtype": "int32_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-int32_t-x2-T",
+      "op": "stsm8x8x16b",
+      "dtype": "int32_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-int32_t-x4-N",
+      "op": "stsm8x8x16b",
+      "dtype": "int32_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-int32_t-x4-T",
+      "op": "stsm8x8x16b",
+      "dtype": "int32_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-tfloat32_t-x1-N",
+      "op": "stsm8x8x16b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-tfloat32_t-x1-T",
+      "op": "stsm8x8x16b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-tfloat32_t-x2-N",
+      "op": "stsm8x8x16b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-tfloat32_t-x2-T",
+      "op": "stsm8x8x16b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-tfloat32_t-x4-N",
+      "op": "stsm8x8x16b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-tfloat32_t-x4-T",
+      "op": "stsm8x8x16b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-double-x1-N",
+      "op": "stsm8x8x16b",
+      "dtype": "double",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-double-x1-T",
+      "op": "stsm8x8x16b",
+      "dtype": "double",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-double-x2-N",
+      "op": "stsm8x8x16b",
+      "dtype": "double",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-double-x2-T",
+      "op": "stsm8x8x16b",
+      "dtype": "double",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-double-x4-N",
+      "op": "stsm8x8x16b",
+      "dtype": "double",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-double-x4-T",
+      "op": "stsm8x8x16b",
+      "dtype": "double",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-int64_t-x1-N",
+      "op": "stsm8x8x16b",
+      "dtype": "int64_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-int64_t-x1-T",
+      "op": "stsm8x8x16b",
+      "dtype": "int64_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-int64_t-x2-N",
+      "op": "stsm8x8x16b",
+      "dtype": "int64_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-int64_t-x2-T",
+      "op": "stsm8x8x16b",
+      "dtype": "int64_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-8x8x16b-int64_t-x4-N",
+      "op": "stsm8x8x16b",
+      "dtype": "int64_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "stsm-8x8x16b-int64_t-x4-T",
+      "op": "stsm8x8x16b",
+      "dtype": "int64_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-int8_t-x1-T",
+      "op": "stsm16x8x8b",
+      "dtype": "int8_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-int8_t-x2-T",
+      "op": "stsm16x8x8b",
+      "dtype": "int8_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-int8_t-x4-T",
+      "op": "stsm16x8x8b",
+      "dtype": "int8_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-uint8_t-x1-T",
+      "op": "stsm16x8x8b",
+      "dtype": "uint8_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-uint8_t-x2-T",
+      "op": "stsm16x8x8b",
+      "dtype": "uint8_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-uint8_t-x4-T",
+      "op": "stsm16x8x8b",
+      "dtype": "uint8_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-half_t-x1-T",
+      "op": "stsm16x8x8b",
+      "dtype": "half_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-half_t-x2-T",
+      "op": "stsm16x8x8b",
+      "dtype": "half_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-half_t-x4-T",
+      "op": "stsm16x8x8b",
+      "dtype": "half_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-bfloat16_t-x1-T",
+      "op": "stsm16x8x8b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-bfloat16_t-x2-T",
+      "op": "stsm16x8x8b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-bfloat16_t-x4-T",
+      "op": "stsm16x8x8b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-uint16_t-x1-T",
+      "op": "stsm16x8x8b",
+      "dtype": "uint16_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-uint16_t-x2-T",
+      "op": "stsm16x8x8b",
+      "dtype": "uint16_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-uint16_t-x4-T",
+      "op": "stsm16x8x8b",
+      "dtype": "uint16_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-float-x1-T",
+      "op": "stsm16x8x8b",
+      "dtype": "float",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-float-x2-T",
+      "op": "stsm16x8x8b",
+      "dtype": "float",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-float-x4-T",
+      "op": "stsm16x8x8b",
+      "dtype": "float",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-int32_t-x1-T",
+      "op": "stsm16x8x8b",
+      "dtype": "int32_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-int32_t-x2-T",
+      "op": "stsm16x8x8b",
+      "dtype": "int32_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-int32_t-x4-T",
+      "op": "stsm16x8x8b",
+      "dtype": "int32_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-tfloat32_t-x1-T",
+      "op": "stsm16x8x8b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-tfloat32_t-x2-T",
+      "op": "stsm16x8x8b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-tfloat32_t-x4-T",
+      "op": "stsm16x8x8b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-double-x1-T",
+      "op": "stsm16x8x8b",
+      "dtype": "double",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-double-x2-T",
+      "op": "stsm16x8x8b",
+      "dtype": "double",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-double-x4-T",
+      "op": "stsm16x8x8b",
+      "dtype": "double",
+      "num_matrices": 4,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-int64_t-x1-T",
+      "op": "stsm16x8x8b",
+      "dtype": "int64_t",
+      "num_matrices": 1,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-int64_t-x2-T",
+      "op": "stsm16x8x8b",
+      "dtype": "int64_t",
+      "num_matrices": 2,
+      "transpose": true
+    },
+    {
+      "id": "stsm-16x8x8b-int64_t-x4-T",
+      "op": "stsm16x8x8b",
+      "dtype": "int64_t",
+      "num_matrices": 4,
+      "transpose": true
     }
   ],
   "_comment_mma_atom": [
@@ -4750,6 +5380,245 @@
       "transpose": false,
       "copy_op": "r2s",
       "bits": 64
+    },
+    {
+      "id": "C_stsm_x4",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,16)",
+      "copy_op": "stmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "bits": 16,
+      "copy_dtype": "half_t"
+    },
+    {
+      "id": "C_stsm_x2",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,16)",
+      "copy_op": "stmatrix",
+      "num_matrices": 2,
+      "transpose": false,
+      "bits": 16,
+      "copy_dtype": "half_t"
+    },
+    {
+      "id": "C_stsm_x1",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,16)",
+      "copy_op": "stmatrix",
+      "num_matrices": 1,
+      "transpose": false,
+      "bits": 16,
+      "copy_dtype": "half_t"
+    },
+    {
+      "id": "C_stsm_x4_trans",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,16)",
+      "copy_op": "stmatrix",
+      "num_matrices": 4,
+      "transpose": true,
+      "bits": 16,
+      "copy_dtype": "half_t"
+    },
+    {
+      "id": "C_stsm_x2_trans",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,16)",
+      "copy_op": "stmatrix",
+      "num_matrices": 2,
+      "transpose": true,
+      "bits": 16,
+      "copy_dtype": "half_t"
+    },
+    {
+      "id": "C_stsm_bf16_out",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,16)",
+      "copy_op": "stmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "bits": 16,
+      "copy_dtype": "bfloat16_t"
+    },
+    {
+      "id": "C_stsm_f16_acc",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "half_t",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,16)",
+      "copy_op": "stmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "bits": 16
+    },
+    {
+      "id": "C_stsm_single_warp",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(1,1,1)",
+      "perm": null,
+      "copy_op": "stmatrix",
+      "num_matrices": 2,
+      "transpose": false,
+      "bits": 16,
+      "copy_dtype": "half_t"
+    },
+    {
+      "id": "C_stsm_reordered_warps",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1):(2,1,4)",
+      "perm": "(32,32,16)",
+      "copy_op": "stmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "bits": 16,
+      "copy_dtype": "half_t"
+    },
+    {
+      "id": "C_stsm_permute_M",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "((2,16):(16,1),32,16)",
+      "copy_op": "stmatrix",
+      "num_matrices": 2,
+      "transpose": false,
+      "bits": 16,
+      "copy_dtype": "half_t"
+    },
+    {
+      "id": "C_stsm_K_split",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,1,2)",
+      "perm": null,
+      "copy_op": "stmatrix",
+      "num_matrices": 2,
+      "transpose": false,
+      "bits": 16,
+      "copy_dtype": "half_t"
+    },
+    {
+      "id": "C_stsm_tf32_mma",
+      "operand": "C",
+      "op": "tf32",
+      "ab_dtype": "tfloat32_t",
+      "acc_dtype": "float",
+      "k": 8,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,8)",
+      "copy_op": "stmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "bits": 16,
+      "copy_dtype": "half_t"
+    },
+    {
+      "id": "C_stsm16x8x8b_x4_int8_out",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,64,16)",
+      "copy_op": "stmatrix16x8x8b",
+      "num_matrices": 4,
+      "transpose": true,
+      "bits": 16,
+      "copy_dtype": "int8_t"
+    },
+    {
+      "id": "C_stsm16x8x8b_x2_uint8_out",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,16)",
+      "copy_op": "stmatrix16x8x8b",
+      "num_matrices": 2,
+      "transpose": true,
+      "bits": 16,
+      "copy_dtype": "uint8_t"
+    },
+    {
+      "id": "C_stsm16x8x8b_x1_int8_out",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,16)",
+      "copy_op": "stmatrix16x8x8b",
+      "num_matrices": 1,
+      "transpose": true,
+      "bits": 16,
+      "copy_dtype": "int8_t"
+    },
+    {
+      "id": "C_r2s_half_out",
+      "operand": "C",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,16)",
+      "copy_op": "r2s",
+      "num_matrices": 1,
+      "transpose": false,
+      "bits": 32,
+      "copy_dtype": "half_t"
     }
   ],
   "index": [
@@ -10011,6 +10880,93 @@
       "num_matrices": 1,
       "transpose": false,
       "bits": 32
+    },
+    {
+      "id": "C_ss_stsm_x4",
+      "operand": "C",
+      "atom": [
+        "wg_f16bf16",
+        "half_t",
+        "float",
+        "16",
+        "64",
+        "SMEM",
+        "K",
+        "K",
+        "half_t"
+      ],
+      "atom_layout": "(1,1,1)",
+      "perm": null,
+      "copy_op": "stmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "bits": 16,
+      "copy_dtype": "half_t"
+    },
+    {
+      "id": "C_ss_stsm_x4_trans",
+      "operand": "C",
+      "atom": [
+        "wg_f16bf16",
+        "half_t",
+        "float",
+        "16",
+        "64",
+        "SMEM",
+        "K",
+        "K",
+        "half_t"
+      ],
+      "atom_layout": "(1,1,1)",
+      "perm": null,
+      "copy_op": "stmatrix",
+      "num_matrices": 4,
+      "transpose": true,
+      "bits": 16,
+      "copy_dtype": "half_t"
+    },
+    {
+      "id": "C_ss_two_groups_stsm_x2",
+      "operand": "C",
+      "atom": [
+        "wg_f16bf16",
+        "half_t",
+        "float",
+        "16",
+        "64",
+        "SMEM",
+        "K",
+        "K",
+        "half_t"
+      ],
+      "atom_layout": "(2,1,1)",
+      "perm": null,
+      "copy_op": "stmatrix",
+      "num_matrices": 2,
+      "transpose": false,
+      "bits": 16,
+      "copy_dtype": "bfloat16_t"
+    },
+    {
+      "id": "C_rs_f16_acc_stsm_x4",
+      "operand": "C",
+      "atom": [
+        "wg_f16bf16",
+        "half_t",
+        "half_t",
+        "16",
+        "64",
+        "RMEM",
+        "K",
+        "K",
+        "half_t"
+      ],
+      "atom_layout": "(1,1,1)",
+      "perm": null,
+      "copy_op": "stmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "bits": 16
     }
   ],
   "warpgroup_partition_sd": [

@@ -464,6 +464,9 @@ LDSM_OPS = {
     "ldsm8x8x16b": warp.LdMatrix8x8x16bOp,
     "ldsm16x8x8b": warp.LdMatrix16x8x8bOp,
     "ldsm16x16x8b": warp.LdMatrix16x16x8bOp,
+    # StMatrix shares the section: same geometry table, SRC/DST swapped.
+    "stsm8x8x16b": warp.StMatrix8x8x16bOp,
+    "stsm16x8x8b": warp.StMatrix16x8x8bOp,
 }
 
 
@@ -671,7 +674,8 @@ def run_make_tiled_copy_ab(c):
         parse_layout(c["atom_layout"]), parse_tiled_mma_perm(c["perm"]),
     )
     smem, dtype_name = operand_space(cfg, c["operand"])
-    dtype = DTYPES[dtype_name]
+    # Operand C's CopyAtom may carry the epilogue output type instead.
+    dtype = DTYPES[c.get("copy_dtype") or dtype_name]
     if c["copy_op"] in ("s2r", "r2s"):
         # The tab presents CopyUniversalOp as a load (s2r) or, for C, as the
         # epilogue store (r2s); the Atom is the same either way.
@@ -679,7 +683,8 @@ def run_make_tiled_copy_ab(c):
                                    num_bits_per_copy=c["bits"])
     else:
         key = {"ldmatrix": "ldsm8x8x16b", "ldmatrix16x8x8b": "ldsm16x8x8b",
-               "ldmatrix16x16x8b": "ldsm16x16x8b"}[c["copy_op"]]
+               "ldmatrix16x16x8b": "ldsm16x16x8b", "stmatrix": "stsm8x8x16b",
+               "stmatrix16x8x8b": "stsm16x8x8b"}[c["copy_op"]]
         atom = cute.make_copy_atom(LDSM_OPS[key](
             transpose=c["transpose"], num_matrices=c["num_matrices"]), dtype)
     tc = getattr(cute, "make_tiled_copy_" + c["operand"])(atom, tmma)

@@ -168,6 +168,18 @@ Execution validated with CuTeDSL 4.8.0 on NVIDIA GB200 (SM100): of 108 cases, 92
 bit-exact and all 16 `hw_invalid` cases failed as flagged. `uint128_t` is not a TMA case: CuTeDSL
 4.8 cannot compile a 128-bit TMA copy, so the TMA tabs do not offer it.
 
+## StMatrix
+
+```bash
+python3 tests/gpu_check.py --stmatrix
+```
+
+Requires SM90 or newer. For each warp-MMA `make_tiled_copy_C` case with a StMatrix atom, it fills
+every thread's accumulator fragment with each element's index, retiles it to the TiledCopy,
+stmatrix-stores into SMEM and reads SMEM back; every element must hold its own index (16-bit
+types exactly, 8-bit types mod 256). Validated with CuTeDSL 4.8.0 on NVIDIA GB200: 15/15. The
+atom layouts themselves are the 90 `stsm-*` cases in the `ldmatrix_atom` oracle section.
+
 ## WGMMA in every MMA consumer
 
 Every MMA tab offers every MMA Op, so each consumer has a WGMMA oracle section, traced

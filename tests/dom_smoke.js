@@ -1053,7 +1053,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     els.get(`${TAB}-mcab-bits-input`).value = '32';
     ctx.renderMakeTiledCopyAB(TAB);
     const ops = [...els.get(`${TAB}-mcab-copy-input`).innerHTML.matchAll(/value="([^"]+)"/g)].map(m => m[1]);
-    if (ops.join() !== 'r2s,s2r' || els.get(`${TAB}-mcab-copy-input`).value !== 'r2s')
+    if (ops.join() !== 'stmatrix,stmatrix16x8x8b,r2s,s2r' || els.get(`${TAB}-mcab-copy-input`).value !== 'stmatrix')
       throw new Error(`C Op list = ${ops}`);
     if (ctx.mcabState[TAB].result.tile.join('x') !== '32x32') throw new Error('C tile is not M×N');
     ctx.setMCAB(TAB, 'C', 'f16bf16', 'half_t', 'float', 16, '(2,2,1)', '(32,32,16)', 'r2s', 1, 0, 64, 'tv', 'na', 'src_dst');
@@ -2196,6 +2196,53 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     if (exported.at(-1) !== 'tma_s2g' || els.get(`${TAB}-tp-op-input`).value !== 'tma_s2g') throw new Error('store lost in URL');
   }, tpPanes);
 
+  step('make_copy_atom: StMatrix stores RMEM -> SMEM with the addresses on DST', () => {
+    ctx.setMCA(TAB, 'stmatrix', 128, 'half_t', 1, 0);
+    expectBadge('mca-src', 'RMEM'); expectBadge('mca-dst', 'SMEM');
+    if (!/8 of 32 lanes supply an address/.test(els.get(`${TAB}-mca-dst-svg`).innerHTML) ||
+        /supply an address/.test(els.get(`${TAB}-mca-src-svg`).innerHTML))
+      throw new Error('StMatrix address lanes are not on the DST side');
+    if (!/stmatrix\.m8n8\.x1/.test(els.get(`${TAB}-mca-atom-title`).textContent)) throw new Error('title is not stmatrix');
+    const { exported } = urlRoundTrip(() => ctx.exportMCA(TAB));
+    if (exported[1] !== 'stmatrix' || els.get(`${TAB}-mca-op-input`).value !== 'stmatrix') throw new Error('StMatrix lost in URL');
+  }, [`${TAB}-mca-src-svg`, `${TAB}-mca-dst-svg`]);
+  step('make_tiled_copy_C: StMatrix with an epilogue dtype round-trips, warp MMA and WGMMA', () => {
+    for (const args of [
+      ['C', 'f16bf16', 'half_t', 'float', 16, '(2,2,1)', '(32,32,16)', 'stmatrix', 4, 0, 16, 'warp', 'na', 'mma_copy', 'half_t'],
+      ['C', 'wg_f16bf16', 'half_t', 'float', 16, '(1,1,1)', '', 'stmatrix', 4, 0, 16, 'warpgroup', 'na', 'src_dst', 64, 'SMEM', 'K', 'K', 'half_t', 'bfloat16_t'],
+    ]) {
+      ctx.setMCAB(TAB, ...args);
+      const want = args[args.length - 1];
+      if (els.get(`${TAB}-mcab-cdtype-input`).value !== want || els.get(`${TAB}-mcab-cdtype-group`).style.display === 'none')
+        throw new Error(`copy dtype control = ${els.get(`${TAB}-mcab-cdtype-input`).value}`);
+      if (!els.get(`${TAB}-mcab-atom-result`).innerHTML.includes(`StMatrix8x8x16bOp.x4</b> — ${want}`)) throw new Error('atom not built with the epilogue dtype');
+      const panes = mcabPanes.map(id => els.get(id).innerHTML);
+      const { exported } = urlRoundTrip(() => ctx.exportMCAB(TAB));
+      if (exported.at(-1) !== want || els.get(`${TAB}-mcab-cdtype-input`).value !== want ||
+          mcabPanes.some((id, i) => els.get(id).innerHTML !== panes[i])) throw new Error(`URL lost the copy dtype: ${exported}`);
+    }
+    // A/B never show it: they copy the operand's own type.
+    ctx.setMCAB(TAB, 'A', 'f16bf16', 'half_t', 'float', 16, '(2,2,1)', '(32,32,16)', 'ldmatrix', 4, 0, 16);
+    if (els.get(`${TAB}-mcab-cdtype-group`).style.display !== 'none') throw new Error('copy dtype shown for operand A');
+  }, mcabPanes);
+  step('make_tiled_copy_C: a StMatrix CopyAtom URL sets the epilogue dtype; A refuses it', () => {
+    ctx.setMCAB(TAB, 'C', 'f16bf16', 'half_t', 'float', 16, '(2,2,1)', '(32,32,16)', 'r2s', 1, 0, 32);
+    ctx.mcabImportConstructor(TAB, 'make_copy_atom', '?key=make_copy_atom-stmatrix-128-half_t-4-0');
+    if (els.get(`${TAB}-mcab-copy-input`).value !== 'stmatrix' || els.get(`${TAB}-mcab-cdtype-input`).value !== 'half_t')
+      throw new Error('StMatrix CopyAtom not decoded into C');
+    ctx.setMCAB(TAB, 'A', 'f16bf16', 'half_t', 'float', 16, '(2,2,1)', '(32,32,16)', 'ldmatrix', 4, 0, 16);
+    let error;
+    try { ctx.mcabImportConstructor(TAB, 'make_copy_atom', '?key=make_copy_atom-stmatrix-128-half_t-4-0'); } catch (e) { error = e.message; }
+    if (!/not supported for make_tiled_copy_A/.test(error || '')) throw new Error(`stmatrix accepted for A: ${error}`);
+  }, mcabPanes);
+  step('partition_S/D: a StMatrix make_tiled_copy_C URL keeps its epilogue dtype in the manual editor', () => {
+    const url = '?key=make_tiled_copy_ab-C-f16bf16-half_t-float-16-(2,2,1)-(32,32,16)-stmatrix-4-0-16-warp-na-src_dst-half_t';
+    els.get(`${TAB}-psd-tensor-input`).value = '(32,32):(32,1)';
+    ctx.psdImportTiledCopy(TAB, url);
+    if (els.get(`${TAB}-psd-manual-dtype-input`).value !== 'half_t') throw new Error('manual editor lost the copy dtype');
+    const a = ctx.mtcDecodeURL(ctx.mtcReadManualConstructor(TAB, 'psd-manual')), b = ctx.mtcDecodeURL(ctx.parsePastedKeyParam(url));
+    if (a.dtype !== 'half_t' || b.dtype !== 'half_t' || fmtL(a.tv) !== fmtL(b.tv)) throw new Error('manual StMatrix TiledCopy diverged from its URL');
+  }, psdPanes);
   step('every MMA editor offers exactly MMA_ALL_OPS', () => {
     const want = JSON.stringify(Object.keys(ctx.MMA_ALL_OPS));
     const pickers = [...html.matchAll(/<select id="([^"]+-op-input)"[^>]*>([\s\S]*?)<\/select>/g)]

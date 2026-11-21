@@ -114,6 +114,11 @@ function generateTVTabContent(id) {
             <button class="preset-btn" onclick="setTVFromThrVal('${id}','(8,4):(1,8)','(2,2):(1,2)')">8x4 threads, 2x2 values (col-maj) &rarr; 16x8 tile</button>
             <button class="preset-btn" onclick="setTVFromThrVal('${id}','(16,2):(1,16)','(2,2):(1,2)')">32 threads (16x2), 2x2 values &rarr; 32x4 tile</button>
           </div>
+          <h3>Presets &mdash; ldmatrix bank conflicts</h3>
+          <div class="preset-list">
+            <button class="preset-btn" onclick="setTVSmem('${id}','((16,2),(8,1)):((1,128),(16,0))','(16, 16)','(16, 16):(64, 1)','half_t','','0')">ldmatrix .x4 SRC, 64-wide K-major SMEM, no swizzle &mdash; 8-way conflict</button>
+            <button class="preset-btn" onclick="setTVSmem('${id}','((16,2),(8,1)):((1,128),(16,0))','(16, 16)','(16, 16):(64, 1)','half_t','3, 3, 3','0')">Same, 128B swizzle (3, 3, 3 in half_t elements) &mdash; conflict-free</button>
+          </div>
         </div>
 
         <div class="hint">
@@ -126,7 +131,20 @@ function generateTVTabContent(id) {
           <code>make_layout_tv</code> returns <code>tiler_mn</code> as a plain
           shape tuple, and the TV layout's output is a column-major flat index
           into that tile. If you want a row-major visualization, encode that
-          in the TV layout's own strides rather than the tile.
+          in the TV layout's own strides rather than the tile.<br><br>
+          <b>Reading the ldmatrix presets.</b> The TV layout is the <b>SRC</b>
+          map from <code>make_tiled_copy_A</code> (one warp, <code>.x4</code>):
+          the lanes that supply SMEM row addresses. Each lane's 8 values are one
+          16-byte row, so V0 shows one cell per lane, and that row covers banks
+          #b to #b+3. ldmatrix serves one 8&times;8 matrix per phase: lanes 0&ndash;7,
+          8&ndash;15, 16&ndash;23, 24&ndash;31. Two lanes of the same phase on the same
+          bank conflict. Unswizzled, every row starts 128 B apart, so all 8 lanes
+          of a phase sit on bank #0: 8-way. The swizzle field is in
+          <em>element</em> units: CuTe's 128 B swizzle is <code>3, 3, 3</code> for
+          <code>half_t</code> (<code>3, 2, 3</code> for float), not the byte form
+          <code>Sw&lt;3,4,3&gt;</code> a TMA printout shows. For
+          <code>.x1</code>/<code>.x2</code>, only lanes 0&ndash;7 / 0&ndash;15 supply
+          addresses; ignore the rest.
         </div>
       </div>
 
@@ -648,7 +666,41 @@ function buildLegend(tabId, numT) {
   legend.innerHTML = html;
 }
 
+/** Preset helper for the SMEM bank check: TV + tile, the SMEM data layout,
+ *  dtype and swizzle, one value wave, and the bank view switched on. */
+function setTVSmem(tabId, tv, tile, smem, dtype, swizzle, wave) {
+  document.getElementById(`${tabId}-tv-layout-input`).value = tv;
+  document.getElementById(`${tabId}-tv-tile-input`).value = tile;
+  document.getElementById(`${tabId}-tv-thr-input`).value = '';
+  document.getElementById(`${tabId}-tv-val-input`).value = '';
+  document.getElementById(`${tabId}-tv-smem-input`).value = smem;
+  document.getElementById(`${tabId}-tv-smem-dtype`).value = dtype;
+  document.getElementById(`${tabId}-tv-swizzle-input`).value = swizzle;
+  document.getElementById(`${tabId}-tv-wave-input`).value = wave;
+  if (!tvState[tabId]) tvState[tabId] = {};
+  tvState[tabId].bankCheck = true;
+  tvState[tabId].coalCheck = false;
+  setTVSwizzle(tabId);
+  setTVWaveVid(tabId);
+  renderTV(tabId);
+}
+
+/** An ordinary preset defines a new tile, so an SMEM bank check left over
+ *  from the ldmatrix presets (a 16x16 data layout) would no longer fit it.
+ *  Turn the bank view off and clear its preset-only settings. */
+function tvResetSmemCheck(tabId) {
+  for (const key of ['smem-input', 'swizzle-input', 'wave-input'])
+    document.getElementById(`${tabId}-tv-${key}`).value = '';
+  if (!tvState[tabId]) tvState[tabId] = {};
+  tvState[tabId].bankCheck = false;
+  tvState[tabId].swizzle = null;
+  tvState[tabId].waveVid = null;
+  const btn = document.getElementById(`${tabId}-tv-bank-check-btn`);
+  if (btn) btn.classList.remove('active');
+}
+
 function setTV(tabId, tv, tile) {
+  tvResetSmemCheck(tabId);
   document.getElementById(`${tabId}-tv-layout-input`).value = tv;
   document.getElementById(`${tabId}-tv-tile-input`).value = tile;
   renderTV(tabId);
@@ -658,6 +710,7 @@ function setTV(tabId, tv, tile) {
  *  via `make_layout_tv`. Use this for presets that teach the thr/val mental
  *  model rather than the already-combined TV form. */
 function setTVFromThrVal(tabId, thr, val) {
+  tvResetSmemCheck(tabId);
   document.getElementById(`${tabId}-tv-thr-input`).value = thr;
   document.getElementById(`${tabId}-tv-val-input`).value = val;
   computeTVFromThrVal(tabId);

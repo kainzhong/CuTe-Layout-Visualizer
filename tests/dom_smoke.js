@@ -2129,6 +2129,33 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
   };
   const WG_SS = [64, 'SMEM', 'K', 'K', 'half_t'], WG_RS = [64, 'RMEM', 'K', 'K', 'half_t'];
 
+  step('TV bank presets: ldmatrix phase 0 is 8-way unswizzled, conflict-free with the 128B swizzle', () => {
+    // Read each cell's T/V/#bank label lines back out of the rendered SVG.
+    const lanesV0 = () => {
+      const texts = [...els.get(`${TAB}-tv-svg-host`).innerHTML.matchAll(/>([^<>]+)</g)].map(m => m[1].trim()).filter(Boolean);
+      const bank = new Map();
+      // Cell lines are T<tid>, V<vid>, [index when value labels are on], #<bank>.
+      for (let i = 0; i + 2 < texts.length; i++) {
+        const t = /^T(\d+)$/.exec(texts[i]);
+        if (!t || texts[i + 1] !== 'V0') continue;
+        const j = /^\d+$/.test(texts[i + 2]) ? i + 3 : i + 2;
+        if (/^#\d+$/.test(texts[j] || '')) bank.set(Number(t[1]), Number(texts[j].slice(1)));
+      }
+      return [...Array(8).keys()].map(l => bank.get(l));
+    };
+    const tv = '((16,2),(8,1)):((1,128),(16,0))';
+    ctx.setTVSmem(TAB, tv, '(16, 16)', '(16, 16):(64, 1)', 'half_t', '', '0');
+    const plain = lanesV0();
+    if (plain.some(b => b !== 0)) throw new Error(`unswizzled phase-0 banks = ${plain}`);
+    ctx.setTVSmem(TAB, tv, '(16, 16)', '(16, 16):(64, 1)', 'half_t', '3, 3, 3', '0');
+    const swz = lanesV0();
+    if (swz.some(b => b === undefined) || new Set(swz.map(b => b >> 2)).size !== 8)
+      throw new Error(`swizzled phase-0 banks = ${swz}: 8 lanes should cover 8 distinct 16B bank groups`);
+    // An ordinary preset afterwards must not inherit the 16x16 bank check.
+    ctx.setTVFromThrVal(TAB, '(4, 8):(8, 1)', '(2, 2):(2, 1)');
+    if (ctx.tvState[TAB].bankCheck || els.get(`${TAB}-tv-smem-input`).value || els.get(`${TAB}-tv-error`).textContent)
+      throw new Error('ordinary preset kept the ldmatrix bank check');
+  }, [`${TAB}-tv-svg-host`]);
   const tmaPanes = [`${TAB}-tma-src-svg`, `${TAB}-tma-dst-svg`], tpPanes = [`${TAB}-tp-s-svg`, `${TAB}-tp-g-svg`];
   step('make_tiled_tma_atom: the TMA store swaps SRC/DST and keeps the box', () => {
     ctx.setTMA(TAB, 'half_t', '(256, 128):(128, 1)', '3,4,3', '(8, 64):(64, 1)', '(8, 64)');

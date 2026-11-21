@@ -2075,6 +2075,9 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
       break;
     case 'tv':
       switchInnerTab(tabId, 'tv');
+      // The URL carries no SMEM/GMEM check settings; leftover ones belong to a
+      // different tile (see tvResetSmemCheck).
+      tvResetSmemCheck(tabId);
       if (method === '2') {
         // Method 2: thr_layout + val_layout → compute TV + Tile
         document.getElementById(`${tabId}-tv-thr-input`).value = inputs[0];

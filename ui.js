@@ -1506,6 +1506,9 @@ const COPY_OP_MOVES = {
   ldmatrix16x16x8b: [
     ['SMEM', 'RMEM'],
   ],
+  ldmatrix8x16x8b: [
+    ['SMEM', 'RMEM'],
+  ],
   // The four directional SIMT Ops: one legal pairing each, by construction —
   // the direction is in the Op's name and is baked into its MLIR type
   // (`!cute_nvgpu.atom.g2r<...>` etc.), not chosen at Atom-construction time.

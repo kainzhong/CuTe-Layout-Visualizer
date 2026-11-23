@@ -877,9 +877,15 @@ the 8x8 Op is exactly ldmatrix's two layouts swapped; the 16x8 Op's register sid
 ldmatrix's permutation exists to match this store; and it accepts `num_matrices = 1`, which the
 ldmatrix rejects. `COPY_OP_MOVES` gives both RMEM→SMEM.
 
-**Still missing from the family**: `LdMatrix8x16x8bOp` (the third 8-bit Op — `transpose` is
-*rejected* on it, `num_matrices` is `{1,2,4}`, and without unpacking the DSL notes it is equivalent
-to `8x8x16b`).
+**`LdMatrix8x16x8bOp` completes the family.** It loads 16 packed 4- or 6-bit values per 16 B row
+(`unpack_bits` 4 / 6, PTX `.m8n16 .b8x16.b{4,6}x16_p*`) into 8-bit register slots. Its ownership
+layouts equal `LdMatrix8x8x16bOp`'s for every dtype x `num_matrices` x `unpack_bits` (90
+`ldsm-8x16x8b-*` cases), and CuTeDSL builds exactly that atom when `unpack_bits=None`, so it shares
+the b16 geometry entry. `transpose` is `'forbidden'`: `mcaLdmatrixAtom` rejects it and
+`mcaSyncLdsmControls` pins the control to False, mirroring `'required'`. `unpack_bits` stays fixed
+to None like the other 8-bit Ops. Architectures (`gpu_check.py --ldmatrix`, compile-only per
+`CUTE_DSL_ARCH`): the unpacking forms execute on GB200 and libNVVM rejects them for sm_90a, as it
+does `LdMatrix16x16x8bOp` and `StMatrix16x8x8bOp`; `StMatrix8x8x16bOp` needs sm_90.
 
 **The atom's tile is ROW-major in its own codomain** — flat = `m*N + n`,
 `(matrixBytes/16)*num_matrices` rows of `128/elemBits` elements, one lane-addressed row per grid row.

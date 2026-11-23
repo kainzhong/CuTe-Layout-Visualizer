@@ -464,6 +464,7 @@ LDSM_OPS = {
     "ldsm8x8x16b": warp.LdMatrix8x8x16bOp,
     "ldsm16x8x8b": warp.LdMatrix16x8x8bOp,
     "ldsm16x16x8b": warp.LdMatrix16x16x8bOp,
+    "ldsm8x16x8b": warp.LdMatrix8x16x8bOp,
     # StMatrix shares the section: same geometry table, SRC/DST swapped.
     "stsm8x8x16b": warp.StMatrix8x8x16bOp,
     "stsm16x8x8b": warp.StMatrix16x8x8bOp,
@@ -683,7 +684,8 @@ def run_make_tiled_copy_ab(c):
                                    num_bits_per_copy=c["bits"])
     else:
         key = {"ldmatrix": "ldsm8x8x16b", "ldmatrix16x8x8b": "ldsm16x8x8b",
-               "ldmatrix16x16x8b": "ldsm16x16x8b", "stmatrix": "stsm8x8x16b",
+               "ldmatrix16x16x8b": "ldsm16x16x8b", "ldmatrix8x16x8b": "ldsm8x16x8b",
+               "stmatrix": "stsm8x8x16b",
                "stmatrix16x8x8b": "stsm16x8x8b"}[c["copy_op"]]
         atom = cute.make_copy_atom(LDSM_OPS[key](
             transpose=c["transpose"], num_matrices=c["num_matrices"]), dtype)
@@ -697,9 +699,10 @@ def run_make_tiled_copy_ab(c):
         thr = cute.make_layout(tv.shape[0], stride=tv.stride[0])
         return {"descriptor": True, "tv": canon(tv),
                 "warpgroup_broadcast": all(int(thr(t)) == int(thr(0)) for t in range(128))}
-    # A 256-thread WGMMA TiledCopy exceeds EVAL_CAP; run.js checks every grid
-    # entry against these maps, so record WGMMA side maps over their full domain.
-    full = (lambda L: record(L, int(cute.size(L)))) if "atom" in c else record
+    # run.js checks every grid entry against these maps, so record them over
+    # their full domain: a WGMMA TiledCopy, or an 8-bit .x1 one (128 threads x
+    # 64 values), exceeds EVAL_CAP.
+    full = lambda L: record(L, int(cute.size(L)))
     return {"tv": full(tc.layout_tv_tiled), "src": full(tc.layout_src_tv_tiled),
             "dst": full(tc.layout_dst_tv_tiled), "tiler_mn": canon(tc.tiler_mn),
             "tile": tile, "atom_src": record(atom.layout_src_tv),

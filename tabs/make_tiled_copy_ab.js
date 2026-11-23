@@ -7,11 +7,11 @@
 // RMEM -> SMEM (stmatrix, or SIMT) or a SIMT load of a C source. `s2r` / `r2s`
 // are CopyUniversalOp presented in that direction.
 const MCAB_OPERAND_COPY_OPS = {
-  A: ['ldmatrix', 'ldmatrix16x8x8b', 'ldmatrix16x16x8b', 's2r'],
-  B: ['ldmatrix', 'ldmatrix16x8x8b', 'ldmatrix16x16x8b', 's2r'],
+  A: ['ldmatrix', 'ldmatrix16x8x8b', 'ldmatrix16x16x8b', 'ldmatrix8x16x8b', 's2r'],
+  B: ['ldmatrix', 'ldmatrix16x8x8b', 'ldmatrix16x16x8b', 'ldmatrix8x16x8b', 's2r'],
   C: ['stmatrix', 'stmatrix16x8x8b', 'r2s', 's2r'],
 };
-const MCAB_COPY_OPS = ['ldmatrix', 'ldmatrix16x8x8b', 'ldmatrix16x16x8b', 'stmatrix', 'stmatrix16x8x8b', 's2r', 'r2s'];
+const MCAB_COPY_OPS = ['ldmatrix', 'ldmatrix16x8x8b', 'ldmatrix16x16x8b', 'ldmatrix8x16x8b', 'stmatrix', 'stmatrix16x8x8b', 's2r', 'r2s'];
 
 /** make_tiled_copy_ab URL fields -> the optional copy dtype for operand C. It
  *  follows the Op-specific TiledMMA tail (WGMMA: 5 fields, warp MMA: none), so

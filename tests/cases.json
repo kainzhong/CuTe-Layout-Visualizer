@@ -1970,6 +1970,696 @@
       "dtype": "int64_t",
       "num_matrices": 4,
       "transpose": true
+    },
+    {
+      "id": "ldsm-8x16x8b-int8_t-x1-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "int8_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-int8_t-x1-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "int8_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-int8_t-x1-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "int8_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-int8_t-x2-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "int8_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-int8_t-x2-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "int8_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-int8_t-x2-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "int8_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-int8_t-x4-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "int8_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-int8_t-x4-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "int8_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-int8_t-x4-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "int8_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-uint8_t-x1-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint8_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-uint8_t-x1-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint8_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-uint8_t-x1-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint8_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-uint8_t-x2-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint8_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-uint8_t-x2-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint8_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-uint8_t-x2-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint8_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-uint8_t-x4-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint8_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-uint8_t-x4-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint8_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-uint8_t-x4-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint8_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-half_t-x1-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "half_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-half_t-x1-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "half_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-half_t-x1-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "half_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-half_t-x2-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "half_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-half_t-x2-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "half_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-half_t-x2-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "half_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-half_t-x4-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "half_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-half_t-x4-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "half_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-half_t-x4-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "half_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-bfloat16_t-x1-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-bfloat16_t-x1-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-bfloat16_t-x1-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-bfloat16_t-x2-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-bfloat16_t-x2-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-bfloat16_t-x2-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-bfloat16_t-x4-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-bfloat16_t-x4-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-bfloat16_t-x4-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "bfloat16_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-uint16_t-x1-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint16_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-uint16_t-x1-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint16_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-uint16_t-x1-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint16_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-uint16_t-x2-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint16_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-uint16_t-x2-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint16_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-uint16_t-x2-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint16_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-uint16_t-x4-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint16_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-uint16_t-x4-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint16_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-uint16_t-x4-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "uint16_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-float-x1-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "float",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-float-x1-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "float",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-float-x1-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "float",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-float-x2-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "float",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-float-x2-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "float",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-float-x2-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "float",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-float-x4-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "float",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-float-x4-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "float",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-float-x4-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "float",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-int32_t-x1-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "int32_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-int32_t-x1-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "int32_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-int32_t-x1-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "int32_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-int32_t-x2-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "int32_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-int32_t-x2-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "int32_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-int32_t-x2-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "int32_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-int32_t-x4-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "int32_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-int32_t-x4-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "int32_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-int32_t-x4-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "int32_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-tfloat32_t-x1-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-tfloat32_t-x1-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-tfloat32_t-x1-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-tfloat32_t-x2-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-tfloat32_t-x2-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-tfloat32_t-x2-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-tfloat32_t-x4-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-tfloat32_t-x4-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-tfloat32_t-x4-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "tfloat32_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-double-x1-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "double",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-double-x1-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "double",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-double-x1-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "double",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-double-x2-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "double",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-double-x2-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "double",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-double-x2-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "double",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-double-x4-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "double",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-double-x4-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "double",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-double-x4-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "double",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-int64_t-x1-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "int64_t",
+      "num_matrices": 1,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-int64_t-x1-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "int64_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-int64_t-x1-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "int64_t",
+      "num_matrices": 1,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-int64_t-x2-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "int64_t",
+      "num_matrices": 2,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-int64_t-x2-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "int64_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-int64_t-x2-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "int64_t",
+      "num_matrices": 2,
+      "transpose": false,
+      "unpack_bits": 6
+    },
+    {
+      "id": "ldsm-8x16x8b-int64_t-x4-N",
+      "op": "ldsm8x16x8b",
+      "dtype": "int64_t",
+      "num_matrices": 4,
+      "transpose": false
+    },
+    {
+      "id": "ldsm-8x16x8b-int64_t-x4-N-u4",
+      "op": "ldsm8x16x8b",
+      "dtype": "int64_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 4
+    },
+    {
+      "id": "ldsm-8x16x8b-int64_t-x4-N-u6",
+      "op": "ldsm8x16x8b",
+      "dtype": "int64_t",
+      "num_matrices": 4,
+      "transpose": false,
+      "unpack_bits": 6
     }
   ],
   "_comment_mma_atom": [
@@ -5619,6 +6309,90 @@
       "transpose": false,
       "bits": 32,
       "copy_dtype": "half_t"
+    },
+    {
+      "id": "A_fp8_ldsm8x16x8b_x4",
+      "operand": "A",
+      "op": "fp8",
+      "ab_dtype": "float_e4m3_t",
+      "acc_dtype": "float",
+      "k": 32,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,32)",
+      "copy_op": "ldmatrix8x16x8b",
+      "num_matrices": 4,
+      "transpose": false,
+      "bits": 16
+    },
+    {
+      "id": "A_fp8_ldsm8x16x8b_x2",
+      "operand": "A",
+      "op": "fp8",
+      "ab_dtype": "float_e4m3_t",
+      "acc_dtype": "float",
+      "k": 32,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,32)",
+      "copy_op": "ldmatrix8x16x8b",
+      "num_matrices": 2,
+      "transpose": false,
+      "bits": 16
+    },
+    {
+      "id": "A_fp8_ldsm8x16x8b_x1",
+      "operand": "A",
+      "op": "fp8",
+      "ab_dtype": "float_e4m3_t",
+      "acc_dtype": "float",
+      "k": 32,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,32)",
+      "copy_op": "ldmatrix8x16x8b",
+      "num_matrices": 1,
+      "transpose": false,
+      "bits": 16
+    },
+    {
+      "id": "B_fp8_ldsm8x16x8b_x4",
+      "operand": "B",
+      "op": "fp8",
+      "ab_dtype": "float_e4m3_t",
+      "acc_dtype": "float",
+      "k": 32,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,32)",
+      "copy_op": "ldmatrix8x16x8b",
+      "num_matrices": 4,
+      "transpose": false,
+      "bits": 16
+    },
+    {
+      "id": "B_e5m2_ldsm8x16x8b_x2",
+      "operand": "B",
+      "op": "fp8",
+      "ab_dtype": "float_e5m2_t",
+      "acc_dtype": "float",
+      "k": 32,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,32)",
+      "copy_op": "ldmatrix8x16x8b",
+      "num_matrices": 2,
+      "transpose": false,
+      "bits": 16
+    },
+    {
+      "id": "A_f16_ldsm8x16x8b_x4",
+      "operand": "A",
+      "op": "f16bf16",
+      "ab_dtype": "half_t",
+      "acc_dtype": "float",
+      "k": 16,
+      "atom_layout": "(2,2,1)",
+      "perm": "(32,32,16)",
+      "copy_op": "ldmatrix8x16x8b",
+      "num_matrices": 4,
+      "transpose": false,
+      "bits": 16
     }
   ],
   "index": [

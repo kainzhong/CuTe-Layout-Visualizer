@@ -473,7 +473,7 @@ def main():
     return 0
 
 
-def run_stmatrix_tiled_c(case):
+def run_stmatrix_tiled_c(case, compile_only=False):
     """make_tiled_copy_C with a StMatrix atom, executed: every thread fills its
     accumulator fragment with each element's logical index m*N + n, retiles it
     to the TiledCopy, stmatrix-stores it into SMEM, and the CTA copies SMEM
@@ -536,9 +536,12 @@ def run_stmatrix_tiled_c(case):
         kern(pout).launch(grid=(1, 1, 1), block=(T, 1, 1), smem=M * N * width // 8 + 256)
 
     out = np.full((M, N), -1, nty)
-    pout = to_device(out)
+    pout = to_device(out) if not compile_only else 0x1000
     p = cute.runtime.make_ptr(ity, int(pout), cute.AddressSpace.gmem, assumed_align=16)
-    cute.compile(launch, p)(p)
+    compiled = cute.compile(launch, p)
+    if compile_only:
+        return 0
+    compiled(p)
     ck(drv.cuCtxSynchronize())
     got = from_device(pout, out).astype(np.int64)
     want = (np.arange(M * N).reshape(M, N) & (0xFFFF if width == 16 else 0xFF)).astype(np.int64)
@@ -549,16 +552,162 @@ def run_stmatrix_tiled_c(case):
     return int((got != want).sum())
 
 
-def stmatrix_main():
+def run_ldmatrix_tiled_ab(case, compile_only=False):
+    """make_tiled_copy_A/B with an LdMatrix atom, executed: SMEM holds each
+    element's index r*C + c, the TiledCopy ldmatrix-loads it into the MMA
+    fragment, and every thread writes each fragment value back to GMEM at the
+    fragment's own logical coordinate. Every element must come back as its own
+    index. Same-width integer types, as for stmatrix. Returns wrong elements."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from gen_reference import make_any_mma_op, parse_tiled_mma_perm, parse_layout
+    from cutlass.memory import SmemAllocator
+    cfg = {"op": case["op"], "ab_dtype": case["ab_dtype"], "acc_dtype": case["acc_dtype"], "k": case["k"]}
+    # The element width, not the Op's unit: FP8 through the b16 Op is 8-bit data.
+    width = 8 if case["ab_dtype"].startswith("float_e") or case["ab_dtype"] in ("int8_t", "uint8_t") else 16
+    ity, nty = (cutlass.Int16, np.int16) if width == 16 else (cutlass.Int8, np.int8)
+    ops = {"ldmatrix": warp.LdMatrix8x8x16bOp, "ldmatrix16x8x8b": warp.LdMatrix16x8x8bOp,
+           "ldmatrix16x16x8b": warp.LdMatrix16x16x8bOp, "ldmatrix8x16x8b": warp.LdMatrix8x16x8bOp}
+    kwargs = {"transpose": bool(case["transpose"]), "num_matrices": case["num_matrices"]}
+    if case.get("unpack_bits"):
+        kwargs["unpack_bits"] = case["unpack_bits"]
+    operand, trans = case["operand"], bool(case["transpose"])
+
+    def build():
+        tmma = cute.make_tiled_mma(cute.make_mma_atom(make_any_mma_op(cfg)),
+                                   parse_layout(case["atom_layout"]), parse_tiled_mma_perm(case["perm"]))
+        atom = cute.make_copy_atom(ops[case["copy_op"]](**kwargs), ity)
+        maker = cute.make_tiled_copy_A if operand == "A" else cute.make_tiled_copy_B
+        return tmma, maker(atom, tmma)
+
+    sizes = {}
+
+    @cute.jit
+    def probe():
+        tmma, _ = build()
+        mnk = [int(tmma.get_tile_size(i)) for i in range(3)]
+        sizes["R"], sizes["C"] = (mnk[0], mnk[2]) if operand == "A" else (mnk[1], mnk[2])
+        sizes["T"] = int(cute.size(tmma))
+    try:
+        probe()
+    except Exception:                                       # noqa: BLE001
+        pass
+    R, C, T = sizes["R"], sizes["C"], sizes["T"]
+    # ldmatrix reads 16 B rows: along K for the plain form, along M/N for .trans.
+    # The 8-bit transposing Ops can want the other orientation, so the copy is
+    # compiled with the expected one first and the other if that fails.
+    orders = [((R, C), (1, R)), ((R, C), (C, 1))] if trans else [((R, C), (C, 1)), ((R, C), (1, R))]
+    for slay in orders:
+        try:
+            return _run_ldmatrix(case, build, ity, nty, width, operand, R, C, T, slay, compile_only)
+        except Exception as e:                              # noqa: BLE001
+            if "alignment" not in str(e) or slay is orders[-1]:
+                raise
+
+
+def _run_ldmatrix(case, build, ity, nty, width, operand, R, C, T, slay, compile_only):
+    from cutlass.memory import SmemAllocator
+
+    @cute.kernel
+    def kern(pout: cute.Pointer):
+        tid, _, _ = cute.arch.thread_idx()
+        tmma, tc = build()
+        thr_mma, thr_copy = tmma.get_slice(tid), tc.get_slice(tid)
+        sT = SmemAllocator().allocate_tensor(ity, cute.make_layout(slay[0], stride=slay[1]), 128)
+        for k in cutlass.range_constexpr((R * C + T - 1) // T):
+            i = tid + k * T
+            if i < R * C:
+                sT[i] = ity((i % R) * C + i // R)        # colexicographic i -> (r, c)
+        cute.arch.barrier()
+        ident = cute.make_identity_tensor((R, C))
+        tCc = thr_mma.partition_A(ident) if operand == "A" else thr_mma.partition_B(ident)
+        frag = cute.make_fragment_like(tCc, ity)
+        cute.copy(tc, thr_copy.partition_S(sT), thr_copy.retile(frag))
+        gOut = cute.make_tensor(pout, cute.make_layout(R * C))
+        for i in cutlass.range_constexpr(cute.size(frag)):
+            r, c = tCc[i]
+            gOut[r * C + c] = frag[i]
+
+    @cute.jit
+    def launch(pout: cute.Pointer):
+        kern(pout).launch(grid=(1, 1, 1), block=(T, 1, 1), smem=R * C * width // 8 + 256)
+
+    out = np.full(R * C, -1, nty)
+    pout = to_device(out) if not compile_only else 0x1000
+    p = cute.runtime.make_ptr(ity, int(pout), cute.AddressSpace.gmem, assumed_align=16)
+    compiled = cute.compile(launch, p)
+    if compile_only:
+        return 0
+    compiled(p)
+    ck(drv.cuCtxSynchronize())
+    got = from_device(pout, out).astype(np.int64)
+    mask = 0xFFFF if width == 16 else 0xFF
+    want = (np.arange(R * C) & mask).astype(np.int64)
+    want = np.where(want > mask // 2, want - mask - 1, want)
+    return int((got != want).sum())
+
+
+def ldmatrix_one_main():
     import json
     from pathlib import Path
     ck(drv.cuInit(0))
-    dev = ck(drv.cuDeviceGet(0))
-    major = ck(drv.cuDeviceGetAttribute(
-        drv.CUdevice_attribute.CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, dev))
-    if major < 9:
-        sys.exit(f"stmatrix requires SM90 or newer; this device is SM{major}x.")
-    ck(drv.cuCtxCreate(0, dev))
+    ck(drv.cuCtxCreate(0, ck(drv.cuDeviceGet(0))))
+    case_id = sys.argv[sys.argv.index("--ldmatrix-one") + 1]
+    case = next(c for c in json.loads(Path(__file__).with_name("cases.json").read_text())["make_tiled_copy_ab"]
+                if c["id"] == case_id)
+    bad = run_ldmatrix_tiled_ab(case)
+    if bad:
+        sys.exit(f"{bad} elements misplaced")
+    return 0
+
+
+def ldmatrix_main():
+    import json
+    from pathlib import Path
+    compile_only = "--compile-only" in sys.argv
+    if not compile_only:
+        ck(drv.cuInit(0))
+        ck(drv.cuCtxCreate(0, ck(drv.cuDeviceGet(0))))
+    case_filter = sys.argv[sys.argv.index("--case") + 1] if "--case" in sys.argv else ""
+    cases = [c for c in json.loads(Path(__file__).with_name("cases.json").read_text())["make_tiled_copy_ab"]
+             if c["operand"] in ("A", "B") and c["copy_op"].startswith("ldmatrix") and case_filter in c["id"]]
+    verb = "compiled for " + os.environ.get("CUTE_DSL_ARCH", "the default arch") if compile_only else "executed"
+    print(f"make_tiled_copy_A/B(LdMatrix) -- {verb}")
+    failures = []
+    for case in cases:
+        if compile_only:
+            try:
+                run_ldmatrix_tiled_ab(case, True)
+                print(f"  ok    {case['id']}", flush=True)
+            except Exception as e:                          # noqa: BLE001
+                print(f"  FAIL  {case['id']}  {type(e).__name__}: {' '.join(str(e).split())[:220]}", flush=True)
+                failures.append(case["id"])
+            continue
+        # One process per case: a fault poisons the CUDA context for the rest.
+        import subprocess
+        p = subprocess.run([sys.executable, os.path.abspath(__file__), "--ldmatrix-one", case["id"]],
+                           capture_output=True, text=True, timeout=600)
+        if p.returncode == 0:
+            print(f"  ok    {case['id']}", flush=True)
+        else:
+            msg = " ".join((p.stdout + p.stderr).split())
+            print(f"  FAIL  {case['id']}  {msg[-220:]}", flush=True)
+            failures.append(case["id"])
+    print(f"{len(cases) - len(failures)}/{len(cases)} LdMatrix cases {verb}")
+    return 1 if failures else 0
+
+
+def stmatrix_main():
+    import json
+    from pathlib import Path
+    compile_only = "--compile-only" in sys.argv
+    if not compile_only:
+        ck(drv.cuInit(0))
+        dev = ck(drv.cuDeviceGet(0))
+        major = ck(drv.cuDeviceGetAttribute(
+            drv.CUdevice_attribute.CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, dev))
+        if major < 9:
+            sys.exit(f"stmatrix requires SM90 or newer; this device is SM{major}x.")
+        ck(drv.cuCtxCreate(0, dev))
     case_filter = sys.argv[sys.argv.index("--case") + 1] if "--case" in sys.argv else ""
     # Warp-MMA make_tiled_copy_C cases with a StMatrix atom. (WGMMA cases share
     # the instruction; their layouts are oracle-checked in the SM90a worker.)
@@ -568,7 +717,7 @@ def stmatrix_main():
     failures = []
     for case in cases:
         try:
-            bad = run_stmatrix_tiled_c(case)
+            bad = run_stmatrix_tiled_c(case, compile_only)
             if bad:
                 raise AssertionError(f"{bad} elements misplaced")
             print(f"  ok    {case['id']}", flush=True)
@@ -583,4 +732,6 @@ if __name__ == "__main__":
     sys.exit(warpgroup_main() if "--warpgroup" in sys.argv
              else tma_one_main() if "--tma-one" in sys.argv
              else stmatrix_main() if "--stmatrix" in sys.argv
+             else ldmatrix_one_main() if "--ldmatrix-one" in sys.argv
+             else ldmatrix_main() if "--ldmatrix" in sys.argv
              else tma_main() if "--tma" in sys.argv else main())

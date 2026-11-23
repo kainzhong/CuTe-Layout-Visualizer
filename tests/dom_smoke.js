@@ -2196,6 +2196,18 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     if (exported.at(-1) !== 'tma_s2g' || els.get(`${TAB}-tp-op-input`).value !== 'tma_s2g') throw new Error('store lost in URL');
   }, tpPanes);
 
+  step('make_copy_atom: LdMatrix8x16x8bOp pins transpose to False and draws 8x8x16b ownership', () => {
+    ctx.setMCA(TAB, 'ldmatrix8x16x8b', 128, 'uint8_t', 4, 1);
+    const tr = els.get(`${TAB}-mca-trans-input`);
+    if (tr.value !== '0' || !tr.disabled) throw new Error('transpose not pinned to False');
+    const panes = [`${TAB}-mca-src-svg`, `${TAB}-mca-dst-svg`].map(id => els.get(id).innerHTML);
+    ctx.setMCA(TAB, 'ldmatrix', 128, 'uint8_t', 4, 0);
+    if ([`${TAB}-mca-src-svg`, `${TAB}-mca-dst-svg`].some((id, i) => els.get(id).innerHTML !== panes[i]))
+      throw new Error('LdMatrix8x16x8bOp ownership differs from LdMatrix8x8x16bOp');
+    let msg = '';
+    try { ctx.mcaDecodeAtomURL('?key=make_copy_atom-ldmatrix8x16x8b-128-uint8_t-4-1'); } catch (e) { msg = e.message; }
+    if (!/does not support transpose/.test(msg)) throw new Error('transposed LdMatrix8x16x8bOp URL accepted');
+  }, [`${TAB}-mca-src-svg`, `${TAB}-mca-dst-svg`]);
   step('make_copy_atom: StMatrix stores RMEM -> SMEM with the addresses on DST', () => {
     ctx.setMCA(TAB, 'stmatrix', 128, 'half_t', 1, 0);
     expectBadge('mca-src', 'RMEM'); expectBadge('mca-dst', 'SMEM');

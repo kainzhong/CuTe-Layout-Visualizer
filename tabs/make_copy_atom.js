@@ -59,6 +59,22 @@ const MCA_OPS = {
           'what makes its <code>ValLayoutSrc</code> a rank-4 thread mode. Useful for ' +
           'vectorizing against Ampere-style 8x8 thread-value layouts.',
   },
+  ldmatrix8x16x8b: {
+    label: 'warp.LdMatrix8x16x8bOp',
+    ctor: 'cute.nvgpu.warp.LdMatrix8x16x8bOp(transpose=False, num_matrices, unpack_bits)',
+    kind: 'ldmatrix',
+    ldsm: 'ldsm8x16x8b',
+    cpasync: false,
+    params: ['num_matrices'],
+    note: 'PTX <code>.m8n16</code> with <code>.b8x16.b4x16_p64</code> / ' +
+          '<code>.b8x16.b6x16_p32</code> (SM100+): each 16 B SMEM row holds 16 packed ' +
+          '4- or 6-bit values plus padding, unpacked into 8-bit register slots &mdash; how ' +
+          'FP4/FP6 operands reach registers. Not a TMEM copy. Its ownership layouts equal ' +
+          '<code>LdMatrix8x8x16bOp</code>\'s for every dtype, <code>num_matrices</code> and ' +
+          '<code>unpack_bits</code> (CuTeDSL builds exactly that atom when ' +
+          '<code>unpack_bits=None</code>), so the picture is the same; <code>unpack_bits</code> ' +
+          'only selects the packed source format. <code>transpose</code> is rejected.',
+  },
   // The StMatrix family: warp-collective RMEM->SMEM stores, ldmatrix's mirror.
   // Same geometry table (MCA_LDSM_SPECS), with `store: true` swapping which
   // side carries the SMEM row addresses.
@@ -154,6 +170,19 @@ const MCA_LDSM_SPECS = {
     unpackBits: [0, 4, 6],
     kind: 'b8',
   },
+  // LdMatrix8x16x8bOp: the packed 4/6-bit -> 8-bit unpacking load. CuTeDSL
+  // gives it LdMatrix8x8x16bOp's layouts for every dtype x num_matrices x
+  // unpack_bits (and builds exactly that atom when unpack_bits=None), so it
+  // shares the b16 geometry; transpose is rejected rather than optional.
+  ldsm8x16x8b: {
+    op: 'LdMatrix8x16x8bOp',
+    ptx: 'ldmatrix.sync.aligned.m8n16.x{1,2,4}.shared.b8x16.{b4x16_p64,b6x16_p32}',
+    matrix: '8x8', unitBits: 16, matrixBytes: 128,
+    numMatrices: [1, 2, 4],
+    transpose: 'forbidden',
+    unpackBits: [0, 4, 6],
+    kind: 'b16',
+  },
   // StMatrix. `store: true`: the computed layouts are swapped, so SRC is the
   // register side and DST the SMEM row addresses. Checked against CuTeDSL for
   // every dtype x num_matrices x transpose (section `ldmatrix_atom`).
@@ -210,6 +239,8 @@ const MCA_PRESETS = [
   { op: 'ldmatrix16x16x8b', bits: 128, dtype: 'int8_t', nm: 1, tr: 1, label: '.x1 int8_t &mdash; 16 lanes per matrix' },
   { op: 'ldmatrix16x16x8b', bits: 128, dtype: 'int8_t', nm: 2, tr: 1, label: '.x2 int8_t &mdash; all 32 lanes' },
   { op: 'ldmatrix16x16x8b', bits: 128, dtype: 'half_t', nm: 2, tr: 1, label: '.x2 half_t &mdash; 32x8 tile' },
+  { op: 'ldmatrix8x16x8b', bits: 128, dtype: 'uint8_t', nm: 4, tr: 0, label: '.x4 &mdash; 16 unpacked 8-bit values per row, all 32 lanes' },
+  { op: 'ldmatrix8x16x8b', bits: 128, dtype: 'uint8_t', nm: 1, tr: 0, label: '.x1 &mdash; 8 lanes address' },
   { op: 'stmatrix', bits: 128, dtype: 'half_t', nm: 4, tr: 0, label: '.x4 half_t &mdash; the epilogue store, all 32 lanes address' },
   { op: 'stmatrix', bits: 128, dtype: 'half_t', nm: 4, tr: 1, label: '.x4.trans half_t &mdash; store into M-major SMEM' },
   { op: 'stmatrix', bits: 128, dtype: 'half_t', nm: 1, tr: 0, label: '.x1 half_t &mdash; 8 lanes address' },
@@ -266,6 +297,9 @@ function mcaLdmatrixAtom(opKey, elemBits, numMatrices, transpose) {
     throw new Error(
       `num_matrices must be one of ${spec.numMatrices.join(', ')} for ` +
       `${spec.op} (got ${k}) — __post_init__ rejects anything else.`);
+  if (spec.transpose === 'forbidden' && transpose)
+    throw new Error(`${spec.op} does not support transpose — __post_init__ raises ` +
+                    `"Op doesn't support transpose".`);
   if (spec.transpose === 'required' && !transpose)
     throw new Error(`${spec.op} only supports transpose — it raises ` +
                     `"Op only supports transpose" when transpose=False.`);
@@ -380,6 +414,7 @@ ${copyMoveField(id, 'mca')}
                 <option value="ldmatrix">warp.LdMatrix8x8x16bOp</option>
                 <option value="ldmatrix16x8x8b">warp.LdMatrix16x8x8bOp</option>
                 <option value="ldmatrix16x16x8b">warp.LdMatrix16x16x8bOp</option>
+                <option value="ldmatrix8x16x8b">warp.LdMatrix8x16x8bOp</option>
                 <option value="stmatrix">warp.StMatrix8x8x16bOp</option>
                 <option value="stmatrix16x8x8b">warp.StMatrix16x8x8bOp</option>
               </select>
@@ -477,8 +512,11 @@ ${copyMoveField(id, 'mca')}
           unpacking is outside this layout visualization. On the supported
           8-bit Ops it changes the instruction's data interpretation, while
           leaving the SRC/DST ownership layouts unchanged. The 16-bit Op
-          rejects unpacking. <code>LdMatrix8x16x8bOp</code> is the family member
-          still missing.<br><br>
+          rejects unpacking.<br><br>
+          <b>LdMatrix8x16x8bOp unpacks FP4/FP6.</b> Each 16 B SMEM row holds 16
+          packed 4- or 6-bit values (<code>unpack_bits</code>) that land in 8-bit
+          register slots. Its ownership layouts are <code>LdMatrix8x8x16bOp</code>'s,
+          so it draws the same; <code>transpose</code> is rejected.<br><br>
           <b>StMatrix is ldmatrix in reverse.</b> <code>StMatrix8x8x16bOp</code>
           and <code>StMatrix16x8x8bOp</code> store registers to SMEM, so the
           <em>destination</em> is the addressing pattern and the <em>source</em> is
@@ -625,7 +663,7 @@ function mcaRenderLdmatrix(tabId, opKey, op, dtype, elemBits, prev) {
   const spec = MCA_LDSM_SPECS[op.ldsm];
   const nm = parseInt(document.getElementById(`${tabId}-mca-nm-input`).value, 10);
   const transpose = spec.transpose === 'required' ||
-                    document.getElementById(`${tabId}-mca-trans-input`).value === '1';
+                    (spec.transpose !== 'forbidden' && document.getElementById(`${tabId}-mca-trans-input`).value === '1');
   const unpackBits = null; // CuTeDSL unpack_bits=None; packed-source unpacking is not exposed.
   const a = mcaLdmatrixAtom(op.ldsm, elemBits, nm, transpose);
 
@@ -736,10 +774,13 @@ function mcaSyncLdsmControls(tabId, spec, p) {
   // constructor throws on would be a control that only produces errors.
   const trSel = document.getElementById(`${tabId}-${p}-trans-input`);
   if (trSel) {
-    const required = spec.transpose === 'required';
+    // A forbidden one is pinned to False the same way.
+    const required = spec.transpose === 'required', forbidden = spec.transpose === 'forbidden';
     if (required) trSel.value = '1';
-    trSel.disabled = required;
-    trSel.title = required ? `${spec.op} only supports transpose` : '';
+    if (forbidden) trSel.value = '0';
+    trSel.disabled = required || forbidden;
+    trSel.title = required ? `${spec.op} only supports transpose`
+                : forbidden ? `${spec.op} does not support transpose` : '';
   }
 
 }

@@ -180,6 +180,29 @@ stmatrix-stores into SMEM and reads SMEM back; every element must hold its own i
 types exactly, 8-bit types mod 256). Validated with CuTeDSL 4.8.0 on NVIDIA GB200: 15/15. The
 atom layouts themselves are the 90 `stsm-*` cases in the `ldmatrix_atom` oracle section.
 
+## LdMatrix
+
+```bash
+python3 tests/gpu_check.py --ldmatrix                                   # execute
+CUTE_DSL_ARCH=sm_90a python3 tests/gpu_check.py --ldmatrix --compile-only  # target check
+```
+
+For each `make_tiled_copy_A/B` case with an LdMatrix atom, SMEM holds each element's index, the
+TiledCopy loads it into the MMA fragment, and every thread writes the fragment back at its logical
+coordinates; every element must return as its own index. Each case runs in its own process (a
+fault poisons the CUDA context). `--compile-only` with `CUTE_DSL_ARCH` checks which architectures
+accept an Op; `--stmatrix --compile-only` does the same for StMatrix.
+
+Results with CuTeDSL 4.8.0 (GB200 execution; sm_90a / sm_80 compile-only): every 16-bit
+`LdMatrix8x8x16bOp` case and its FP8 uses execute correctly and compile for sm_90a (the 16-bit
+ones also for sm_80). `LdMatrix16x16x8bOp`, `StMatrix16x8x8bOp` and the unpacking forms of `LdMatrix8x16x8bOp`
+execute on GB200 but libNVVM rejects them for sm_90a: they are Blackwell-only. (With
+`unpack_bits=None`, `LdMatrix8x16x8bOp` is `LdMatrix8x8x16bOp`; its 6 `make_tiled_copy_A/B`
+cases execute correctly.) `StMatrix8x8x16bOp` compiles for sm_90a, not
+sm_80. Cases that permute K/N, and the FP8 `LdMatrix16x8x8bOp` / B-operand `16x16x8b` cases, need
+an SMEM arrangement a plain row- or column-major tile cannot give (CuTe cannot prove 16 B
+contiguity), so the harness cannot exercise them.
+
 ## WGMMA in every MMA consumer
 
 Every MMA tab offers every MMA Op, so each consumer has a WGMMA oracle section, traced

@@ -175,11 +175,12 @@ See [`AGENTS.md`](AGENTS.md) for the working conventions and
 
 `CopyUniversalOp` and `cpasync.CopyG2SOp` are covered by a single merged tab (their `Copy_Traits` are byte-identical, so one visualization suffices). Four more tabs, each with dropdown-driven variants, cover everything non-trivial that's left. Rough order by implementation complexity:
 
-1. **Remaining warp matrix copy Op** — `make_copy_atom` already includes
-   `warp.LdMatrix8x8x16bOp`, `warp.LdMatrix16x8x8bOp`, `warp.LdMatrix16x16x8bOp`,
-   `warp.StMatrix8x8x16bOp` and `warp.StMatrix16x8x8bOp`, with transpose,
-   matrix-count, and dtype controls; `unpack_bits` is fixed to `None` because it
-   does not change the drawn layouts. `LdMatrix8x16x8bOp` remains.
+1. **Warp matrix copy Ops — complete.** `make_copy_atom` includes every one CuTeDSL has:
+   `warp.LdMatrix8x8x16bOp` (SM75+), `warp.StMatrix8x8x16bOp` (SM90+), and the SM100+
+   `warp.LdMatrix16x8x8bOp`, `warp.LdMatrix16x16x8bOp`, `warp.LdMatrix8x16x8bOp` (the
+   packed FP4/FP6 → 8-bit unpacking load) and `warp.StMatrix16x8x8bOp`, with transpose,
+   matrix-count, and dtype controls; `unpack_bits` is fixed to `None` because it does not
+   change the drawn layouts.
 
 2. **TMA bulk tensor** (`cpasync.CopyBulk*`) — *partly built*: the **make_tiled_tma_atom** tab covers `CopyBulkTensorTileG2SOp` (plain `.tile` load, `num_multicast = 1`) and `CopyBulkTensorTileS2GOp` (plain `.tile` store) over a flat GMEM tensor of rank 2 to 5, such as a batched `(M, K, L)`. Still to come, each a clean extension of the same pipeline:
    - Variant picker: `LOAD_MULTICAST` (`num_multicast > 1` truncates the box), `REDUCE_ADD`. Optionally the non-tensor `BULK_COPY_G2S` / `BULK_COPY_S2G`.

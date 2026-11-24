@@ -4,7 +4,7 @@ const tabSessionState = {initialized: false, restoring: false, timer: null, laun
 const TAB_SESSION_PREFERENCES = new Set([
   'which','side','copyURL','mmaInputs','inputs','altView','showValue','mode',
   'bankCheck','coalCheck','bankToHighlight','waveVid','swizzle',
-  'tileMode','boxMode','sweepMode','extraMode','srcMode','dstMode',
+  'tileMode','boxMode','sweepMode','extraMode','srcMode','dstMode','tmemMode','regMode',
 ]);
 
 function tabSessionStores() {
@@ -12,7 +12,7 @@ function tabSessionStores() {
     make_smem_layout_epi: smlState.epi,
     tv: tvState, make_mma_atom: mmaState, make_tiled_mma: mtmState,
     make_copy_atom: mcaState, make_tiled_copy: mtcState, make_tiled_copy_tv: mtvState,
-    make_tiled_copy_ab: mcabState, make_tiled_tma_atom: tmaState, tma_partition: tpState,
+    make_tiled_copy_ab: mcabState, make_tmem_copy: tmcState, make_tiled_tma_atom: tmaState, tma_partition: tpState,
     partition_sd: psdState, partition_abc: pabcState, partition_shape_abc: pshpState, make_fragment_abc: mfragState, gemm: gemmState};
 }
 
@@ -26,7 +26,7 @@ function tabSessionEncode(value) {
 
 function tabSessionPreference(key, value) {
   const labels = new Set(['value','index','coord']);
-  if (['tileMode','boxMode','sweepMode','extraMode','srcMode','dstMode'].includes(key) || (key === 'mode' && value && typeof value === 'object'))
+  if (['tileMode','boxMode','sweepMode','extraMode','srcMode','dstMode','tmemMode','regMode'].includes(key) || (key === 'mode' && value && typeof value === 'object'))
     return Array.isArray(value?.set) && value.set.every(label => labels.has(label)) ? new Set(value.set) : undefined;
   if (key === 'mode') return ['','value','index','coord','warp','warpgroup','tv'].includes(value) ? value : undefined;
   if (key === 'which') return ['A','B','C'].includes(value) ? value : undefined;

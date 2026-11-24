@@ -775,6 +775,7 @@ const TAB_RENDER_FN = {
   partition_shape_abc: 'renderPartitionShapeABC',
   make_fragment_abc:  'renderMakeFragmentABC',
   make_tiled_copy_ab: 'renderMakeTiledCopyAB',
+  make_tmem_copy: 'renderMakeTmemCopy',
   retile: 'renderRetile',
   gemm: 'renderGemm',
 };
@@ -880,6 +881,7 @@ function generateTabContent(id) {
       <div data-tab="make_tiled_copy" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy')">make_tiled_copy</div>
       <div data-tab="make_tiled_copy_tv" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy_tv')">make_tiled_copy_tv</div>
       <div data-tab="make_tiled_copy_ab" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_copy_ab')">make_tiled_copy_A / B / C</div>
+      <div data-tab="make_tmem_copy" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tmem_copy')">make_tmem_copy</div>
       <div data-tab="retile" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'retile')">retile</div>
       <div data-tab="make_tiled_tma_atom" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'make_tiled_tma_atom')">make_tiled_tma_atom</div>
       <div data-tab="tma_partition" class="tab" data-scope="copy" onclick="switchInnerTab('${id}', 'tma_partition')">tma_partition</div>
@@ -917,6 +919,7 @@ function generateTabContent(id) {
     ${generateMakeTiledCopyTabContent(id)}
     ${generateMakeTiledCopyTvTabContent(id)}
     ${generateMakeTiledCopyABTabContent(id)}
+    ${generateMakeTmemCopyTabContent(id)}
     ${generateRetileTabContent(id)}
     ${generateMakeTiledTmaAtomTabContent(id)}
     ${generateTmaPartitionTabContent(id)}
@@ -1159,7 +1162,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, index: 3, composed_layout: 4, composition: 5, complement: 6, divide: 7, zipped: 8, local_tile: 9, product: 10, zipped_product: 11, blocked_product: 12, raked_product: 13, make_copy_atom: 14, make_tiled_copy: 15, make_tiled_copy_tv: 16, make_tiled_copy_ab: 17, retile: 18, make_tiled_tma_atom: 19, tma_partition: 20, partition_sd: 21, make_mma_atom: 22, make_tiled_mma: 23, partition_abc: 24, partition_shape_abc: 25, make_fragment_abc: 26, gemm: 27, make_smem_layout_a: 28, make_smem_layout_b: 29, make_smem_layout_epi: 30, domain_offset: 31 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, index: 3, composed_layout: 4, composition: 5, complement: 6, divide: 7, zipped: 8, local_tile: 9, product: 10, zipped_product: 11, blocked_product: 12, raked_product: 13, make_copy_atom: 14, make_tiled_copy: 15, make_tiled_copy_tv: 16, make_tiled_copy_ab: 17, make_tmem_copy: 18, retile: 19, make_tiled_tma_atom: 20, tma_partition: 21, partition_sd: 22, make_mma_atom: 23, make_tiled_mma: 24, partition_abc: 25, partition_shape_abc: 26, make_fragment_abc: 27, gemm: 28, make_smem_layout_a: 29, make_smem_layout_b: 30, make_smem_layout_epi: 31, domain_offset: 32 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1894,6 +1897,7 @@ const FEATURE_SPEC = {
   make_copy_atom:     { inputs: 3, optional: 3 },  // op, bits, dtype [, num_matrices, transpose]; accept legacy unpack_bits tail
   make_tiled_copy:    { inputs: 5, optional: 2 },  // op, bits, dtype, layout_tv, tiler_mn [, num_matrices, transpose]
   make_tiled_copy_tv: { inputs: 5, optional: 2 },  // op, bits, dtype, thr, val [, num_matrices, transpose]
+  make_tmem_copy:     { inputs: 4 },  // TMEM op, repeat, dtype, tmem tensor layout
   make_tiled_tma_atom: { inputs: 5, optional: 1 },  // dtype, gmem, swizzle, smem, tiler [, op]
   tma_partition:       { inputs: 5, optional: 1 },  // values, dtype, swizzle, smem, rest [, op]
   partition_sd:        { inputs: 4, methods: ['url'], legacyInputs: 8 },  // url: side, encoded copy URL, thread, tensor; legacy constructor fields remain accepted
@@ -2245,6 +2249,10 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
     case 'make_tiled_copy_tv':
       switchInnerTab(tabId, 'make_tiled_copy_tv');
       setMTV(tabId, ...inputs.slice(0, 7));
+      break;
+    case 'make_tmem_copy':
+      switchInnerTab(tabId, 'make_tmem_copy');
+      setTMC(tabId, ...inputs.slice(0, 4));
       break;
     case 'make_tiled_tma_atom':
       document.getElementById(`${tabId}-tma-dtype-input`).value   = inputs[0];

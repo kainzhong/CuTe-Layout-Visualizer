@@ -180,6 +180,7 @@ function variablesClipboardChoices(raw) {
   if (feature === 'make_mma_atom') { mmaDecodeAtomInputs(a); return object('MMAAtom'); }
   if (feature === 'make_copy_atom') { mcaDecodeAtomURL(text); return object('CopyAtom'); }
   if (feature === 'make_tiled_mma') { mtmDecodeConstructor(a); return object('TiledMMA'); }
+  if (feature === 'make_tmem_copy') { tmcSummaryText(a); return object('TiledCopy'); }
   if (['make_tiled_copy','make_tiled_copy_tv','make_tiled_copy_ab'].includes(feature)) {
     mtcDecodedSummary(mtcDecodeURL(parsed)); return object('TiledCopy');
   }
@@ -369,6 +370,7 @@ function variablesPreviewText(row) {
   if (row.type === 'None' && parsed.feature === 'gemm')
     return 'Return type: None (gemm writes into D).\n\n' + gemmFormatResult(gemmCompute(gemmConstructorFromURL(a),a[6],a[7],a[8],a[8]));
   if (row.type === 'TiledMMA') return gemmMmaSummary(mtmDecodeConstructor(a));
+  if (row.type === 'TiledCopy' && parsed.feature === 'make_tmem_copy') return tmcSummaryText(a);
   if (row.type === 'TiledCopy') return mtcDecodedSummary(mtcDecodeURL(parsed))
     .replace(/<\/div>/g,'\n').replace(/<[^>]*>/g,'').replace(/&gt;/g,'>').replace(/&lt;/g,'<').replace(/&amp;/g,'&').trim();
   if (row.type === 'MMAAtom') {

@@ -480,6 +480,20 @@ function runUnitTests(V, T) {
     check('warp-atom-row-check', 'names the first offending lane', bad.tid, 0);
   });
 
+  guard('tmem-copy-validations', () => {
+    // Not oracle-checkable: CuTeDSL accepts both inputs below without complaint.
+    const atom = V.tmcAtom('tmem_ld32x32b', 'half_t', 4);
+    const lay = str => { const p = V.parseLayout(str); return new V.Layout(p.shape, p.stride); };
+    check('tmem-copy-validations', 'half_t lane stride is 131072', V.tmcLaneStride(16), 131072);
+    check('tmem-copy-validations', 'a 32-bit stride on half_t warns',
+          /131072/.test(V.tmcStrideWarning(lay('(128,32):(65536,1)'), atom)), true);
+    check('tmem-copy-validations', 'the right stride does not warn',
+          V.tmcStrideWarning(lay('(128,32):(131072,1)'), atom), '');
+    let msg = '';
+    try { V.tmcComputeCopy(V.tmcAtom('tmem_ld32x32b', 'float', 1), lay('(256,32):(65536,1)')); } catch (e) { msg = e.message; }
+    check('tmem-copy-validations', 'more than 128 lanes is rejected', /128 lanes/.test(msg), true);
+  });
+
   guard('require-atom-divides', () => {
     // The one thing CuTe DOES assert: TiledNumVal % AtomNumVal == 0.
     let threw = false;

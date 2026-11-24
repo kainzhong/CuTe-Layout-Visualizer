@@ -1047,8 +1047,8 @@ function mcaDrawLdmatrix(tabId, s) {
 
 
 /** Rebuild the repeat picker for a TMEM Op; its domain differs per shape. */
-function mcaSyncTmemControls(tabId, op) {
-  const sel = document.getElementById(`${tabId}-mca-rep-input`);
+function mcaSyncTmemControls(tabId, op, p = 'mca') {
+  const sel = document.getElementById(`${tabId}-${p}-rep-input`);
   if (!sel) return;
   const spec = MCA_TMEM_SPECS[op.tmem], want = sel.value;
   const reps = MCA_TMEM_REPEATS.filter(r => r <= spec.maxRepeat);

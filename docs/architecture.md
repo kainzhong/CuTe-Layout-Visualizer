@@ -40,6 +40,9 @@ tabs/
                         mtcRenderThreadPanel, mtcReadHighlight, setMtcMode) — prefix `mtc`.
   make_tiled_copy_tv.js "make_tiled_copy_tv" tab (COPY scope) — the DERIVED constructor: thr_layout
                         + val_layout in, (layout_tv, Tiler_MN) out, then the same viz — prefix `mtv`.
+  make_tmem_copy.js     "make_tmem_copy" tab (COPY scope) — tcgen05.make_tmem_copy over a TMEM tensor
+                        layout. tmcComputeCopy ports C++ make_cotiled_copy with the TMEM atom map;
+                        draws the tensor by warp and each thread's registers. Prefix `tmc`.
   make_tiled_tma_atom.js "make_tiled_tma_atom" tab (COPY scope) — the TMA atom for
                         `cpasync.CopyBulkTensorTileG2SOp` (num_multicast fixed at 1). Ports the C++
                         pipeline in include/cute/atom/copy_traits_sm90_tma.hpp; draws the box over the
@@ -1003,6 +1006,37 @@ stride-0 thread mode that describes no real copy; that belongs to a future `make
 - **URLs** append `num_matrices, transpose` after the layouts only for a warp Op
   (`FEATURE_SPEC` optional 2), so SIMT links keep their five-field form. `mtcWriteAtom` rebuilds the
   per-Op num_matrices options before assigning and re-pins a required / forbidden transpose.
+
+### make_tmem_copy
+
+CuTeDSL implements `tcgen05.make_tmem_copy` in MLIR (`atom_make_tmem_copy`), so the port follows the
+C++ it mirrors (`copy_traits_sm100.hpp`): `make_cotiled_copy(atom, (atom_t, atom_v), tmem.layout())`
+with `atom_t = (32,4):(0, 32·DP)` and `atom_v = coalesce(upcast<bits>(ValID))`.
+
+- **DP = 2^21 / bits** is one TMEM lane in element units (65536 for 32-bit, 131072 for 16-bit,
+  262144 for 8-bit). Each Op's ValID is `(bits_per_lane × repeat, lanes):(1, DP_b)`; bits per lane are
+  32 / 64 / 128 / 256 for 32x32b / 16x64b / 16x128b / 16x256b and 64 for 16x32bx2, whose halves sit in
+  adjacent columns (`TMC_SHAPE_BITS`). Stores share their load twin's ValID and RefLayout, so the
+  TMEM side is CuTe's reference layout for both directions.
+- **`atom_t` is the lane-quarter rule.** Its stride 0 makes a warp's lanes share one address; its
+  `32·DP` step gives warp w lanes 32w…32w+31. A tensor with fewer than 128 rows leaves the
+  composition past the data, where CuTe's appended `1:0` makes the stride 0: the missing warps alias
+  existing rows. CuTe checks the quarter only at run time (`copy_traits_sm100.hpp:399`), so the tab
+  marks those cells and warns.
+- **Port detail:** this repo's `composition` coalesces its left operand, which drops CuTe's appended
+  size-1 `1:0` mode, so `tmcComputeCopy` appends a stride-0 mode with an extent covering the overflow.
+  Without it the 24 short-tensor cases of the probe set kept the previous stride.
+- **Validity** is CuTe's assert `coalesce(data ∘ tv_data.mode(1)) == coalesce(atom_v)` (the atom's
+  addresses must exist in the tensor), compared by printed layout; the tab names the usual cause, a
+  32-lane shape over 16 rows per quarter.
+- **The per-thread picture** reuses partition_S/D's `psdTile2ThrFrg` over `zipped_divide(tensor,
+  tiler)`, so register order matches `partition_S/D`. The `tmem_copy` oracle records each thread's
+  register-side partition of the identity tensor (one layout plus a base per thread), and run.js
+  checks every register's coordinate. `gpu_check.py --tmem-copy` writes every index through one
+  make_tmem_copy and reads it back through another on real TMEM.
+- **Stride warning, not an error:** a row stride past one lane's columns but not a multiple of DP
+  (typically the 32-bit 65536 on a 16-bit tensor) is accepted by CuTe with a strange tiler; the tab
+  warns and the case is pinned in the oracle.
 
 ### Highlighting a thread
 

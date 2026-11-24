@@ -2489,8 +2489,65 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
       throw new Error('manual ldmatrix TiledCopy diverged from its URL');
   }, psdPanes);
 
+  // ── make_tmem_copy ───────────────────────────────────────────────────────
+  const tmemRef = JSON.parse(fs.readFileSync(path.join(__dirname, 'reference.json'), 'utf8')).tmem_copy;
+  const tmcPanes = [`${TAB}-tmc-tmem-svg`, `${TAB}-tmc-reg-svg`];
+  step('make_tmem_copy: displays CuTeDSL\'s TiledCopy, focuses a thread, and its URL round-trips', () => {
+    ctx.setTMC(TAB, 'tmem_ld16x256b', 1, 'float', '(128,32):(65536,1)');
+    const ref = tmemRef['tmc-Ld16x256b-x1-f32'], result = els.get(`${TAB}-tmc-result`).innerHTML;
+    for (const want of [ref.tiler_mn, ref.tv.str, ref.src.str, ref.dst.str])
+      if (!result.includes(want)) throw new Error(`result box lacks ${want}`);
+    if (!/warp 1: 32–63/.test(result)) throw new Error('warp 1 should own rows 32–63');
+    if (els.get(`${TAB}-tmc-tmem-space`).textContent !== 'TMEM') throw new Error('TMEM pane badge');
+    els.get(`${TAB}-tmc-highlight-tid`).value = '33';
+    ctx.renderMakeTmemCopy(TAB);
+    const panel = els.get(`${TAB}-tmc-thread-body`).innerHTML;
+    if (!/warp 1, lane 1/.test(panel) || !/\(32,2\)/.test(panel)) throw new Error(`thread 33 panel: ${panel}`);
+    els.get(`${TAB}-tmc-highlight-tid`).value = '';
+    // Earlier steps click every button, so test that the toggle flips, from either state.
+    const hadCoord = ctx.tmcState[TAB].tmemMode.has('coord');
+    ctx.setTmcMode(TAB, 'tmemMode', 'coord');
+    if (ctx.tmcState[TAB].tmemMode.has('coord') === hadCoord) throw new Error('coord toggle did not flip');
+    ctx.renderMakeTmemCopy(TAB);
+    if (ctx.tmcState[TAB].tmemMode.has('coord') === hadCoord) throw new Error('label modes lost on re-render');
+    let exported;
+    const realExport = ctx.exportURL, realSwitch = ctx.switchInnerTab;
+    ctx.exportURL = (btn, feature, ...inputs) => { exported = [feature, ...inputs]; };
+    ctx.switchInnerTab = () => {};
+    try {
+      ctx.exportTMC(TAB);
+      ctx.setTMC(TAB, 'tmem_ld32x32b', 8, 'float', '(128,32):(65536,1)');
+      ctx.location.search = '?' + new URLSearchParams({ key: exported.join('-') }).toString();
+      ctx.applyKeyParam(TAB);
+      const s = ctx.tmcState[TAB];
+      if (s.atom.opKey !== 'tmem_ld16x256b' || s.atom.repeat !== 1 || fmtL(s.r.tv) !== ref.tv.str)
+        throw new Error('URL did not round trip');
+    } finally { ctx.exportURL = realExport; ctx.switchInnerTab = realSwitch; ctx.location.search = ''; }
+  }, tmcPanes);
+  step('make_tmem_copy: decodes a TMEM CopyAtom and refuses an ldmatrix one without changing fields', () => {
+    ctx.tmcImportAtom(TAB, '?key=make_copy_atom-tmem_st16x64b-32-float-2');
+    if (els.get(`${TAB}-tmc-op-input`).value !== 'tmem_st16x64b' || els.get(`${TAB}-tmc-rep-input`).value !== '2')
+      throw new Error('TMEM CopyAtom not decoded');
+    const before = ['op', 'rep', 'dtype'].map(k => els.get(`${TAB}-tmc-${k}-input`).value).join();
+    let threw = false;
+    try { ctx.tmcImportAtom(TAB, '?key=make_copy_atom-ldmatrix-128-half_t-4-0'); } catch (_) { threw = true; }
+    if (!threw || ['op', 'rep', 'dtype'].map(k => els.get(`${TAB}-tmc-${k}-input`).value).join() !== before)
+      throw new Error('ldmatrix atom accepted or fields changed');
+  }, tmcPanes);
+  step('make_tmem_copy: Ld32x32b over an M = 64 accumulator is rejected as CuTe rejects it', () => {
+    ctx.setTMC(TAB, 'tmem_ld32x32b', 4, 'float', '((16,4),32):((65536,2097152),1)');
+    if (els.get(`${TAB}-tmc-tmem-svg`).innerHTML) throw new Error('rejected copy left a picture');
+  }, [], { expectError: /16-lane shape/ });
+  step('make_tmem_copy: a 64-row tensor warns that warps 2–3 are outside their lanes', () => {
+    ctx.setTMC(TAB, 'tmem_ld32x32b', 4, 'float', '(64,16):(65536,1)');
+    if (JSON.stringify(ctx.tmcState[TAB].r.outside) !== '[2,3]') throw new Error(`outside = ${ctx.tmcState[TAB].r.outside}`);
+    if (!/Warps 2, 3/.test(els.get(`${TAB}-tmc-warning`).textContent)) throw new Error('missing alias warning');
+    ctx.setTMC(TAB, 'tmem_ld32x32b', 8, 'float', '(128,32):(65536,1)');
+  }, tmcPanes);
+
   // ── URL round-trip: every ?key= form must parse ──────────────────────────
   for (const key of [
+    'make_tmem_copy-tmem_ld32x32b-8-float-(128,32):(65536,1)',
     'make_tiled_copy-universal-32-half_t-(4,2):(1,4)-(4,2)',
     'make_tiled_copy-ldmatrix-128-half_t-((4,8),((2,2,2),(1,1))):((32,1),((16,8,128),(0,0)))-(16,16)-4-0',
     'make_tiled_copy_tv-stmatrix-128-float-(8,4):(4,1)-(4,1):(1,1)-4-0',

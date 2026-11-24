@@ -519,6 +519,46 @@ def run_warp_tiled_copy(c):
             "src": record(tc.layout_src_tv_tiled), "dst": record(tc.layout_dst_tv_tiled)}
 
 
+def run_tmem_copy(c):
+    """tcgen05.make_tmem_copy(atom, tmem_tensor): the TiledCopy over a TMEM
+    tensor, plus every thread's register-side partition of the identity tensor,
+    i.e. which tensor coordinate each register value holds. The per-thread
+    partitions share one layout and differ only in their base coordinate, so
+    that layout is recorded once with a base per thread. A combination CuTe
+    rejects (the atom's lanes do not exist in the tensor) records `rejected`."""
+    from cutlass.cute.nvgpu import tcgen05
+    store = c["op"].startswith("St")
+    dtype = DTYPES[c["dtype"]]
+    atom = cute.make_copy_atom(getattr(tcgen05, c["op"] + "Op")(
+        getattr(tcgen05.Repetition, "x%d" % c["repeat"])), dtype)
+    layout = parse_layout(c["tensor"])
+    tensor = cute.make_tensor(cute.make_ptr(dtype, 0, cute.AddressSpace.tmem), layout)
+    try:
+        tc = tcgen05.make_tmem_copy(atom, tensor)
+        tv = tc.layout_tv_tiled
+    except Exception as e:                               # noqa: BLE001
+        if "does not exist" in str(e) or "exists in the data layout" in str(e):
+            return {"rejected": True}
+        raise
+    shape = tuple(int(cute.size(layout, mode=[i])) for i in range(cute.rank(layout)))
+    ident = cute.make_identity_tensor(shape)
+    bases, part = [], None
+    for t in range(int(cute.size(tv, mode=[0]))):
+        thr = tc.get_slice(t)
+        p = thr.partition_S(ident) if store else thr.partition_D(ident)
+        bases.append("|".join(str(int(x)) for x in p.iterator))
+        if part is None:
+            part = record(p.layout, int(cute.size(p.layout)))
+        elif canon(p.layout) != part["str"]:
+            raise AssertionError("thread %d's register partition differs from thread 0's" % t)
+    # The three TiledCopy layouts are matched by exact string in run.js, so a
+    # small eval sample suffices; the per-cell check is reg_partition + bases.
+    sample = lambda L: record(L, 256)
+    return {"tiler_mn": canon(tc.tiler_mn), "tv": sample(tv),
+            "src": sample(tc.layout_src_tv_tiled), "dst": sample(tc.layout_dst_tv_tiled),
+            "reg_partition": part, "reg_bases": bases}
+
+
 def run_ldmatrix_atom(c):
     # No num_bits_per_copy: _make_trait never reads it for any of these Ops, the
     # instruction width being fixed by the Op. Passing one would silently do
@@ -1161,6 +1201,7 @@ SECTIONS = [
     ("copy_atom", run_copy_atom),
     ("ldmatrix_atom", run_ldmatrix_atom),
     ("tmem_atom", run_tmem_atom),
+    ("tmem_copy", run_tmem_copy),
     ("mma_atom", run_mma_atom),
     ("warpgroup_mma_atom", run_warpgroup_mma_atom),
     ("warpgroup_tiled_mma", run_warpgroup_tiled_mma),

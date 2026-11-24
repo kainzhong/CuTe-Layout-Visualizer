@@ -68,10 +68,16 @@ async function main() {
       [key('make_tiled_mma','f16bf16','half_t','float',16,'(2,2,1)','na'),'TiledMMA'],
       [key('make_tiled_copy','universal',32,'half_t','(4,2):(1,4)','(4,2)'),'TiledCopy'],
       [key('make_tiled_copy_tv','universal',32,'half_t','(4,1):(1,0)','(1,2):(0,1)'),'TiledCopy'],
+      [key('make_tiled_copy','ldmatrix',128,'half_t','((4,8),((2,2,2),(1,1))):((32,1),((16,8,128),(0,0)))','(16,16)',4,0),'TiledCopy'],
+      [key('make_tmem_copy','tmem_ld32x32b',8,'float','(128,32):(65536,1)'),'TiledCopy'],
     ]) {
       const [r]=V.variablesClipboardChoices(url);
       check(`type ${type}`,r.type===type);check('compound payload is a usable encoding URL',V.parsePastedKeyParam(r.value).feature===V.parsePastedKeyParam(url).feature);
     }
+    // A TMEM TiledCopy previews with its own CuTeDSL-checked layouts.
+    const tmem=V.variablesClipboardChoices(key('make_tmem_copy','tmem_ld16x256b',1,'float','(128,32):(65536,1)'))[0];
+    check('make_tmem_copy preview shows the tiled layout',
+          V.variablesPreviewText(tmem).includes(refs.tmem_copy['tmc-Ld16x256b-x1-f32'].tv.str));
   });
   await test('layout result extraction vs committed CuTeDSL oracle',()=>{
     for(const c of cases.index) same(`Index/${c.id}`,V.variablesClipboardChoices(key('index',c.a,c.index))[0].value,refs.index[c.id].layout.str);

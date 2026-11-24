@@ -14,6 +14,7 @@ const EXPECTED = {
   'mca-decode-atom': ['make_copy_atom'],
   'mtc-decode-atom': ['make_copy_atom'],
   'mtv-decode-atom': ['make_copy_atom'],
+  'tmc-decode-atom': ['make_copy_atom'],
   'mtv-decode-tv': ['tv'],
   'mcab-decode-mma': ['make_tiled_mma'],
   'mcab-decode-copy': ['make_copy_atom'],

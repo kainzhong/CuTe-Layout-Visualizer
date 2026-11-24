@@ -367,6 +367,50 @@ if (section('warp_tiled_copy')) {
 }
 
 // ═══════════════════════════════════════════════════════
+//  3c. tcgen05.make_tmem_copy  (tmcComputeCopy)
+//
+//  The port of make_cotiled_copy with the TMEM atom map. Beyond the TiledCopy
+//  layouts, every thread's register-side partition of the identity tensor is
+//  checked cell by cell: that is what the tab's two grids draw.
+// ═══════════════════════════════════════════════════════
+
+if (section('tmem_copy')) {
+  for (const c of CASES.tmem_copy) {
+    const ref = refFor('tmem_copy', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const opKey = `tmem_${c.op.slice(0, 2).toLowerCase()}${c.op.slice(2)}`;
+      const atom = V.tmcAtom(opKey, c.dtype, c.repeat);
+      const data = parseExact(V, c.tensor);
+      if (ref.rejected) {
+        let msg = '';
+        try { V.tmcComputeCopy(atom, data); } catch (e) { msg = e.message; }
+        check(c.id, 'rejected like CuTe', /does not exist in the DataLayout/.test(msg), true);
+        return;
+      }
+      const r = V.tmcComputeCopy(atom, data);
+      check(c.id, 'tiler_mn', '(' + r.tiler.map(L => fmt(V, L)).join(',') + ')', ref.tiler_mn);
+      checkLayout(`${c.id}/tv`, r.tv, ref.tv);
+      checkLayout(`${c.id}/src`, r.src, ref.src);
+      checkLayout(`${c.id}/dst`, r.dst, ref.dst);
+      // Thread t's register v holds coordinate base(t) + partition(v).
+      const part = ref.reg_partition.eval.map(s => String(s).split('|').map(Number));
+      check(c.id, 'threads', r.perThread.length, ref.reg_bases.length);
+      check(c.id, 'values per thread', r.fragSize, part.length);
+      let bad = null;
+      for (let t = 0; t < ref.reg_bases.length && !bad; t++) {
+        const [bm, bn] = ref.reg_bases[t].split('|').map(Number);
+        for (let v = 0; v < part.length; v++) {
+          const want = [bm + part[v][0], bn + part[v][1]], got = r.perThread[t][v];
+          if (got[0] !== want[0] || got[1] !== want[1]) { bad = `T${t} V${v}: got (${got}) want (${want})`; break; }
+        }
+      }
+      check(c.id, 'every register holds CuTe\'s coordinate', bad, null);
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
 //  4. make_copy_atom  (DTYPE_BITS and the ValLayout it implies)
 // ═══════════════════════════════════════════════════════
 

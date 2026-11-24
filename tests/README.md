@@ -62,6 +62,7 @@ global function calls; older Node versions use the original contextified fallbac
 | `basis_ops` | the same ops over **coordinate (scaled-basis) layouts** — only the ones CuTe defines for them (see the table in [`docs/architecture.md`](../docs/architecture.md)) | ditto |
 | `make_layout_tv` | `make_layout_tv(thr, val)`, the `make_tiled_copy_tv` tab's derivation | `cute.make_layout_tv` **and** the `TiledCopy` that `cute.make_tiled_copy_tv` builds |
 | `make_tiled_copy` | the tab's reading of `(layout_tv, Tiler_MN)` — `mtcParseTiler` and `parseLayout` | what `cute.make_tiled_copy` reports back |
+| `tmem_copy` | `tmcComputeCopy`: tiler, `layout_tv`, both side maps, rejected combinations, and every thread's register coordinates | `tcgen05.make_tmem_copy` over a TMEM tensor of the same layout and element type, and each thread's `partition_S/D` of the identity tensor |
 | `warp_tiled_copy` | `mtcComputeWarpTiledCopy` and `mtcDecodeURL` for an ldmatrix / stmatrix atom: `layout_tv`, both derived side maps, and the tiler | `cute.make_tiled_copy` / `cute.make_tiled_copy_tv` over the same `LdMatrix*` / `StMatrix*` atom (`layout_tv_tiled`, `layout_src_tv_tiled`, `layout_dst_tv_tiled`) |
 | `make_tiled_copy_ab` | `mcabComputeTiledCopy`, atom traits, tiled SRC/DST and reference layouts, and every displayed grid entry | `cute.make_tiled_copy_A/B` with the same TiledMMA and CopyAtom |
 | `copy_atom` | `ui.js`'s `DTYPE_BITS` and the ValLayout it implies | `cute.make_copy_atom` |
@@ -193,6 +194,20 @@ every thread's accumulator fragment with each element's index, retiles it to the
 stmatrix-stores into SMEM and reads SMEM back; every element must hold its own index (16-bit
 types exactly, 8-bit types mod 256). Validated with CuTeDSL 4.8.0 on NVIDIA GB200: 15/15. The
 atom layouts themselves are the 90 `stsm-*` cases in the `ldmatrix_atom` oracle section.
+
+## make_tmem_copy
+
+```bash
+python3 tests/gpu_check.py --tmem-copy
+```
+
+Requires SM100. Each executable `tmem_copy` case allocates TMEM, views it through the case's own
+tensor layout and element width, writes every element's index through one make_tmem_copy TiledCopy
+and reads it back through another: the Op under test on its side, a plain partner Op (32x32b, or
+16x256b for a tensor with 16 rows per quarter) on the other. Every element must return as its own
+index. Skipped: the combinations CuTe rejects, and those the tab warns cannot run (fewer than 128
+rows, or a 32-bit lane stride on a 16-bit type). Validated with CuTeDSL 4.8.0 on NVIDIA GB200: 21/21
+(every Op in both directions, the M = 64 accumulator, multi-tile tensors, and 16- and 8-bit types).
 
 ## make_tiled_copy over LdMatrix / StMatrix
 

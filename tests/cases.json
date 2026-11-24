@@ -15236,5 +15236,196 @@
       "thr": "(4,8):(1,4)",
       "val": "(4,4):(1,4)"
     }
+  ],
+  "tmem_copy": [
+    {
+      "id": "tmc-Ld32x32b-x1-f32",
+      "op": "Ld32x32b",
+      "repeat": 1,
+      "dtype": "float",
+      "tensor": "(128,32):(65536,1)"
+    },
+    {
+      "id": "tmc-Ld32x32b-x8-f32",
+      "op": "Ld32x32b",
+      "repeat": 8,
+      "dtype": "float",
+      "tensor": "(128,32):(65536,1)"
+    },
+    {
+      "id": "tmc-Ld16x64b-x2-f32",
+      "op": "Ld16x64b",
+      "repeat": 2,
+      "dtype": "float",
+      "tensor": "(128,32):(65536,1)"
+    },
+    {
+      "id": "tmc-Ld16x128b-x1-f32",
+      "op": "Ld16x128b",
+      "repeat": 1,
+      "dtype": "float",
+      "tensor": "(128,32):(65536,1)"
+    },
+    {
+      "id": "tmc-Ld16x256b-x1-f32",
+      "op": "Ld16x256b",
+      "repeat": 1,
+      "dtype": "float",
+      "tensor": "(128,32):(65536,1)"
+    },
+    {
+      "id": "tmc-Ld16x256b-x2-f32",
+      "op": "Ld16x256b",
+      "repeat": 2,
+      "dtype": "float",
+      "tensor": "(128,32):(65536,1)"
+    },
+    {
+      "id": "tmc-Ld16x32bx2-x4-f32",
+      "op": "Ld16x32bx2",
+      "repeat": 4,
+      "dtype": "float",
+      "tensor": "(128,32):(65536,1)"
+    },
+    {
+      "id": "tmc-St32x32b-x4-f32",
+      "op": "St32x32b",
+      "repeat": 4,
+      "dtype": "float",
+      "tensor": "(128,32):(65536,1)"
+    },
+    {
+      "id": "tmc-St16x64b-x1-f32",
+      "op": "St16x64b",
+      "repeat": 1,
+      "dtype": "float",
+      "tensor": "(128,32):(65536,1)"
+    },
+    {
+      "id": "tmc-St16x128b-x2-f32",
+      "op": "St16x128b",
+      "repeat": 2,
+      "dtype": "float",
+      "tensor": "(128,32):(65536,1)"
+    },
+    {
+      "id": "tmc-St16x256b-x1-f32",
+      "op": "St16x256b",
+      "repeat": 1,
+      "dtype": "float",
+      "tensor": "(128,32):(65536,1)"
+    },
+    {
+      "id": "tmc-St16x32bx2-x2-f32",
+      "op": "St16x32bx2",
+      "repeat": 2,
+      "dtype": "float",
+      "tensor": "(128,32):(65536,1)"
+    },
+    {
+      "id": "tmc-Ld32x32b-x8-f32-n64",
+      "op": "Ld32x32b",
+      "repeat": 8,
+      "dtype": "float",
+      "tensor": "(128,64):(65536,1)"
+    },
+    {
+      "id": "tmc-Ld32x32b-x4-f32-ncol2",
+      "op": "Ld32x32b",
+      "repeat": 4,
+      "dtype": "float",
+      "tensor": "(128,(16,2)):(65536,(1,64))"
+    },
+    {
+      "id": "tmc-m64-Ld16x256b-x1",
+      "op": "Ld16x256b",
+      "repeat": 1,
+      "dtype": "float",
+      "tensor": "((16,4),32):((65536,2097152),1)"
+    },
+    {
+      "id": "tmc-m64-Ld16x32bx2-x4",
+      "op": "Ld16x32bx2",
+      "repeat": 4,
+      "dtype": "float",
+      "tensor": "((16,4),32):((65536,2097152),1)"
+    },
+    {
+      "id": "tmc-m64-St16x64b-x2",
+      "op": "St16x64b",
+      "repeat": 2,
+      "dtype": "float",
+      "tensor": "((16,4),32):((65536,2097152),1)"
+    },
+    {
+      "id": "tmc-m64-Ld32x32b-rejected",
+      "op": "Ld32x32b",
+      "repeat": 4,
+      "dtype": "float",
+      "tensor": "((16,4),32):((65536,2097152),1)"
+    },
+    {
+      "id": "tmc-m64-St32x32b-rejected",
+      "op": "St32x32b",
+      "repeat": 1,
+      "dtype": "float",
+      "tensor": "((16,4),32):((65536,2097152),1)"
+    },
+    {
+      "id": "tmc-64lanes-Ld32x32b-x4",
+      "op": "Ld32x32b",
+      "repeat": 4,
+      "dtype": "float",
+      "tensor": "(64,16):(65536,1)"
+    },
+    {
+      "id": "tmc-32lanes-Ld32x32b-x4",
+      "op": "Ld32x32b",
+      "repeat": 4,
+      "dtype": "float",
+      "tensor": "(32,16):(65536,1)"
+    },
+    {
+      "id": "tmc-32lanes-Ld16x256b-x1",
+      "op": "Ld16x256b",
+      "repeat": 1,
+      "dtype": "float",
+      "tensor": "(32,16):(65536,1)"
+    },
+    {
+      "id": "tmc-Ld32x32b-x4-f16",
+      "op": "Ld32x32b",
+      "repeat": 4,
+      "dtype": "half_t",
+      "tensor": "(128,32):(131072,1)"
+    },
+    {
+      "id": "tmc-Ld16x256b-x1-bf16",
+      "op": "Ld16x256b",
+      "repeat": 1,
+      "dtype": "bfloat16_t",
+      "tensor": "(128,32):(131072,1)"
+    },
+    {
+      "id": "tmc-St32x32b-x2-f16",
+      "op": "St32x32b",
+      "repeat": 2,
+      "dtype": "half_t",
+      "tensor": "(128,32):(131072,1)"
+    },
+    {
+      "id": "tmc-Ld32x32b-x2-i8",
+      "op": "Ld32x32b",
+      "repeat": 2,
+      "dtype": "int8_t",
+      "tensor": "(128,32):(262144,1)"
+    },
+    {
+      "id": "tmc-Ld32x32b-x4-f16-float-dp",
+      "op": "Ld32x32b",
+      "repeat": 4,
+      "dtype": "half_t",
+      "tensor": "(128,32):(65536,1)"
+    }
   ]
 }

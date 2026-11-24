@@ -777,6 +777,130 @@ def run_tmem_roundtrip(op_name, repeat, compile_only=False):
     return int((got != np.arange(M * N, dtype=np.float32)).sum())
 
 
+def run_tmem_copy_case(case, compile_only=False):
+    """One `tmem_copy` corpus case on the hardware: TMEM is allocated and viewed
+    through the case's own tensor layout and element width; every element's
+    index m*N + n is written through one make_tmem_copy TiledCopy and read back
+    through another, with the Op under test on its side and a plain partner Op
+    (32x32b, or 16x256b when a lane quarter holds only 16 rows) on the other.
+    Same-width integer types, compared mod 2^bits. Returns wrong elements."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from gen_reference import parse_layout
+    from cutlass.cute.nvgpu import tcgen05
+    from cutlass.memory import SmemAllocator
+    width = {"float": 32, "half_t": 16, "bfloat16_t": 16, "int8_t": 8, "uint8_t": 8}[case["dtype"]]
+    ity, nty = {32: (cutlass.Int32, np.int32), 16: (cutlass.Int16, np.int16), 8: (cutlass.Int8, np.int8)}[width]
+    is_store = case["op"].startswith("St")
+    test = getattr(tcgen05, case["op"] + "Op")(getattr(tcgen05.Repetition, "x%d" % case["repeat"]))
+    partner = "16x256b" if case["tensor"].startswith("((16,4)") else "32x32b"
+    other = getattr(tcgen05, ("Ld" if is_store else "St") + partner + "Op")(tcgen05.Repetition.x1)
+    st_op, ld_op = (test, other) if is_store else (other, test)
+    sizes = {}
+
+    @cute.jit
+    def probe():
+        L = parse_layout(case["tensor"])
+        sizes["M"], sizes["N"] = int(cute.size(L, mode=[0])), int(cute.size(L, mode=[1]))
+    probe()
+    M, N = sizes["M"], sizes["N"]
+    need = max(32, 1 << (max(1, (N * width + 31) // 32) - 1).bit_length())   # 32-bit columns, power of 2
+
+    @cute.kernel
+    def kern(pout: cute.Pointer):
+        tid, _, _ = cute.arch.thread_idx()
+        warp = cute.arch.make_warp_uniform(cute.arch.warp_idx())
+        holder = SmemAllocator().allocate_tensor(cutlass.Int32, cute.make_layout(4), 16)
+        if warp == 0:
+            cute.arch.alloc_tmem(need, holder.iterator)
+            cute.arch.relinquish_tmem_alloc_permit()
+        cute.arch.barrier()
+        tmem_ptr = cute.arch.retrieve_tmem_ptr(ity, 16, holder.iterator)
+        tT = cute.make_tensor(tmem_ptr, parse_layout(case["tensor"]))
+        ident = cute.make_identity_tensor((M, N))
+        st = tcgen05.make_tmem_copy(cute.make_copy_atom(st_op, ity), tT)
+        thr_st = st.get_slice(tid)
+        cS = thr_st.partition_S(ident)
+        regs = cute.make_fragment_like(cS, ity)
+        for i in cutlass.range_constexpr(cute.size(regs)):
+            c = cS[i]
+            regs[i] = ity(c[0] * N + c[1])
+        cute.copy(st, regs, thr_st.partition_D(tT))
+        cute.arch.fence_view_async_tmem_store()
+        cute.arch.barrier()
+        ld = tcgen05.make_tmem_copy(cute.make_copy_atom(ld_op, ity), tT)
+        thr_ld = ld.get_slice(tid)
+        cD = thr_ld.partition_D(ident)
+        back = cute.make_fragment_like(cD, ity)
+        cute.copy(ld, thr_ld.partition_S(tT), back)
+        cute.arch.fence_view_async_tmem_load()
+        gOut = cute.make_tensor(pout, cute.make_layout(M * N))
+        for i in cutlass.range_constexpr(cute.size(back)):
+            c = cD[i]
+            gOut[c[0] * N + c[1]] = back[i]
+        cute.arch.barrier()
+        if warp == 0:
+            cute.arch.dealloc_tmem(tmem_ptr, need)
+
+    @cute.jit
+    def launch(pout: cute.Pointer):
+        kern(pout).launch(grid=(1, 1, 1), block=(128, 1, 1), smem=256)
+
+    out = np.full(M * N, -1, nty)
+    pout = to_device(out) if not compile_only else 0x1000
+    p = cute.runtime.make_ptr(ity, int(pout), cute.AddressSpace.gmem, assumed_align=16)
+    compiled = cute.compile(launch, p)
+    if compile_only:
+        return 0
+    compiled(p)
+    ck(drv.cuCtxSynchronize())
+    got = from_device(pout, out).astype(np.int64)
+    mask = (1 << width) - 1
+    want = (np.arange(M * N) & mask).astype(np.int64)
+    want = np.where(want > mask // 2, want - mask - 1, want)
+    return int((got != want).sum())
+
+
+def tmem_copy_one_main():
+    import json
+    from pathlib import Path
+    ck(drv.cuInit(0))
+    ck(drv.cuCtxCreate(0, ck(drv.cuDeviceGet(0))))
+    case_id = sys.argv[sys.argv.index("--tmem-copy-one") + 1]
+    case = next(c for c in json.loads(Path(__file__).with_name("cases.json").read_text())["tmem_copy"]
+                if c["id"] == case_id)
+    bad = run_tmem_copy_case(case)
+    if bad:
+        sys.exit(f"{bad} elements misplaced")
+    return 0
+
+
+def tmem_copy_main():
+    """Every executable `tmem_copy` case, one process each. Skipped: the cases
+    CuTe rejects, and the ones the tab warns cannot run (fewer than 128 lanes,
+    so warps alias onto rows outside their quarter; or a 32-bit lane stride on
+    a 16-bit type, whose rows are not TMEM lanes)."""
+    import json
+    import subprocess
+    from pathlib import Path
+    case_filter = sys.argv[sys.argv.index("--case") + 1] if "--case" in sys.argv else ""
+    ref = json.loads(Path(__file__).with_name("reference.json").read_text())["tmem_copy"]
+    cases = [c for c in json.loads(Path(__file__).with_name("cases.json").read_text())["tmem_copy"]
+             if case_filter in c["id"] and not ref[c["id"]].get("rejected")
+             and "lanes-" not in c["id"] and not c["id"].endswith("float-dp")]
+    print("tcgen05.make_tmem_copy -- write every index through TMEM and read it back")
+    failures = []
+    for case in cases:
+        p = subprocess.run([sys.executable, os.path.abspath(__file__), "--tmem-copy-one", case["id"]],
+                           capture_output=True, text=True, timeout=600)
+        if p.returncode == 0:
+            print(f"  ok    {case['id']}", flush=True)
+        else:
+            print(f"  FAIL  {case['id']}  {' '.join((p.stdout + p.stderr).split())[-220:]}", flush=True)
+            failures.append(case["id"])
+    print(f"{len(cases) - len(failures)}/{len(cases)} make_tmem_copy cases executed correctly")
+    return 1 if failures else 0
+
+
 def tmem_one_main():
     ck(drv.cuInit(0))
     ck(drv.cuCtxCreate(0, ck(drv.cuDeviceGet(0))))
@@ -987,6 +1111,8 @@ if __name__ == "__main__":
              else warp_tiled_one_main() if "--warp-tiled-one" in sys.argv
              else warp_tiled_main() if "--warp-tiled" in sys.argv
              else tma_one_main() if "--tma-one" in sys.argv
+             else tmem_copy_one_main() if "--tmem-copy-one" in sys.argv
+             else tmem_copy_main() if "--tmem-copy" in sys.argv
              else tmem_one_main() if "--tmem-one" in sys.argv
              else tmem_main() if "--tmem" in sys.argv
              else stmatrix_main() if "--stmatrix" in sys.argv

@@ -1007,30 +1007,36 @@ function mcaDrawSimt(tabId, s) {
 //               one 16 B row per 8 rows of matrix), where the TV tab's tile is
 //               col-major. Without this the `value` overlay would print a
 //               number that is not the layout's output.
+/** One ldmatrix/stmatrix atom pane (header line + SVG) for `mcaLdmatrixAtom`'s
+ *  result. Shared with the make_tiled_copy / make_tiled_copy_tv atom strip, so
+ *  the two pictures of the same atom cannot drift (the simtAtomPaneHTML rule). */
+function mcaLdmatrixPaneHTML(a, side, dtype, labelMode) {
+  const N = a.tile.shape[1];
+  const dimTids = new Set();
+  for (let t = a.liveLanes; t < 32; t++) dimTids.add(t);
+  const L = side === 'src' ? a.src : a.dst;
+  const str = side === 'src' ? a.srcStr : a.dstStr;
+  const numV = product(L.shape[1]);
+  const name = side === 'src' ? 'ValLayoutSrc' : 'ValLayoutDst';
+  // The address side gets the live-lane count and the greyed broadcast lanes;
+  // the register side is every lane's fragment.
+  const head = side === a.addrSide
+    ? `${name} = ${str} — ${a.liveLanes} of 32 lanes supply an address, ` +
+      `${numV} ${dtype} per row`
+    : `${name} = ${str} — ${numV} ${dtype} per lane` +
+      (a.numMatrices > 1 ? `, ${a.numMatrices} matrices` : '');
+  return `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">${head}</div>` +
+    buildTVSVG(L.shape, L.stride, a.tile.shape, a.tile.stride, false, 'row', null, labelMode,
+               { dimTids: side === a.addrSide ? dimTids : null,
+                 cellIndex: (m, n) => m * N + n });
+}
+
 function mcaDrawLdmatrix(tabId, s) {
   const a = s.atom;
   const [M, N] = a.tile.shape;
-  const dimTids = new Set();
-  for (let t = a.liveLanes; t < 32; t++) dimTids.add(t);
   const labelMode = s.showValue ? 'value' : '';
-
   for (const side of ['src', 'dst']) {
-    const L = side === 'src' ? a.src : a.dst;
-    const str = side === 'src' ? a.srcStr : a.dstStr;
-    const numV = product(L.shape[1]);
-    const name = side === 'src' ? 'ValLayoutSrc' : 'ValLayoutDst';
-    // The address side gets the live-lane count and the greyed broadcast lanes;
-    // the register side is every lane's fragment.
-    const head = side === a.addrSide
-      ? `${name} = ${str} — ${a.liveLanes} of 32 lanes supply an address, ` +
-        `${numV} ${s.dtype} per row`
-      : `${name} = ${str} — ${numV} ${s.dtype} per lane` +
-        (a.numMatrices > 1 ? `, ${a.numMatrices} matrices` : '');
-    document.getElementById(`${tabId}-mca-${side}-svg`).innerHTML =
-      `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">${head}</div>` +
-      buildTVSVG(L.shape, L.stride, a.tile.shape, a.tile.stride, false, 'row', null, labelMode,
-                 { dimTids: side === a.addrSide ? dimTids : null,
-                   cellIndex: (m, n) => m * N + n });
+    document.getElementById(`${tabId}-mca-${side}-svg`).innerHTML = mcaLdmatrixPaneHTML(a, side, s.dtype, labelMode);
     applyZoomState(`${tabId}-mca-${side}-svg`);
   }
   const q = `.x${a.numMatrices}${a.transpose ? '.trans' : ''}`;
@@ -1155,10 +1161,12 @@ function mcaDecodeAtomURL(text) {
 function mcaImportAtom(tabId,p,render,text) {
   const a = mcaDecodeAtomURL(text);
   if (p === 'mca') { setMCA(tabId,a.opKey,String(a.numBits),a.dtype,a.nm,a.trans ? 1 : 0); return; }
-  if (!MTC_OPS[a.opKey]) throw new Error('This CopyAtom section supports SIMT CopyAtoms only.');
-  for (const [key,value] of Object.entries({op:a.opKey,bits:a.numBits,dtype:a.dtype}))
-    document.getElementById(`${tabId}-${p}-${key}-input`).value = String(value);
-  syncCopyMoves(tabId,p,a.opKey);
+  // make_tiled_copy(_tv) take the SIMT and the ldmatrix / stmatrix atoms; a
+  // TMEM atom needs make_tmem_copy, which knows the warp-to-lane-quarter rule.
+  if (!mtcOffersOp(a.opKey))
+    throw new Error('This CopyAtom section takes SIMT, ldmatrix and stmatrix CopyAtoms. A tcgen05 TMEM atom ' +
+                    'is tiled by make_tmem_copy, which follows the warp-to-TMEM-lane rule.');
+  mtcWriteAtom(tabId, p, a.opKey, a.numBits, a.dtype, a.nm, a.trans ? 1 : 0);
   globalThis[render](tabId);
 }
 

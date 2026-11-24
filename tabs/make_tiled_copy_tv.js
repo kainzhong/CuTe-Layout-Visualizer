@@ -57,6 +57,12 @@ ${mtcAtomSection(id, 'mtv', '1. CopyAtom')}
             <button class="preset-btn" onclick="setMTV('${id}','universal',128,'half_t','(4,8):(8,1)','(2,4):(4,1)')">128b half, val 2x4 &mdash; shows why a 2-D val_layout can't vectorize</button>
             <button class="preset-btn" onclick="setMTV('${id}','g2r',128,'half_t','(16,8):(8,1)','(1,8):(1,1)')">CopyG2ROp &mdash; same derivation, GMEM&rarr;RMEM</button>
             <button class="preset-btn" onclick="setMTV('${id}','s2r',128,'half_t','(16,8):(8,1)','(1,8):(1,1)')">CopyS2ROp &mdash; the SIMT SMEM load (not ldmatrix)</button>
+            <button class="preset-btn" onclick="setMTV('${id}','ldmatrix',128,'float','(8,4):(4,1)','(4,1):(1,1)',4,0)">ldmatrix .x4 float &mdash; one warp, one instruction</button>
+            <button class="preset-btn" onclick="setMTV('${id}','ldmatrix',128,'float','(8,(4,4)):(4,(1,32))','(4,1):(1,1)',4,0)">ldmatrix .x4 float &mdash; 4 warps side by side along N</button>
+            <button class="preset-btn" onclick="setMTV('${id}','ldmatrix',128,'float','(8,4):(4,1)','(8,1):(1,1)',4,0)">ldmatrix .x4 float, val 8x1 &mdash; two instructions per warp</button>
+            <button class="preset-btn" onclick="setMTV('${id}','ldmatrix',128,'half_t','(4,8):(1,4)','(8,1):(1,1)',4,1)">ldmatrix .x4.trans half &mdash; M-contiguous registers</button>
+            <button class="preset-btn" onclick="setMTV('${id}','stmatrix',128,'float','(8,4):(4,1)','(4,1):(1,1)',4,0)">stmatrix .x4 float &mdash; the store, registers on SRC</button>
+            <button class="preset-btn" onclick="setMTV('${id}','ldmatrix',128,'half_t','(32,4):(1,32)','(1,8):(1,1)',4,0)">ldmatrix .x4 half, naive thr/val &mdash; why address rows break</button>
           </div>
         </div>
 
@@ -117,12 +123,12 @@ function renderMakeTiledCopyTv(tabId) {
     mtcRequireCompact('val_layout', valL);
 
     const thrSize = thrL.size(), valSize = valL.size();
-    mtcRequireAtomDivides(valSize, atom.atomNumVal, atom.numBits, atom.elemBits, atom.dtype);
-    const frgX = valSize / atom.atomNumVal;
-
     const layout_mn = raked_product(thrL, valL);
-    const tiler_mn  = product_each(layout_mn.shape);
-    const layout_tv = composition(right_inverse(layout_mn), new Layout([thrSize, valSize]));
+    const { tiler_mn, layout_tv } = make_layout_tv(thrL, valL);
+    // A warp atom's checks need the derived layout_tv; a SIMT atom's do not.
+    const warpCopy = atom.warp ? mtcComputeWarpTiledCopy(atom.copyAtom, layout_tv, tiler_mn) : null;
+    if (!atom.warp) mtcRequireAtomDivides(valSize, atom.atomNumVal, atom.numBits, atom.elemBits, atom.dtype);
+    const frgX = valSize / atom.atomNumVal;
 
     const layoutTVStr = formatLayoutStr(layout_tv.shape, layout_tv.stride);
     const tilerMNStr  = `(${tiler_mn.join(', ')})`;
@@ -130,14 +136,14 @@ function renderMakeTiledCopyTv(tabId) {
     const look = mtcBuildTileLookup(layout_tv, tiler_mn, thrSize, valSize);
     mtcCoverageCheck(look, tiler_mn, thrSize, valSize, true, mtcHasBroadcast(layout_tv));
 
-    const vecCheck = mtcVectorizationCheck(atom.atomNumVal, layout_tv, tiler_mn);
+    const vecCheck = atom.warp ? null : mtcVectorizationCheck(atom.atomNumVal, layout_tv, tiler_mn);
     document.getElementById(`${tabId}-mtv-tile-result`).innerHTML =
       `<div class="cuo-result-line">layout_mn = raked_product(thr, val) = <b>${formatLayoutStr(layout_mn.shape, layout_mn.stride)}</b></div>` +
       `<div class="cuo-result-line">Tiler_MN  = product_each(shape) = <b>${tilerMNStr}</b></div>` +
       `<div class="cuo-result-line">layout_tv = right_inverse(layout_mn) = <b>${layoutTVStr}</b></div>` +
       `<div class="cuo-result-line">TiledNumThr = ${thrSize}, TiledNumVal = ${valSize}, ` +
       `FrgV = ${atom.atomNumVal}, FrgX = ${frgX}</div>` +
-      mtcFormatVecCheck(vecCheck, atom.atomNumVal) +
+      (atom.warp ? mtcWarpResultLines(warpCopy, atom.copyAtom) : mtcFormatVecCheck(vecCheck, atom.atomNumVal)) +
       `<div class="cuo-result-line" style="color:#9ca3af">Feed these two to the make_tiled_copy tab: ` +
       `layout_tv <b>${layoutTVStr}</b>, Tiler_MN <b>${tilerMNStr}</b></div>`;
 
@@ -147,7 +153,8 @@ function renderMakeTiledCopyTv(tabId) {
 
     const prev = mtvState[tabId] || {};
     mtvState[tabId] = {
-      ...atom, thrL, valL, layout_mn, layout_tv, tiler_mn, thrSize, valSize, frgX,
+      ...atom, thrL, valL, layout_mn, layout_tv, tiler_mn, thrSize, valSize, frgX, warpCopy,
+      rowR: warpCopy ? warpCopy.rowCheck.R : 0,
       lookup: look.lookup, highlightTid: hl.tid, vecCheck, layoutTVStr, tilerMNStr,
       tileMode: (prev.tileMode instanceof Set) ? prev.tileMode : new Set(),
     };
@@ -155,7 +162,8 @@ function renderMakeTiledCopyTv(tabId) {
     mtcRenderAtomViz(tabId, 'mtv', mtvState[tabId]);
     mtcRenderTileViz(tabId, 'mtv', mtvState[tabId]);
     mtcRenderThreadPanel(tabId, 'mtv', mtvState[tabId]);
-    updateOuterTabLabel(tabId, `make_tiled_copy_tv:${atom.numBits}b/${atom.dtype}`);
+    updateOuterTabLabel(tabId, `make_tiled_copy_tv:` +
+      (atom.warp ? `${atom.copyAtom.label}/${atom.dtype}` : `${atom.numBits}b/${atom.dtype}`));
   } catch (e) {
     showErr(`${tabId}-mtv-error`, e.message);
     mtcClearPanes(tabId, 'mtv');
@@ -170,22 +178,18 @@ function setMtvHighlight(tabId) {
   renderMakeTiledCopyTv(tabId);
 }
 
-function setMTV(tabId, opKey, bits, dtype, thr, val) {
-  document.getElementById(`${tabId}-mtv-op-input`).value    = opKey;
-  document.getElementById(`${tabId}-mtv-bits-input`).value  = bits;
-  document.getElementById(`${tabId}-mtv-dtype-input`).value = dtype;
+function setMTV(tabId, opKey, bits, dtype, thr, val, nm, tr) {
+  mtcWriteAtom(tabId, 'mtv', opKey, bits, dtype, nm, tr);
   document.getElementById(`${tabId}-mtv-thr-input`).value   = thr;
   document.getElementById(`${tabId}-mtv-val-input`).value   = val;
   renderMakeTiledCopyTv(tabId);
 }
 
 function exportMTV(tabId) {
-  exportURL(`${tabId}-mtv-export`, 'make_tiled_copy_tv',
-    document.getElementById(`${tabId}-mtv-op-input`).value,
-    document.getElementById(`${tabId}-mtv-bits-input`).value,
-    document.getElementById(`${tabId}-mtv-dtype-input`).value,
+  const { head, tail } = mtcAtomURLFields(tabId, 'mtv');
+  exportURL(`${tabId}-mtv-export`, 'make_tiled_copy_tv', ...head,
     document.getElementById(`${tabId}-mtv-thr-input`).value,
-    document.getElementById(`${tabId}-mtv-val-input`).value);
+    document.getElementById(`${tabId}-mtv-val-input`).value, ...tail);
 }
 
 // Decode the access-pattern tab without confusing its TV map with an ordinary

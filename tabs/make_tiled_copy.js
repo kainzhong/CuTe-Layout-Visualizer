@@ -20,16 +20,57 @@
 // output is a flat index into the tile that `zipped_divide(tensor, Tiler_MN)`
 // carves out, so the codomain has to land inside it — see mtcCoverageCheck.
 
-// The Ops both tiled-copy tabs offer: ui.js's SIMT_COPY_OPS, unfiltered.
-// Every one of them is `ThrID = 1:0` with `ValLayoutSrc == ValLayoutDst`, which
-// is precisely what mtcReadAtom assumes when it reports `AtomNumThr = 1` and a
-// single atom layout — so the SIMT set is the whole set these tabs can take.
+// The Ops both tiled-copy tabs offer come in two atom shapes.
 //
-// The ldmatrix Ops in MCA_OPS are deliberately NOT here: they are warp-collective
-// (ThrID 32:1) with divergent src/dst, so `AtomNumThr = 1` would be a lie and
-// mtcRequireAtomDivides would be checking the wrong assert. Supporting them means
-// teaching these tabs a second atom shape, not adding a dropdown entry.
+// SIMT (ui.js's SIMT_COPY_OPS, unfiltered): `ThrID = 1:0` with
+// `ValLayoutSrc == ValLayoutDst`, so layout_tv describes both sides at once.
+//
+// Warp-collective ldmatrix / stmatrix (MTC_WARP_OPS, from MCA_OPS): `ThrID =
+// 32:1` with divergent SRC and DST. layout_tv is then the REGISTER side (CuTe's
+// reference layout: DST for ldmatrix, SRC for stmatrix), and the address side
+// is derived from the atom's own maps — tidfrg_S/D's
+// `layout_tv ∘ right_inverse(atom_ref) ∘ atom_side`, which is mcabSideLayout.
+// tiled threads 32k..32k+31 form one warp's instruction (copy_atom.hpp:205
+// requires TiledNumThr % 32 == 0); extra values per thread are extra issues.
+//
+// TMEM Ops are not offered: the generic constructors know nothing of the
+// warp-to-lane-quarter rule, so their result does not describe a real copy.
 const MTC_OPS = SIMT_COPY_OPS;
+const MTC_WARP_OPS = ['ldmatrix', 'ldmatrix16x8x8b', 'ldmatrix16x16x8b', 'ldmatrix8x16x8b',
+                      'stmatrix', 'stmatrix16x8x8b'];
+
+function mtcIsWarpOp(key) { return MTC_WARP_OPS.includes(key); }
+function mtcOffersOp(key) { return !!MTC_OPS[key] || mtcIsWarpOp(key); }
+function mtcOpLabel(key) { return MTC_OPS[key] ? MTC_OPS[key].label : MCA_OPS[key].label; }
+
+/** `<option>` markup for every Op these tabs take: SIMT first, then warp. */
+function mtcCopyOpOptions(sel) {
+  return simtCopyOpOptions(sel) + MTC_WARP_OPS.map(k =>
+    `<option value="${k}"${k === sel ? ' selected' : ''}>${MCA_OPS[k].label}</option>`).join('');
+}
+
+/** Show the controls the selected Op reads — num_bits_per_copy for SIMT,
+ *  num_matrices / transpose for ldmatrix and stmatrix — and rebuild the
+ *  per-Op num_matrices domain before anything assigns into it. `p` is the
+ *  id prefix ('mtc', 'mtv', or a manual-constructor '<p>-atom'). */
+function mtcSyncAtomControls(tabId, p, opKey) {
+  const key = opKey || document.getElementById(`${tabId}-${p}-op-input`).value;
+  const warp = mtcIsWarpOp(key);
+  const show = (part, visible) => {
+    const el = document.getElementById(`${tabId}-${p}-${part}-group`);
+    if (el) el.style.display = visible ? '' : 'none';
+  };
+  show('bits', !warp); show('nm', warp); show('trans', warp);
+  if (warp) mcaSyncLdsmControls(tabId, MCA_LDSM_SPECS[MCA_OPS[key].ldsm], p);
+  return warp;
+}
+
+/** The Op picker's onchange: controls, then the movement picker. */
+function mtcSetOp(tabId, p) {
+  const key = document.getElementById(`${tabId}-${p}-op-input`).value;
+  mtcSyncAtomControls(tabId, p, key);
+  syncCopyMoves(tabId, p, key);
+}
 
 const MTC_CPASYNC_BITS = [32, 64, 128];
 
@@ -59,13 +100,22 @@ ${copyMoveField(id, p)}
             <details class="cuo-section" id="${id}-${p}-atom-manual-construction"><summary>Manual construction</summary><div class="cuo-section-body">
             <div class="form-group">
               <label>Op</label>
-              <select id="${id}-${p}-op-input" onchange="syncCopyMoves('${id}','${p}',this.value)">
-                ${simtCopyOpOptions('universal')}
+              <select id="${id}-${p}-op-input" onchange="mtcSetOp('${id}','${p}')">
+                ${mtcCopyOpOptions('universal')}
               </select>
             </div>
-            <div class="form-group">
+            <div class="form-group" id="${id}-${p}-bits-group">
               <label>num_bits_per_copy</label>
               <input type="text" id="${id}-${p}-bits-input" value="${bits === undefined ? 128 : bits}">
+            </div>
+            <div class="form-group" id="${id}-${p}-nm-group" style="display:none">
+              <label>num_matrices<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; the .x{1,2,4} qualifier; the domain differs per Op</span></label>
+              <!-- a superset; mtcSyncAtomControls rebuilds it per Op -->
+              <select id="${id}-${p}-nm-input"><option value="1">1</option><option value="2">2</option><option value="4" selected>4</option></select>
+            </div>
+            <div class="form-group" id="${id}-${p}-trans-group" style="display:none">
+              <label>transpose<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; the .trans qualifier</span></label>
+              <select id="${id}-${p}-trans-input"><option value="0" selected>False</option><option value="1">True</option></select>
             </div>
             <div class="form-group">
               <label>tensor_dtype</label>
@@ -83,6 +133,7 @@ function mtcReadAtom(tabId, p) {
   const opKey   = document.getElementById(`${tabId}-${p}-op-input`).value;
   const bitsStr = document.getElementById(`${tabId}-${p}-bits-input`).value;
   const dtype   = document.getElementById(`${tabId}-${p}-dtype-input`).value;
+  if (mtcSyncAtomControls(tabId, p, opKey)) return mtcReadWarpAtom(tabId, p, opKey, dtype, bitsStr);
   const op = MTC_OPS[opKey] || MTC_OPS.universal;
   const numBits = parseInt(bitsStr, 10);
   if (!Number.isFinite(numBits) || numBits <= 0) {
@@ -119,7 +170,40 @@ function mtcReadAtom(tabId, p) {
     ? `cp.async hardware only accepts num_bits_per_copy ∈ {32, 64, 128} — ${numBits} would be ` +
       `rejected by cpasync.CopyG2SOp (CopyUniversalOp would take it).`
     : '';
-  return { opKey, op, numBits, dtype, elemBits, atomNumVal, atomStr, cpasyncWarn };
+  return { opKey, op, numBits, dtype, elemBits, atomNumVal, atomNumThr: 1, atomStr, cpasyncWarn,
+           copyAtom: mcabCopyAtom('s2r', dtype, 1, false, numBits) };
+}
+
+/** The warp-collective half of mtcReadAtom: an ldmatrix / stmatrix atom, built
+ *  by the same mcabCopyAtom make_tiled_copy_A/B/C and partition_S/D use.
+ *  AtomNumVal is the register (reference) side's value count, which is what
+ *  copy_atom.hpp:206 divides TiledNumVal by. num_bits_per_copy is not read. */
+function mtcReadWarpAtom(tabId, p, opKey, dtype, bitsStr) {
+  const nm = Number(document.getElementById(`${tabId}-${p}-nm-input`).value);
+  const transpose = document.getElementById(`${tabId}-${p}-trans-input`).value === '1';
+  const copyAtom = mcabCopyAtom(opKey, dtype, nm, transpose, 0);
+  const a = copyAtom.atom, spec = a.spec;
+  syncCopyMoves(tabId, p, opKey);
+  updateCopyPaneTitles(tabId, `${p}-atom`, p);
+  const fmt = L => formatLayoutStr(L.shape, L.stride);
+  const q = `.x${nm}${transpose ? '.trans' : ''}`;
+  const reg = a.regSide.toUpperCase(), addr = a.addrSide.toUpperCase();
+  document.getElementById(`${tabId}-${p}-atom-result`).innerHTML =
+    `<div class="cuo-result-line"><b>Copy_Atom&lt;${spec.op}${q}, ${dtype}&gt;</b></div>` +
+    `<div class="cuo-result-line">AtomNumThr = <b>32</b> (ThrID = 32:1, one warp), ` +
+    `AtomNumVal = <b>${copyAtom.values}</b> (the ${reg} register side)</div>` +
+    `<div class="cuo-result-line">ValLayoutSrc = ${fmt(copyAtom.src)}</div>` +
+    `<div class="cuo-result-line">ValLayoutDst = ${fmt(copyAtom.dst)}</div>` +
+    `<div class="cuo-result-line" style="color:#9ca3af">layout_tv below is the <b>${reg}</b> side; ` +
+    `CuTe derives ${addr}, where ${a.liveLanes} of each warp's 32 lanes supply a 16 B row address. ` +
+    `<code>num_bits_per_copy</code> is not read: the instruction fixes the width.</div>`;
+  const transWarn = transpose && copyAtom.elemBits !== spec.unitBits
+    ? `.trans on ${spec.op} moves ${spec.unitBits}-bit units, but ${dtype} is ${copyAtom.elemBits}-bit; ` +
+      `this is the CuTeDSL ownership layout, which may not be the load you meant.`
+    : '';
+  return { opKey, op: { label: mtcOpLabel(opKey) }, warp: true, numBits: parseInt(bitsStr, 10), dtype,
+           elemBits: copyAtom.elemBits, atomNumVal: copyAtom.values, atomNumThr: 32,
+           nm, transpose, copyAtom, cpasyncWarn: transWarn };
 }
 
 // ═══════════════════════════════════════════════════════
@@ -246,6 +330,108 @@ function mtcCoverageCheck(look, tiler_mn, thrSize, valSize, derived, broadcast) 
       `copied — CuTe compiles this happily and silently leaves them untouched. ` +
       `Tiler_MN must have exactly size(layout_tv) = ${pairs} cells for a full partition.`);
   }
+}
+
+/** CuTe's other static assert, copy_atom.hpp:205. Trivial for a SIMT atom.
+ *  For a warp atom, tiled threads 32k..32k+31 are one instruction; a thread
+ *  count that is not a whole number of warps leaves lanes undefined. C++
+ *  rejects it at compile time. CuTeDSL does not: it pads the thread mode to 32
+ *  and returns a TiledCopy that no warp can execute. */
+function mtcRequireAtomThreads(tiledNumThr, atomNumThr) {
+  if (tiledNumThr % atomNumThr === 0) return;
+  throw new Error(
+    `TiledNumThr (${tiledNumThr}) must be a multiple of AtomNumThr (${atomNumThr}). This is CuTe's ` +
+    `static assert "TiledCopy uses too few thrs for selected CopyAtom" (include/cute/atom/copy_atom.hpp:205): ` +
+    `the atom is warp-collective, so each group of ${atomNumThr} tiled threads issues one instruction ` +
+    `together. CuTeDSL does not check this and silently pads the thread mode to ${atomNumThr} lanes. ` +
+    `Give layout_tv's thread mode a multiple of ${atomNumThr} threads.`);
+}
+
+/** DOM-free: a TiledCopy over a warp-collective (ldmatrix / stmatrix) atom.
+ *  `layout_tv` is the register side; both side maps are CuTe's tidfrg
+ *  derivation (mcabSideLayout), diffed against CuTeDSL's layout_src_tv_tiled /
+ *  layout_dst_tv_tiled in tests/run.js (section `warp_tiled_copy`). */
+function mtcComputeWarpTiledCopy(copyAtom, layout_tv, tiler_mn) {
+  const thrSize = product(layout_tv.shape[0]), valSize = product(layout_tv.shape[1]);
+  mtcRequireAtomThreads(thrSize, copyAtom.threads);
+  if (valSize % copyAtom.values)
+    throw new Error(
+      `TiledNumVal (${valSize}) must be a multiple of AtomNumVal (${copyAtom.values}): CuTe's static ` +
+      `assert "TiledCopy uses too few vals for selected CopyAtom" (copy_atom.hpp:206). One ` +
+      `${copyAtom.label} puts ${copyAtom.values} values in each lane's registers, so layout_tv must give ` +
+      `every thread a whole number of instructions' worth. Choose a smaller num_matrices or widen ` +
+      `layout_tv's value mode.`);
+  const src = mcabSideLayout(layout_tv, tiler_mn, copyAtom, 'src');
+  const dst = mcabSideLayout(layout_tv, tiler_mn, copyAtom, 'dst');
+  const addrSide = copyAtom.addrSide, regSide = addrSide === 'src' ? 'dst' : 'src';
+  return { src, dst, addrSide, regSide, frgX: valSize / copyAtom.values,
+           rowCheck: mtcWarpRowCheck(addrSide === 'src' ? src : dst, tiler_mn, copyAtom) };
+}
+
+/** Where each addressing lane's 16 bytes sit in the tile. A lane hands the
+ *  instruction ONE address, so its R = 128 / bits elements must be contiguous
+ *  in SMEM. The tile alone cannot decide that — the SMEM layout does — but a
+ *  run along one tile axis is what a plain row- or column-major tile can
+ *  supply. Returns the axis every live lane's run follows ('m' / 'n'), 'mixed'
+ *  when lanes disagree, or 'none' with the first lane whose run follows
+ *  neither. Ignored (aliased) lanes supply no address and are skipped. */
+function mtcWarpRowCheck(addrL, tile, copyAtom) {
+  const R = product(copyAtom[copyAtom.addrSide].shape[1]);
+  const T = product(addrL.shape[0]), V = product(addrL.shape[1]);
+  const M = tile[0], axes = new Set();
+  for (let t = 0; t < T; t++) {
+    if (t % 32 >= copyAtom.liveLanes) continue;
+    for (let i = 0; i * R < V; i++) {
+      const coords = [];
+      for (let k = 0; k < R; k++) {
+        const flat = addrL.call(t, i * R + k);
+        coords.push([flat % M, Math.floor(flat / M)]);
+      }
+      const [m0, n0] = coords[0];
+      if (coords.every(([m, n], k) => n === n0 && m === m0 + k)) axes.add('m');
+      else if (coords.every(([m, n], k) => m === m0 && n === n0 + k)) axes.add('n');
+      else return { kind: 'none', R, tid: t, issue: i, coords };
+    }
+  }
+  return { kind: axes.size === 1 ? [...axes][0] : 'mixed', R };
+}
+
+function mtcFormatRowCheck(check, copyAtom) {
+  const bytes = `${check.R} elements = 16 B`;
+  const pairRows = copyAtom.atom && copyAtom.atom.spec.matrix === '16x8'
+    ? ` ${copyAtom.atom.spec.op} addresses two 8-byte rows of a 16&times;8 matrix per lane, so even ` +
+      `make_tiled_copy_A/B's own layout splits here; the SMEM layout must interleave to match.`
+    : '';
+  if (check.kind === 'm' || check.kind === 'n') {
+    const axis = check.kind === 'm' ? 'M (down a column)' : 'N (along a row)';
+    const tile = check.kind === 'm' ? 'M-major (column-major)' : 'N-major (row-major)';
+    return `<div class="cuo-result-line" style="color:#10b981"><b>✓ Address rows</b> &mdash; every ` +
+      `addressing lane's ${bytes} run along <b>${axis}</b>, so an ${tile} SMEM tile supplies each ` +
+      `one as a single contiguous 16 B row.</div>`;
+  }
+  if (check.kind === 'mixed')
+    return `<div class="cuo-result-line" style="color:#f59e0b"><b>Address rows</b> &mdash; each lane's ` +
+      `${bytes} run along one tile axis, but not the same one for every lane, so neither a row- nor ` +
+      `a column-major SMEM tile supplies all of them; <code>cute.copy</code> would reject both.${pairRows}</div>`;
+  const fmt = check.coords.map(([m, n]) => `(${m},${n})`).join(' ');
+  return `<div class="cuo-result-line" style="color:#f59e0b"><b>Address rows</b> &mdash; T${check.tid}'s ` +
+    `${check.issue === 0 ? 'first' : `#${check.issue}`} address covers ${fmt}: not a run along M or N. ` +
+    `Over a row- or column-major SMEM tile, <code>cute.copy</code> rejects this at compile time ` +
+    `("src ptr alignment &hellip; does not meet requirement (128 bits)"); only an SMEM layout that ` +
+    `interleaves both axes could supply it, or a different layout_tv.${pairRows}</div>`;
+}
+
+/** Result-box lines for a warp-atom TiledCopy: both derived side maps, the
+ *  instruction count, and where each lane's address row falls. */
+function mtcWarpResultLines(w, copyAtom) {
+  const fmt = L => formatLayoutStr(L.shape, L.stride);
+  return `<div class="cuo-result-line">layout_src_tv = <b>${fmt(w.src)}</b>` +
+      `<span style="color:#9ca3af"> &mdash; ${w.addrSide === 'src' ? 'address' : 'register'} side</span></div>` +
+    `<div class="cuo-result-line">layout_dst_tv = <b>${fmt(w.dst)}</b>` +
+      `<span style="color:#9ca3af"> &mdash; ${w.addrSide === 'dst' ? 'address' : 'register'} side</span></div>` +
+    `<div class="cuo-result-line">${w.frgX} ${copyAtom.label} per warp ` +
+      `(${copyAtom.values} register values each)</div>` +
+    mtcFormatRowCheck(w.rowCheck, copyAtom);
 }
 
 /** The atom moves `atomNumVal` CONTIGUOUS elements. Within the tile alone we
@@ -381,6 +567,42 @@ function mtcParseTiler(str) {
 //  Shared: visualization
 // ═══════════════════════════════════════════════════════
 
+/** The atom strip's description; `s` is the rendered state, or null for the
+ *  shipped (SIMT) default. */
+function mtcAtomDesc(s) {
+  if (s && s.warp) {
+    const a = s.copyAtom.atom;
+    return `One invocation of the atom, drawn exactly as the <b>make_copy_atom</b> tab draws it. ` +
+      `<code>ThrID = 32:1</code>: a whole warp issues it together, and the data crosses lanes ` +
+      `inside the instruction, so SRC and DST are different maps of the same ` +
+      `${a.tile.shape[0]}&times;${a.tile.shape[1]} block.` +
+      (a.liveLanes < 32 ? ` Only ${a.liveLanes} lanes supply addresses; the rest are grey.` : '');
+  }
+  return `One invocation of the atom, drawn exactly as the <b>make_copy_atom</b>
+            tab draws it: <code>V<i>k</i></code> is the value index within the
+            instruction, and <code>ThrID = 1:0</code> means one thread issues the
+            whole thing. This is the <em>unit</em>; everything below is that unit
+            replicated over <code>Tiler_MN</code> by <code>layout_tv</code>. The
+            colour is the one T0's first invocation gets in the tile grid, so the
+            two pictures line up.`;
+}
+
+function mtcTileDesc(s) {
+  if (s && s.warp) {
+    const reg = s.warpCopy.regSide.toUpperCase(), addr = s.warpCopy.addrSide.toUpperCase();
+    return `One tile of <code>Tiler_MN</code>, indexed two ways. <b>${reg}</b> is the register side: ` +
+      `it <em>is</em> <code>layout_tv</code>, which cell lands in which thread's registers. ` +
+      `<b>${addr}</b> is derived from the atom: which lane supplies the 16 B row address that ` +
+      `covers each cell. Threads 32<i>k</i>&hellip;32<i>k</i>+31 form warp <i>k</i>'s instruction; ` +
+      `ignored address lanes are grey, and the <code>value</code> toggle adds the col-major offset.`;
+  }
+  return `One tile of <code>Tiler_MN</code>. Cell <code>(m, n)</code> shows the
+            <code>(t, v)</code> pair that owns it; the <code>value</code> toggle
+            adds the col-major flat offset, which is what
+            <code>layout_tv(t, v)</code> actually returns. A SIMT Op has
+            <code>ValLayoutSrc == ValLayoutDst</code>, so the two panes match.`;
+}
+
 /** HTML for the tile viz + per-thread panel. Both tabs render into these. */
 function mtcVizSection(id, p) {
   return `
@@ -393,15 +615,7 @@ function mtcVizSection(id, p) {
               <button class="mode-btn" id="${id}-${p}-atom-src-svg-zoom" onclick="toggleCopyZoom('${id}','${p}-atom')">Zoom in</button>
             </span>
           </div>
-          <div class="cuo-viz-desc">
-            One invocation of the atom, drawn exactly as the <b>make_copy_atom</b>
-            tab draws it: <code>V<i>k</i></code> is the value index within the
-            instruction, and <code>ThrID = 1:0</code> means one thread issues the
-            whole thing. This is the <em>unit</em>; everything below is that unit
-            replicated over <code>Tiler_MN</code> by <code>layout_tv</code>. The
-            colour is the one T0's first invocation gets in the tile grid, so the
-            two pictures line up.
-          </div>
+          <div class="cuo-viz-desc" id="${id}-${p}-atom-desc">${mtcAtomDesc(null)}</div>
 ${copyPanes(id, `${p}-atom`)}
         </div>
         <div class="comp-viz-item">
@@ -416,13 +630,7 @@ ${copyPanes(id, `${p}-atom`)}
               <button class="mode-btn" onclick="downloadSVG('${id}-${p}-src-svg', 'tiled_copy.svg')">Download SVG</button>
             </span>
           </div>
-          <div class="cuo-viz-desc">
-            One tile of <code>Tiler_MN</code>. Cell <code>(m, n)</code> shows the
-            <code>(t, v)</code> pair that owns it; the <code>value</code> toggle
-            adds the col-major flat offset, which is what
-            <code>layout_tv(t, v)</code> actually returns. Both Ops here have
-            <code>ValLayoutSrc == ValLayoutDst</code>, so the two panes match.
-          </div>
+          <div class="cuo-viz-desc" id="${id}-${p}-tile-desc">${mtcTileDesc(null)}</div>
 ${copyPanes(id, p)}
         </div>
         <div class="comp-viz-item" id="${id}-${p}-thread-item" style="display:none">
@@ -454,18 +662,55 @@ function mtcRenderAtomViz(tabId, p, s) {
   for (const side of ['src', 'dst']) {
     const host = document.getElementById(`${tabId}-${p}-atom-${side}-svg`);
     if (!host) continue;
-    host.innerHTML = simtAtomPaneHTML(side, s.atomStr, s.atomNumVal, s.dtype);
+    host.innerHTML = s.warp
+      ? mcaLdmatrixPaneHTML(s.copyAtom.atom, side, s.dtype, '')
+      : simtAtomPaneHTML(side, s.atomStr, s.atomNumVal, s.dtype);
     applyZoomState(`${tabId}-${p}-atom-${side}-svg`);
   }
+  const desc = document.getElementById(`${tabId}-${p}-atom-desc`);
+  if (desc) desc.innerHTML = mtcAtomDesc(s);
   const title = document.getElementById(`${tabId}-${p}-atom-title`);
   if (title) {
-    title.textContent =
-      `${s.op.label} — ${s.numBits}b / ${s.dtype} → ${s.atomNumVal} ` +
-      `element${s.atomNumVal === 1 ? '' : 's'} per invocation`;
+    const a = s.warp && s.copyAtom.atom;
+    title.textContent = s.warp
+      ? `${s.copyAtom.label} — ${s.dtype} → ${a.tile.shape[0]}×${a.tile.shape[1]} block, ` +
+        `${s.atomNumVal} values per lane, ${a.liveLanes}/32 lanes addressing`
+      : `${s.op.label} — ${s.numBits}b / ${s.dtype} → ${s.atomNumVal} ` +
+        `element${s.atomNumVal === 1 ? '' : 's'} per invocation`;
   }
 }
 
+/** The warp-atom tile: SRC and DST are different maps, so each pane draws its
+ *  own side with buildTVSVG, which keeps every claimant of a cell — ignored
+ *  address lanes alias onto live ones and are drawn grey, not as collisions. */
+function mtcRenderWarpTileViz(tabId, p, s) {
+  const w = s.warpCopy, modes = s.tileMode instanceof Set ? s.tileMode : new Set();
+  const dead = new Set();
+  for (let t = 0; t < s.thrSize; t++) if (t % 32 >= s.copyAtom.liveLanes) dead.add(t);
+  for (const side of ['src', 'dst']) {
+    const L = w[side], isAddr = side === w.addrSide;
+    const head = `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">` +
+      `${side === 'src' ? 'layout_src_tv' : 'layout_dst_tv'} = ${formatLayoutStr(L.shape, L.stride)} &mdash; ` +
+      (isAddr ? `address side: ${s.copyAtom.liveLanes} of each warp's 32 lanes supply a 16 B row`
+              : `register side (= layout_tv)`) +
+      (s.highlightTid !== null ? ` &mdash; <b>focus T${s.highlightTid}</b>` : '') + `</div>`;
+    const host = `${tabId}-${p}-${side}-svg`;
+    document.getElementById(host).innerHTML = head +
+      buildTVSVG(L.shape, L.stride, s.tiler_mn, [1, s.tiler_mn[0]], false, 'col', s.highlightTid,
+                 modes.has('value') ? 'value' : '', { dimTids: isAddr && dead.size ? dead : null });
+    applyZoomState(host);
+  }
+  updateModeBtns(`${tabId}-${p}-tile-mode-btns`, modes);
+  document.getElementById(`${tabId}-${p}-tile-title`).textContent =
+    `TiledCopy tile (${s.tiler_mn[0]}×${s.tiler_mn[1]}) — ${s.thrSize / 32} warp${s.thrSize === 32 ? '' : 's'} × ` +
+    `${s.frgX} instruction${s.frgX === 1 ? '' : 's'} each` +
+    (s.highlightTid !== null ? ` — focus T${s.highlightTid}` : '');
+}
+
 function mtcRenderTileViz(tabId, p, s) {
+  const desc = document.getElementById(`${tabId}-${p}-tile-desc`);
+  if (desc) desc.innerHTML = mtcTileDesc(s);
+  if (s.warp) return mtcRenderWarpTileViz(tabId, p, s);
   const M_tile = s.tiler_mn[0];
   const filterTid = s.highlightTid;
   const modes = s.tileMode instanceof Set ? s.tileMode : new Set();
@@ -518,7 +763,9 @@ function mtcRenderThreadPanel(tabId, p, s) {
     return;
   }
   const tid = s.highlightTid, M_tile = s.tiler_mn[0];
-  const rows = [];
+  const rows = s.warp
+    ? [`<div class="cuo-result-line">${s.warpCopy.regSide.toUpperCase()} (register side = layout_tv):</div>`]
+    : [];
   for (let a = 0; a < s.frgX; a++) {
     const coords = [];
     for (let k = 0; k < s.atomNumVal; k++) {
@@ -527,6 +774,25 @@ function mtcRenderThreadPanel(tabId, p, s) {
     }
     rows.push(`<div class="cuo-result-line">atom #${a}: V${a * s.atomNumVal}..V${(a + 1) * s.atomNumVal - 1} ` +
       `&rarr; ${coords.join(' ')}</div>`);
+  }
+  if (s.warp) {
+    const w = s.warpCopy, L = w[w.addrSide], R = s.rowR;
+    const lane = tid % 32;
+    rows.push(`<div class="cuo-result-line" style="margin-top:6px">${w.addrSide.toUpperCase()} (address side), ` +
+      `lane ${lane} of warp ${Math.floor(tid / 32)}:</div>`);
+    if (lane >= s.copyAtom.liveLanes) {
+      rows.push(`<div class="cuo-result-line" style="color:#9ca3af">lane ${lane} &ge; ${s.copyAtom.liveLanes}: ` +
+        `it executes the instruction but its address is ignored.</div>`);
+    } else {
+      for (let i = 0; i * R < product(L.shape[1]); i++) {
+        const coords = [];
+        for (let k = 0; k < R; k++) {
+          const flat = L.call(tid, i * R + k);
+          coords.push(`(${flat % M_tile},${Math.floor(flat / M_tile)})`);
+        }
+        rows.push(`<div class="cuo-result-line">address #${i}: ${coords.join(' ')}</div>`);
+      }
+    }
   }
   item.style.display = '';
   document.getElementById(`${tabId}-${p}-thread-title`).textContent = `Per-thread view — T${tid}`;
@@ -610,6 +876,12 @@ ${mtcAtomSection(id, 'mtc', '1. CopyAtom')}
             <button class="preset-btn" onclick="setMTC('${id}','universal',128,'float','(256,4):(4,1)','(128, 8)')">sgemm_2.cu TV layout &mdash; 128b float, tile 128x8</button>
             <button class="preset-btn" onclick="setMTC('${id}','g2r',128,'half_t','((8,16),8):((128,1),16)','(16, 64)')">CopyG2ROp &mdash; same tiling, GMEM&rarr;RMEM</button>
             <button class="preset-btn" onclick="setMTC('${id}','r2s',64,'half_t','((8,4),(2,2)):((16,2),(8,1))','(8, 16)')">CopyR2SOp &mdash; 64b half, RMEM&rarr;SMEM</button>
+            <button class="preset-btn" onclick="setMTC('${id}','ldmatrix',128,'half_t','((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))','(32, 16)',4,0)">ldmatrix .x4 &mdash; make_tiled_copy_A's TV layout, 4 warps</button>
+            <button class="preset-btn" onclick="setMTC('${id}','ldmatrix',128,'half_t','((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))','(32, 16)',1,0)">ldmatrix .x1 &mdash; same tile, 4 loads per warp, 8 address lanes</button>
+            <button class="preset-btn" onclick="setMTC('${id}','ldmatrix',128,'half_t','((4,8,2,2),((2,2),(2,1))):((64,1,0,8),((32,256),(16,0)))','(32, 16)',2,1)">ldmatrix .x2.trans &mdash; MMA B, 2-way broadcast</button>
+            <button class="preset-btn" onclick="setMTC('${id}','stmatrix',128,'half_t','((4,8,2,2),((2,2),(1,2))):((64,1,16,256),((32,8),(0,512)))','(32, 32)',4,0)">stmatrix .x4 &mdash; the epilogue store over the accumulator</button>
+            <button class="preset-btn" onclick="setMTC('${id}','ldmatrix16x16x8b',128,'int8_t','((4,8,2,2),((4,2,2),(1,1))):((128,1,16,0),((32,8,512),(0,0)))','(32, 32)',2,1)">LdMatrix16x16x8bOp .x2 &mdash; 8-bit MMA A</button>
+            <button class="preset-btn" onclick="setMTC('${id}','ldmatrix16x8x8b',128,'int8_t','((4,8,2,2),((4,2,2),(1,1))):((128,1,16,0),((32,8,512),(0,0)))','(32, 32)',4,1)">LdMatrix16x8x8bOp .x4 &mdash; each lane addresses two 8-byte rows</button>
           </div>
         </div>
 
@@ -690,7 +962,8 @@ function renderMakeTiledCopy(tabId) {
     const tilerP = mtcParseTiler(tilerStr);
     const tiler_mn = tilerP.extents;
 
-    mtcRequireAtomDivides(valSize, atom.atomNumVal, atom.numBits, atom.elemBits, atom.dtype);
+    const warpCopy = atom.warp ? mtcComputeWarpTiledCopy(atom.copyAtom, layout_tv, tiler_mn) : null;
+    if (!atom.warp) mtcRequireAtomDivides(valSize, atom.atomNumVal, atom.numBits, atom.elemBits, atom.dtype);
     const frgX = valSize / atom.atomNumVal;
 
     const broadcast = mtcHasBroadcast(layout_tv);
@@ -698,7 +971,7 @@ function renderMakeTiledCopy(tabId) {
     mtcCoverageCheck(look, tiler_mn, thrSize, valSize, false, broadcast);
     const bcastFactor = broadcast ? look.counts.find(c => c > 0) : 1;
 
-    const vecCheck = mtcVectorizationCheck(atom.atomNumVal, layout_tv, tiler_mn);
+    const vecCheck = atom.warp ? null : mtcVectorizationCheck(atom.atomNumVal, layout_tv, tiler_mn);
     document.getElementById(`${tabId}-mtc-tile-result`).innerHTML =
       `<div class="cuo-result-line">layout_tv = <b>${formatLayoutStr(layout_tv.shape, layout_tv.stride)}</b></div>` +
       `<div class="cuo-result-line">Tiler_MN  = <b>(${tiler_mn.join(', ')})</b> = ${tiler_mn[0] * tiler_mn[1]} cells</div>` +
@@ -710,7 +983,7 @@ function renderMakeTiledCopy(tabId) {
           `That is deliberate, not overlap (this is what <code>make_tiled_copy_A/B</code> produce, ` +
           `since an MMA's A operand is shared across the N-dimension warps).</div>`
         : '') +
-      mtcFormatVecCheck(vecCheck, atom.atomNumVal);
+      (atom.warp ? mtcWarpResultLines(warpCopy, atom.copyAtom) : mtcFormatVecCheck(vecCheck, atom.atomNumVal));
 
     const hl = readHighlightTid(tabId, 'mtc', thrSize);
     const tilerNote = tilerP.hadStride
@@ -724,7 +997,8 @@ function renderMakeTiledCopy(tabId) {
 
     const prev = mtcState[tabId] || {};
     mtcState[tabId] = {
-      ...atom, layout_tv, tiler_mn, thrSize, valSize, frgX,
+      ...atom, layout_tv, tiler_mn, thrSize, valSize, frgX, warpCopy,
+      rowR: warpCopy ? warpCopy.rowCheck.R : 0,
       lookup: look.lookup, counts: look.counts, broadcast, bcastFactor,
       highlightTid: hl.tid, vecCheck,
       tileMode: (prev.tileMode instanceof Set) ? prev.tileMode : new Set(),
@@ -733,7 +1007,8 @@ function renderMakeTiledCopy(tabId) {
     mtcRenderAtomViz(tabId, 'mtc', mtcState[tabId]);
     mtcRenderTileViz(tabId, 'mtc', mtcState[tabId]);
     mtcRenderThreadPanel(tabId, 'mtc', mtcState[tabId]);
-    updateOuterTabLabel(tabId, `make_tiled_copy:${tiler_mn[0]}x${tiler_mn[1]}`);
+    updateOuterTabLabel(tabId, `make_tiled_copy:${tiler_mn[0]}x${tiler_mn[1]}` +
+      (atom.warp ? `/${atom.copyAtom.label}` : ''));
   } catch (e) {
     showErr(`${tabId}-mtc-error`, e.message);
     mtcClearPanes(tabId, 'mtc');
@@ -748,22 +1023,42 @@ function setMtcHighlight(tabId) {
   renderMakeTiledCopy(tabId);
 }
 
-function setMTC(tabId, opKey, bits, dtype, tv, tiler) {
-  document.getElementById(`${tabId}-mtc-op-input`).value    = opKey;
-  document.getElementById(`${tabId}-mtc-bits-input`).value  = bits;
-  document.getElementById(`${tabId}-mtc-dtype-input`).value = dtype;
+/** Assign a CopyAtom to an atom section. The num_matrices domain is per Op,
+ *  so it is rebuilt BEFORE the assignment (a value missing from the old option
+ *  list silently fails in a browser), and synced again after so a required or
+ *  forbidden transpose stays pinned. */
+function mtcWriteAtom(tabId, p, opKey, bits, dtype, nm, tr) {
+  const write = (key, value) => { document.getElementById(`${tabId}-${p}-${key}-input`).value = String(value); };
+  write('op', opKey); write('bits', bits); write('dtype', dtype);
+  if (mtcSyncAtomControls(tabId, p, opKey)) {
+    if (nm !== undefined && nm !== '') write('nm', nm);
+    if (tr !== undefined && tr !== '') write('trans', tr);
+    mtcSyncAtomControls(tabId, p, opKey);
+  }
+  syncCopyMoves(tabId, p, opKey);
+}
+
+/** The atom fields a make_tiled_copy(_tv) URL carries: op, bits, dtype, then
+ *  num_matrices and transpose for a warp atom only, so SIMT links keep their
+ *  original five-input form. */
+function mtcAtomURLFields(tabId, p) {
+  const read = key => document.getElementById(`${tabId}-${p}-${key}-input`).value;
+  return { head: [read('op'), read('bits'), read('dtype')],
+           tail: mtcIsWarpOp(read('op')) ? [read('nm'), read('trans')] : [] };
+}
+
+function setMTC(tabId, opKey, bits, dtype, tv, tiler, nm, tr) {
+  mtcWriteAtom(tabId, 'mtc', opKey, bits, dtype, nm, tr);
   document.getElementById(`${tabId}-mtc-tv-input`).value    = tv;
   document.getElementById(`${tabId}-mtc-tiler-input`).value = tiler;
   renderMakeTiledCopy(tabId);
 }
 
 function exportMTC(tabId) {
-  exportURL(`${tabId}-mtc-export`, 'make_tiled_copy',
-    document.getElementById(`${tabId}-mtc-op-input`).value,
-    document.getElementById(`${tabId}-mtc-bits-input`).value,
-    document.getElementById(`${tabId}-mtc-dtype-input`).value,
+  const { head, tail } = mtcAtomURLFields(tabId, 'mtc');
+  exportURL(`${tabId}-mtc-export`, 'make_tiled_copy', ...head,
     document.getElementById(`${tabId}-mtc-tv-input`).value,
-    document.getElementById(`${tabId}-mtc-tiler-input`).value);
+    document.getElementById(`${tabId}-mtc-tiler-input`).value, ...tail);
 }
 
 /** Decode an offered TiledCopy URL into its constructor, atom traits and tiler.
@@ -782,19 +1077,34 @@ function mtcDecodeURL(parsed) {
   }
   if (!['make_tiled_copy', 'make_tiled_copy_tv'].includes(parsed.feature))
     throw new Error('Paste a make_tiled_copy, make_tiled_copy_tv, or make_tiled_copy_A/B/C URL.');
-  const dtype = a[2], bits = DTYPE_BITS[dtype];
-  if (!MTC_OPS[a[0]] || !bits || !Number.isInteger(Number(a[1]) / bits)) throw new Error('Invalid CopyAtom in URL.');
-  const copyAtom = mcabCopyAtom('s2r', dtype, 1, false, Number(a[1]));
-  copyAtom.label = `${MTC_OPS[a[0]].label} (${a[1]} bits)`;
+  const dtype = a[2], bits = DTYPE_BITS[dtype], warp = mtcIsWarpOp(a[0]);
+  if (!mtcOffersOp(a[0]) || !bits || (!warp && !Number.isInteger(Number(a[1]) / bits)))
+    throw new Error('Invalid CopyAtom in URL.');
+  if (warp && (!['1', '2', '4'].includes(a[5]) || !['0', '1'].includes(a[6])))
+    throw new Error('A warp CopyAtom URL needs num_matrices (1, 2 or 4) and transpose (0 or 1).');
+  // A warp atom keeps its distinct SRC / DST / register maps (mcabCopyAtom),
+  // exactly as an MMA-derived TiledCopy does, so partition_S/D and retile
+  // treat both the same way.
+  const copyAtom = warp ? mcabCopyAtom(a[0], dtype, Number(a[5]), a[6] === '1', 0)
+                        : mcabCopyAtom('s2r', dtype, 1, false, Number(a[1]));
+  if (!warp) copyAtom.label = `${MTC_OPS[a[0]].label} (${a[1]} bits)`;
   const meta = { copyAtom, atomValues: copyAtom.values, dtype, opKey: a[0], numBits: Number(a[1]) };
+  let r;
   if (parsed.feature === 'make_tiled_copy_tv') {
-    const r = make_layout_tv(parse(a[3]), parse(a[4]));
-    return { tv: r.layout_tv, tile: r.tiler_mn, tiler: r.tiler_mn.map(n => new Layout(n)),
+    const m = make_layout_tv(parse(a[3]), parse(a[4]));
+    r = { tv: m.layout_tv, tile: m.tiler_mn, tiler: m.tiler_mn.map(n => new Layout(n)),
       constructorName: 'make_tiled_copy_tv(copy_atom, thr_layout, val_layout)', ...meta };
+  } else {
+    const tiler = psdParseTiler(a[4]);
+    r = { tv: parse(a[3]), tile: tiler.map(l => l.size()), tiler,
+      constructorName: 'make_tiled_copy(copy_atom, layout_tv, tiler_mn)', ...meta };
   }
-  const tiler = psdParseTiler(a[4]);
-  return { tv: parse(a[3]), tile: tiler.map(l => l.size()), tiler,
-    constructorName: 'make_tiled_copy(copy_atom, layout_tv, tiler_mn)', ...meta };
+  if (warp) {
+    // Reject what C++ CuTe rejects before any consumer partitions with it.
+    const w = mtcComputeWarpTiledCopy(copyAtom, r.tv, r.tile);
+    r.src = w.src; r.dst = w.dst;
+  }
+  return r;
 }
 
 /** Standard read-only TiledCopy constructor result, including both side maps. */
@@ -851,12 +1161,14 @@ function mtcSyncManualConstructor(tabId, p) {
   // An MMA-derived C copy carries its own value type (the epilogue output).
   show('derived', kind === 'make_tiled_copy_tv'); show('dtype', !mma || read('operand') === 'C');
   const copy = document.getElementById(`${tabId}-${p}-atom-copy-input`), before = copy.value;
-  const ops = mma ? mcabCopyOps(read('operand')) : Object.keys(MTC_OPS);
-  copy.innerHTML = ops.map(key => `<option value="${key}">${mma ? mcabCopyLabel(key) : MTC_OPS[key].label}</option>`).join('');
+  const ops = mma ? mcabCopyOps(read('operand')) : [...Object.keys(MTC_OPS), ...MTC_WARP_OPS];
+  copy.innerHTML = ops.map(key => `<option value="${key}">${mma ? mcabCopyLabel(key) : mtcOpLabel(key)}</option>`).join('');
   copy.value = ops.includes(before) ? before : ops[0];
   if (mma) mcabSyncCopyControls(tabId, `${p}-atom`);
   else {
-    show('atom-bits', true); show('atom-nm', false); show('atom-trans', false);
+    const warp = mtcIsWarpOp(copy.value);
+    show('atom-bits', !warp); show('atom-nm', warp); show('atom-trans', warp);
+    if (warp) mcaSyncLdsmControls(tabId, MCA_LDSM_SPECS[MCA_OPS[copy.value].ldsm], `${p}-atom`);
   }
 }
 
@@ -875,7 +1187,8 @@ function mtcReadManualConstructor(tabId, p) {
       ...(tail.length || cd.length ? ['na', 'src_dst', ...tail, ...cd] : [])]};
   }
   return {feature, inputs: [read('atom-copy'), read('atom-bits'), read('dtype'),
-    ...(feature === 'make_tiled_copy' ? [read('tv'), read('tiler')] : [read('thr'), read('val')])]};
+    ...(feature === 'make_tiled_copy' ? [read('tv'), read('tiler')] : [read('thr'), read('val')]),
+    ...(mtcIsWarpOp(read('atom-copy')) ? [read('atom-nm'), read('atom-trans')] : [])]};
 }
 
 function mtcWriteManualConstructor(tabId, p, parsed, sourceURL) {
@@ -895,6 +1208,12 @@ function mtcWriteManualConstructor(tabId, p, parsed, sourceURL) {
     if (a[0] === 'C') write('dtype', decoded.dtype);
   } else {
     write('atom-copy', a[0]); write('atom-bits', a[1]); write('dtype', a[2]);
+    if (mtcIsWarpOp(a[0])) {
+      // Rebuild the per-Op num_matrices options before assigning, then re-pin.
+      mtcSyncManualConstructor(tabId, p);
+      write('atom-nm', a[5]); write('atom-trans', a[6]);
+      mtcSyncManualConstructor(tabId, p);
+    }
     if (parsed.feature === 'make_tiled_copy') { write('tv', a[3]); write('tiler', a[4]); }
     else { write('thr', a[3]); write('val', a[4]); }
   }

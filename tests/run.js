@@ -332,6 +332,41 @@ if (section('make_tiled_copy')) {
 }
 
 // ═══════════════════════════════════════════════════════
+//  3b. make_tiled_copy / make_tiled_copy_tv over a warp-collective atom
+//
+//  layout_tv is the register side; the address side is derived from the
+//  ldmatrix / stmatrix atom's own maps. Both tiled side maps, and the decoded
+//  URL that partition_S/D and retile consume, must match CuTeDSL pointwise.
+// ═══════════════════════════════════════════════════════
+
+if (section('warp_tiled_copy')) {
+  for (const c of CASES.warp_tiled_copy) {
+    const ref = refFor('warp_tiled_copy', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const atom = V.mcabCopyAtom(c.copy_op, c.dtype, c.num_matrices, c.transpose, 0);
+      let tv, tile, url;
+      const nm = String(c.num_matrices), tr = c.transpose ? '1' : '0';
+      if (c.ctor === 'tv') {
+        ({ layout_tv: tv, tiler_mn: tile } = V.make_layout_tv(parseExact(V, c.thr), parseExact(V, c.val)));
+        url = ['make_tiled_copy_tv', c.copy_op, 128, c.dtype, c.thr, c.val, nm, tr];
+      } else {
+        tv = parseExact(V, c.tv);
+        tile = V.mtcParseTiler(c.tiler).extents;
+        url = ['make_tiled_copy', c.copy_op, 128, c.dtype, c.tv, c.tiler, nm, tr];
+      }
+      check(c.id, 'tiler_mn', '(' + tile.map(e => `${e}:1`).join(',') + ')', ref.tiler_mn);
+      checkLayout(`${c.id}/tv`, tv, ref.tv);
+      const w = V.mtcComputeWarpTiledCopy(atom, tv, tile);
+      checkLayout(`${c.id}/src`, w.src, ref.src);
+      checkLayout(`${c.id}/dst`, w.dst, ref.dst);
+      const decoded = V.mtcDecodeURL({ feature: url[0], inputs: url.slice(1).map(String) });
+      for (const side of ['src', 'dst']) checkLayout(`${c.id}/url ${side}`, decoded[side], ref[side]);
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
 //  4. make_copy_atom  (DTYPE_BITS and the ValLayout it implies)
 // ═══════════════════════════════════════════════════════
 

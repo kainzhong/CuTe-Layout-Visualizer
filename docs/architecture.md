@@ -260,9 +260,10 @@ produce hierarchical coordinates this 2-D grid cannot draw.
   `make_tiled_copy_tv` alias it as `MTC_OPS`, and `mtcAtomSection` generates its `<option>`s from it.
   It lives in ui.js **because the duplication had already drifted** — the four directional Ops were
   added to `make_copy_atom`'s private table and silently did not appear in the other two tabs. Adding
-  an Op here now offers it in all three with no template edit. The ldmatrix Ops stay out of `MTC_OPS`
-  on purpose: they are warp-collective with divergent src/dst, so `mtcReadAtom`'s `AtomNumThr = 1`
-  would be a lie: supporting them means teaching those tabs a second atom shape, not a dropdown entry.
+  an Op here now offers it in all three with no template edit. `MTC_OPS` stays the SIMT table; the
+  warp-collective ldmatrix / stmatrix Ops reach the tiled tabs through `MTC_WARP_OPS` instead (see
+  "Warp-collective atoms in make_tiled_copy / make_tiled_copy_tv"), because they are a second atom
+  shape, not another SIMT entry.
 - **Memory movement is constrained, not free.** `COPY_OP_MOVES` lists the legal `(src, dst)` pairs per Op key; section 0 of each Copy tab is a `<select>` built from it, and the pane titles are read-only labels driven by that select. `cpasync.CopyG2SOp` has exactly one entry (GMEM→SMEM) so its picker is `disabled`. `CopyUniversalOp` gets the six cross-space pairs over GMEM/SMEM/RMEM — **TMEM is deliberately excluded**, because it isn't thread-addressable (tcgen05's Ld/St src layout is stride-0 across all 32 lanes), so reaching it requires a tcgen05 Op. `tma_g2s` (the bulk-tensor load) has one entry too, for the same reason as `cpasync`. The four
 directional SIMT Ops (`g2r`, `r2g`, `s2r`, `r2s`) likewise have exactly one each — the direction is in
 the Op's name and is baked into its MLIR type (`!cute_nvgpu.atom.g2r<...>`), not chosen at
@@ -970,6 +971,38 @@ Two ways the sizes legitimately differ:
   which splits top-level commas and reads each mode separately. Tiler strides are accepted and
   reported but do not change the picture: they say where the tile's cells sit in the *tensor*, and
   this tab never involves a tensor.
+
+### Warp-collective atoms in make_tiled_copy / make_tiled_copy_tv
+
+Both tabs also take the six ldmatrix / stmatrix Ops (`MTC_WARP_OPS`); TMEM Ops are refused because
+the generic constructors ignore the warp-to-lane-quarter rule (CuTeDSL builds a TMEM TiledCopy with a
+stride-0 thread mode that describes no real copy; that belongs to a future `make_tmem_copy`).
+
+- **layout_tv is the register side.** It is CuTe's reference layout — DST for ldmatrix, SRC for
+  stmatrix. The address side is derived exactly as `tidfrg_S/D` do, by `mcabSideLayout`
+  (`layout_tv ∘ right_inverse(atom_ref) ∘ atom_side`), the same function make_tiled_copy_A/B/C uses.
+  `mtcComputeWarpTiledCopy` is the DOM-free entry point; `warp_tiled_copy` in the corpus diffs both
+  side maps (and the decoded URL) against CuTeDSL's `layout_src_tv_tiled` / `layout_dst_tv_tiled`.
+- **AtomNumThr = 32.** Tiled threads 32k..32k+31 are warp k's instruction; extra values per thread are
+  extra issues. C++ asserts `TiledNumThr % AtomNumThr == 0` (`copy_atom.hpp:205`); CuTeDSL does not
+  (a 16-thread ldmatrix TiledCopy comes back padded to 32 lanes), so the tab and `mtcDecodeURL` reject
+  it and `tests/unit.js` pins that, since the oracle cannot.
+- **Each side is drawn separately** with `buildTVSVG` over the col-major tile, which keeps every
+  claimant: `.x1` / `.x2` ignored address lanes alias onto live ones and are drawn grey.
+- **The address-row check is informational, not an error.** `mtcWarpRowCheck` reports whether every
+  live lane's 16 B (R = 128 / bits elements) run along one tile axis, i.e. whether a plain row- or
+  column-major SMEM tile hands each over as one row. Contiguity is really a property of the SMEM
+  layout, which this tab does not have, so a non-axis run is shown in amber rather than rejected.
+  `gpu_check.py --warp-tiled` executes every `warp_tiled_copy` case over both plain orientations, and
+  on GB200 the check predicted all 31: 'n' cases run only N-major, 'm' cases only M-major, and the 6
+  'none' cases are rejected by `cute.copy` in both (128-bit source alignment). No execution
+  misplaced an element. The
+  16×8 8-bit Ops address two 8-byte rows per lane, so even make_tiled_copy_A's correct layout splits
+  there. Raked `thr`/`val` pairs cannot express the paired-column register order of a 16-bit
+  non-transposed ldmatrix; the 32-bit `.x4` and the 16-bit `.x4.trans` cases can, which the presets show.
+- **URLs** append `num_matrices, transpose` after the layouts only for a warp Op
+  (`FEATURE_SPEC` optional 2), so SIMT links keep their five-field form. `mtcWriteAtom` rebuilds the
+  per-Op num_matrices options before assigning and re-pins a required / forbidden transpose.
 
 ### Highlighting a thread
 

@@ -712,6 +712,13 @@
       "val": "(1,8):(1,1)",
       "dtype": "half_t",
       "bits": 128
+    },
+    {
+      "id": "tv-single-value",
+      "thr": "(8,4):(4,1)",
+      "val": "(1,1):(1,1)",
+      "dtype": "half_t",
+      "bits": 16
     }
   ],
   "_comment_mtc": [
@@ -4416,6 +4423,30 @@
       "tv": "((8,4),(2,2)):((16,2),(8,1))",
       "tiler": "(8, 16)",
       "tensor": "(16, 32):(1, 16)"
+    },
+    {
+      "id": "url_mtc_ldsm_x4_S",
+      "copy_url": "?key=make_tiled_copy-ldmatrix-128-half_t-((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))-(32,16)-4-0",
+      "side": "S",
+      "tensor": "(64,32,2):(32,1,2048)"
+    },
+    {
+      "id": "url_mtc_ldsm_x1_D",
+      "copy_url": "?key=make_tiled_copy-ldmatrix-128-half_t-((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))-(32,16)-1-0",
+      "side": "D",
+      "tensor": "(64,32,2):(32,1,2048)"
+    },
+    {
+      "id": "url_mtc_stsm_x4_D",
+      "copy_url": "?key=make_tiled_copy-stmatrix-128-half_t-((4,8,2,2),((2,2),(1,2))):((64,1,16,256),((32,8),(0,512)))-(32,32)-4-0",
+      "side": "D",
+      "tensor": "(64,64):(64,1)"
+    },
+    {
+      "id": "url_mtv_ldsm_f32_S",
+      "copy_url": "?key=make_tiled_copy_tv-ldmatrix-128-float-(8,4):(4,1)-(4,1):(1,1)-4-0",
+      "side": "S",
+      "tensor": "(64,8):(8,1)"
     }
   ],
   "_comment_make_fragment_abc": "Direct MmaAtom.make_fragment_A/B/C calls on already partitioned layouts. The output layout maps fragment value coordinates to scalar register slots; the UI packs those slots into 32-bit register words according to dtype. These cases also check parsing the partition result as a standalone input.",
@@ -14892,6 +14923,318 @@
       "store": true,
       "repeat": 128,
       "dtype": "bfloat16_t"
+    }
+  ],
+  "warp_tiled_copy": [
+    {
+      "id": "wtc-A-x4",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "dtype": "half_t",
+      "tv": "((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))",
+      "tiler": "(32,16)"
+    },
+    {
+      "id": "wtc-A-x2",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix",
+      "num_matrices": 2,
+      "transpose": false,
+      "dtype": "half_t",
+      "tv": "((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))",
+      "tiler": "(32,16)"
+    },
+    {
+      "id": "wtc-A-x1",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix",
+      "num_matrices": 1,
+      "transpose": false,
+      "dtype": "half_t",
+      "tv": "((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))",
+      "tiler": "(32,16)"
+    },
+    {
+      "id": "wtc-A-x4-trans",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix",
+      "num_matrices": 4,
+      "transpose": true,
+      "dtype": "half_t",
+      "tv": "((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))",
+      "tiler": "(32,16)"
+    },
+    {
+      "id": "wtc-A-x4-bf16",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "dtype": "bfloat16_t",
+      "tv": "((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))",
+      "tiler": "(32,16)"
+    },
+    {
+      "id": "wtc-A-single-warp",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "dtype": "half_t",
+      "tv": "((4,8),((2,2,2),(1,1))):((32,1),((16,8,128),(0,0)))",
+      "tiler": "(16,16)"
+    },
+    {
+      "id": "wtc-A-8x16x8b",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix8x16x8b",
+      "num_matrices": 4,
+      "transpose": false,
+      "dtype": "half_t",
+      "tv": "((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))",
+      "tiler": "(32,16)"
+    },
+    {
+      "id": "wtc-B-x4",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "dtype": "half_t",
+      "tv": "((4,8,2,2),((2,2),(2,1))):((64,1,0,8),((32,256),(16,0)))",
+      "tiler": "(32,16)"
+    },
+    {
+      "id": "wtc-B-x2-trans",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix",
+      "num_matrices": 2,
+      "transpose": true,
+      "dtype": "half_t",
+      "tv": "((4,8,2,2),((2,2),(2,1))):((64,1,0,8),((32,256),(16,0)))",
+      "tiler": "(32,16)"
+    },
+    {
+      "id": "wtc-B-x1",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix",
+      "num_matrices": 1,
+      "transpose": false,
+      "dtype": "half_t",
+      "tv": "((4,8,2,2),((2,2),(2,1))):((64,1,0,8),((32,256),(16,0)))",
+      "tiler": "(32,16)"
+    },
+    {
+      "id": "wtc-A8-16x8x8b",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix16x8x8b",
+      "num_matrices": 4,
+      "transpose": true,
+      "dtype": "int8_t",
+      "tv": "((4,8,2,2),((4,2,2),(1,1))):((128,1,16,0),((32,8,512),(0,0)))",
+      "tiler": "(32,32)"
+    },
+    {
+      "id": "wtc-A8-16x16x8b",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix16x16x8b",
+      "num_matrices": 2,
+      "transpose": true,
+      "dtype": "int8_t",
+      "tv": "((4,8,2,2),((4,2,2),(1,1))):((128,1,16,0),((32,8,512),(0,0)))",
+      "tiler": "(32,32)"
+    },
+    {
+      "id": "wtc-A8-16x16x8b-x1",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix16x16x8b",
+      "num_matrices": 1,
+      "transpose": true,
+      "dtype": "int8_t",
+      "tv": "((4,8,2,2),((4,2,2),(1,1))):((128,1,16,0),((32,8,512),(0,0)))",
+      "tiler": "(32,32)"
+    },
+    {
+      "id": "wtc-B8-16x8x8b-x2",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix16x8x8b",
+      "num_matrices": 2,
+      "transpose": true,
+      "dtype": "uint8_t",
+      "tv": "((4,8,2,2),((4,2),(2,1))):((128,1,0,8),((32,512),(16,0)))",
+      "tiler": "(32,32)"
+    },
+    {
+      "id": "wtc-A8-8x16x8b-x1",
+      "ctor": "primitive",
+      "copy_op": "ldmatrix8x16x8b",
+      "num_matrices": 1,
+      "transpose": false,
+      "dtype": "int8_t",
+      "tv": "((4,8,2,2),((4,2,2),(1,1))):((128,1,16,0),((32,8,512),(0,0)))",
+      "tiler": "(32,32)"
+    },
+    {
+      "id": "wtc-C-stsm-x4",
+      "ctor": "primitive",
+      "copy_op": "stmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "dtype": "half_t",
+      "tv": "((4,8,2,2),((2,2),(1,2))):((64,1,16,256),((32,8),(0,512)))",
+      "tiler": "(32,32)"
+    },
+    {
+      "id": "wtc-C-stsm-x2-trans",
+      "ctor": "primitive",
+      "copy_op": "stmatrix",
+      "num_matrices": 2,
+      "transpose": true,
+      "dtype": "half_t",
+      "tv": "((4,8,2,2),((2,2),(1,2))):((64,1,16,256),((32,8),(0,512)))",
+      "tiler": "(32,32)"
+    },
+    {
+      "id": "wtc-C-stsm-x1",
+      "ctor": "primitive",
+      "copy_op": "stmatrix",
+      "num_matrices": 1,
+      "transpose": false,
+      "dtype": "bfloat16_t",
+      "tv": "((4,8,2,2),((2,2),(1,2))):((64,1,16,256),((32,8),(0,512)))",
+      "tiler": "(32,32)"
+    },
+    {
+      "id": "wtc-C-stsm8-x4",
+      "ctor": "primitive",
+      "copy_op": "stmatrix16x8x8b",
+      "num_matrices": 4,
+      "transpose": true,
+      "dtype": "int8_t",
+      "tv": "((4,8,2,2),((2,2),(1,4))):((64,1,16,256),((32,8),(0,512)))",
+      "tiler": "(32,64)"
+    },
+    {
+      "id": "wtc-C-stsm8-x1",
+      "ctor": "primitive",
+      "copy_op": "stmatrix16x8x8b",
+      "num_matrices": 1,
+      "transpose": true,
+      "dtype": "uint8_t",
+      "tv": "((4,8,2,2),((2,2),(1,2))):((64,1,16,256),((32,8),(0,512)))",
+      "tiler": "(32,32)"
+    },
+    {
+      "id": "wtv-f32-x4",
+      "ctor": "tv",
+      "copy_op": "ldmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "dtype": "float",
+      "thr": "(8,4):(4,1)",
+      "val": "(4,1):(1,1)"
+    },
+    {
+      "id": "wtv-f32-x4-4warps",
+      "ctor": "tv",
+      "copy_op": "ldmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "dtype": "float",
+      "thr": "(8,(4,4)):(4,(1,32))",
+      "val": "(4,1):(1,1)"
+    },
+    {
+      "id": "wtv-f32-x4-2issues",
+      "ctor": "tv",
+      "copy_op": "ldmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "dtype": "float",
+      "thr": "(8,4):(4,1)",
+      "val": "(8,1):(1,1)"
+    },
+    {
+      "id": "wtv-f32-x2",
+      "ctor": "tv",
+      "copy_op": "ldmatrix",
+      "num_matrices": 2,
+      "transpose": false,
+      "dtype": "float",
+      "thr": "(8,4):(4,1)",
+      "val": "(2,1):(1,1)"
+    },
+    {
+      "id": "wtv-f32-x1",
+      "ctor": "tv",
+      "copy_op": "ldmatrix",
+      "num_matrices": 1,
+      "transpose": false,
+      "dtype": "float",
+      "thr": "(8,4):(4,1)",
+      "val": "(1,1):(1,1)"
+    },
+    {
+      "id": "wtv-f32-stsm-x4",
+      "ctor": "tv",
+      "copy_op": "stmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "dtype": "float",
+      "thr": "(8,4):(4,1)",
+      "val": "(4,1):(1,1)"
+    },
+    {
+      "id": "wtv-half-naive",
+      "ctor": "tv",
+      "copy_op": "ldmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "dtype": "half_t",
+      "thr": "(32,4):(1,32)",
+      "val": "(1,8):(1,1)"
+    },
+    {
+      "id": "wtv-half-rowpairs",
+      "ctor": "tv",
+      "copy_op": "ldmatrix",
+      "num_matrices": 4,
+      "transpose": false,
+      "dtype": "half_t",
+      "thr": "(8,4):(4,1)",
+      "val": "(4,2):(1,4)"
+    },
+    {
+      "id": "wtv-half-trans",
+      "ctor": "tv",
+      "copy_op": "ldmatrix",
+      "num_matrices": 4,
+      "transpose": true,
+      "dtype": "half_t",
+      "thr": "(4,8):(1,4)",
+      "val": "(8,1):(1,1)"
+    },
+    {
+      "id": "wtv-int8-16x16",
+      "ctor": "tv",
+      "copy_op": "ldmatrix16x16x8b",
+      "num_matrices": 2,
+      "transpose": true,
+      "dtype": "int8_t",
+      "thr": "(4,8):(1,4)",
+      "val": "(8,2):(1,8)"
+    },
+    {
+      "id": "wtv-stsm8-x4",
+      "ctor": "tv",
+      "copy_op": "stmatrix16x8x8b",
+      "num_matrices": 4,
+      "transpose": true,
+      "dtype": "int8_t",
+      "thr": "(4,8):(1,4)",
+      "val": "(4,4):(1,4)"
     }
   ]
 }

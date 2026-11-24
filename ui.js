@@ -1892,8 +1892,8 @@ const FEATURE_SPEC = {
   blocked_product: { inputs: 2 },
   raked_product:   { inputs: 2 },
   make_copy_atom:     { inputs: 3, optional: 3 },  // op, bits, dtype [, num_matrices, transpose]; accept legacy unpack_bits tail
-  make_tiled_copy:    { inputs: 5 },  // op, bits, dtype, layout_tv, tiler_mn
-  make_tiled_copy_tv: { inputs: 5 },  // op, bits, dtype, thr, val
+  make_tiled_copy:    { inputs: 5, optional: 2 },  // op, bits, dtype, layout_tv, tiler_mn [, num_matrices, transpose]
+  make_tiled_copy_tv: { inputs: 5, optional: 2 },  // op, bits, dtype, thr, val [, num_matrices, transpose]
   make_tiled_tma_atom: { inputs: 5, optional: 1 },  // dtype, gmem, swizzle, smem, tiler [, op]
   tma_partition:       { inputs: 5, optional: 1 },  // values, dtype, swizzle, smem, rest [, op]
   partition_sd:        { inputs: 4, methods: ['url'], legacyInputs: 8 },  // url: side, encoded copy URL, thread, tensor; legacy constructor fields remain accepted
@@ -2238,22 +2238,13 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
       break;
     }
     case 'make_tiled_copy':
-      document.getElementById(`${tabId}-mtc-op-input`).value    = inputs[0];
-      document.getElementById(`${tabId}-mtc-bits-input`).value  = inputs[1];
-      document.getElementById(`${tabId}-mtc-dtype-input`).value = inputs[2];
-      document.getElementById(`${tabId}-mtc-tv-input`).value    = inputs[3];
-      document.getElementById(`${tabId}-mtc-tiler-input`).value = inputs[4];
+      // setMTC rebuilds the warp atom's num_matrices options before assigning.
       switchInnerTab(tabId, 'make_tiled_copy');
-      renderMakeTiledCopy(tabId);
+      setMTC(tabId, ...inputs.slice(0, 7));
       break;
     case 'make_tiled_copy_tv':
-      document.getElementById(`${tabId}-mtv-op-input`).value    = inputs[0];
-      document.getElementById(`${tabId}-mtv-bits-input`).value  = inputs[1];
-      document.getElementById(`${tabId}-mtv-dtype-input`).value = inputs[2];
-      document.getElementById(`${tabId}-mtv-thr-input`).value   = inputs[3];
-      document.getElementById(`${tabId}-mtv-val-input`).value   = inputs[4];
       switchInnerTab(tabId, 'make_tiled_copy_tv');
-      renderMakeTiledCopyTv(tabId);
+      setMTV(tabId, ...inputs.slice(0, 7));
       break;
     case 'make_tiled_tma_atom':
       document.getElementById(`${tabId}-tma-dtype-input`).value   = inputs[0];

@@ -62,6 +62,7 @@ global function calls; older Node versions use the original contextified fallbac
 | `basis_ops` | the same ops over **coordinate (scaled-basis) layouts** — only the ones CuTe defines for them (see the table in [`docs/architecture.md`](../docs/architecture.md)) | ditto |
 | `make_layout_tv` | `make_layout_tv(thr, val)`, the `make_tiled_copy_tv` tab's derivation | `cute.make_layout_tv` **and** the `TiledCopy` that `cute.make_tiled_copy_tv` builds |
 | `make_tiled_copy` | the tab's reading of `(layout_tv, Tiler_MN)` — `mtcParseTiler` and `parseLayout` | what `cute.make_tiled_copy` reports back |
+| `warp_tiled_copy` | `mtcComputeWarpTiledCopy` and `mtcDecodeURL` for an ldmatrix / stmatrix atom: `layout_tv`, both derived side maps, and the tiler | `cute.make_tiled_copy` / `cute.make_tiled_copy_tv` over the same `LdMatrix*` / `StMatrix*` atom (`layout_tv_tiled`, `layout_src_tv_tiled`, `layout_dst_tv_tiled`) |
 | `make_tiled_copy_ab` | `mcabComputeTiledCopy`, atom traits, tiled SRC/DST and reference layouts, and every displayed grid entry | `cute.make_tiled_copy_A/B` with the same TiledMMA and CopyAtom |
 | `copy_atom` | `ui.js`'s `DTYPE_BITS` and the ValLayout it implies | `cute.make_copy_atom` |
 | `tma_atom` | `tmaComputeAtom` — inferred box size, `num_bits_per_tma`, the returned TMA coordinate tensor | `cpasync.make_tiled_tma_atom` |
@@ -192,6 +193,22 @@ every thread's accumulator fragment with each element's index, retiles it to the
 stmatrix-stores into SMEM and reads SMEM back; every element must hold its own index (16-bit
 types exactly, 8-bit types mod 256). Validated with CuTeDSL 4.8.0 on NVIDIA GB200: 15/15. The
 atom layouts themselves are the 90 `stsm-*` cases in the `ldmatrix_atom` oracle section.
+
+## make_tiled_copy over LdMatrix / StMatrix
+
+```bash
+python3 tests/gpu_check.py --warp-tiled          # every warp_tiled_copy case, both SMEM orientations
+```
+
+Requires SM100 for the 8-bit Ops. Each `warp_tiled_copy` case (make_tiled_copy or make_tiled_copy_tv
+over an ldmatrix / stmatrix atom) runs over an N-major and an M-major SMEM tile. A load fills SMEM
+with each element's index and writes every register back at the coordinate `partition_D` of the
+identity tensor assigns it; a store fills registers at `partition_S`'s coordinates and reads SMEM
+back. Every element must hold its own index. An orientation whose 16 B address rows are not
+contiguous is rejected by the compiler (128-bit source alignment), which is correct; the gate fails
+only on misplaced data or an unexpected error. Validated with CuTeDSL 4.8.0 on NVIDIA GB200: 25 of
+31 cases execute correctly in exactly the orientation the tab's address-row check names, the other 6
+are rejected in both, as the check predicts, and nothing is misplaced.
 
 ## LdMatrix
 

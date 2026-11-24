@@ -840,8 +840,152 @@ def stmatrix_main():
     return 1 if failures else 0
 
 
+def run_warp_tiled_copy(case, order, compile_only=False):
+    """make_tiled_copy / make_tiled_copy_tv over an ldmatrix or stmatrix atom
+    (corpus section `warp_tiled_copy`), executed over an SMEM tile of the given
+    orientation: 'n' = (M, N):(N, 1) row-major, 'm' = (M, N):(1, M).
+
+    Load: SMEM holds each element's col-major index m + n*M; the TiledCopy
+    loads it into a fragment shaped by partition_D of the identity tensor, and
+    every thread writes each register back at the coordinate CuTe assigns it.
+    Store: the fragment is filled at partition_S's coordinates, stored, and
+    SMEM is copied out. Either way every element must hold its own index, which
+    is exactly the claim the tab's SRC / DST panes make. Same-width integer
+    types; 8-bit indices compare mod 256. Returns the number of wrong elements."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from gen_reference import make_warp_copy_atom, parse_layout, _parse_value
+    from cutlass.memory import SmemAllocator
+    width = {"half_t": 16, "bfloat16_t": 16, "float": 32, "int8_t": 8, "uint8_t": 8}[case["dtype"]]
+    ity, nty = {16: (cutlass.Int16, np.int16), 32: (cutlass.Int32, np.int32), 8: (cutlass.Int8, np.int8)}[width]
+    store = case["copy_op"].startswith("stmatrix")
+
+    def build():
+        atom = make_warp_copy_atom(case, ity)
+        if case["ctor"] == "tv":
+            return cute.make_tiled_copy_tv(atom, parse_layout(case["thr"]), parse_layout(case["val"]))
+        return cute.make_tiled_copy(atom, parse_layout(case["tv"]), _parse_value(case["tiler"]))
+
+    sizes = {}
+
+    @cute.jit
+    def probe():
+        tc = build()
+        sizes["M"], sizes["N"] = int(cute.size(tc.tiler_mn[0])), int(cute.size(tc.tiler_mn[1]))
+        sizes["T"] = int(cute.size(tc.layout_tv_tiled, mode=[0]))
+    try:
+        probe()
+    except Exception:                                       # noqa: BLE001
+        pass
+    M, N, T = sizes["M"], sizes["N"], sizes["T"]
+    slay = ((M, N), (N, 1)) if order == "n" else ((M, N), (1, M))
+
+    @cute.kernel
+    def kern(pout: cute.Pointer):
+        tid, _, _ = cute.arch.thread_idx()
+        tc = build()
+        thr = tc.get_slice(tid)
+        sT = SmemAllocator().allocate_tensor(ity, cute.make_layout(slay[0], stride=slay[1]), 128)
+        ident = cute.make_identity_tensor((M, N))
+        gOut = cute.make_tensor(pout, cute.make_layout(M * N))
+        if cutlass.const_expr(store):
+            tSc = thr.partition_S(ident)
+            frag = cute.make_fragment_like(tSc, ity)
+            for i in cutlass.range_constexpr(cute.size(frag)):
+                m, n = tSc[i]
+                frag[i] = ity(m + n * M)
+            cute.copy(tc, frag, thr.partition_D(sT))
+            cute.arch.barrier()
+            for k in cutlass.range_constexpr((M * N + T - 1) // T):
+                i = tid + k * T
+                if i < M * N:
+                    gOut[i] = sT[i]                     # flat i is the colexicographic (m, n)
+        else:
+            for k in cutlass.range_constexpr((M * N + T - 1) // T):
+                i = tid + k * T
+                if i < M * N:
+                    sT[i] = ity(i)
+            cute.arch.barrier()
+            tDc = thr.partition_D(ident)
+            frag = cute.make_fragment_like(tDc, ity)
+            cute.copy(tc, thr.partition_S(sT), frag)
+            for i in cutlass.range_constexpr(cute.size(frag)):
+                m, n = tDc[i]
+                gOut[m + n * M] = frag[i]
+
+    @cute.jit
+    def launch(pout: cute.Pointer):
+        kern(pout).launch(grid=(1, 1, 1), block=(T, 1, 1), smem=M * N * width // 8 + 256)
+
+    out = np.full(M * N, -1, nty)
+    pout = to_device(out) if not compile_only else 0x1000
+    p = cute.runtime.make_ptr(ity, int(pout), cute.AddressSpace.gmem, assumed_align=16)
+    compiled = cute.compile(launch, p)
+    if compile_only:
+        return 0
+    compiled(p)
+    ck(drv.cuCtxSynchronize())
+    got = from_device(pout, out).astype(np.int64)
+    mask = (1 << width) - 1
+    want = (np.arange(M * N) & mask).astype(np.int64)
+    want = np.where(want > mask // 2, want - mask - 1, want)
+    return int((got != want).sum())
+
+
+def warp_tiled_one_main():
+    import json
+    from pathlib import Path
+    ck(drv.cuInit(0))
+    ck(drv.cuCtxCreate(0, ck(drv.cuDeviceGet(0))))
+    i = sys.argv.index("--warp-tiled-one")
+    case_id, order = sys.argv[i + 1], sys.argv[i + 2]
+    case = next(c for c in json.loads(Path(__file__).with_name("cases.json").read_text())["warp_tiled_copy"]
+                if c["id"] == case_id)
+    bad = run_warp_tiled_copy(case, order)
+    if bad:
+        sys.exit(f"{bad} elements misplaced")
+    return 0
+
+
+def warp_tiled_main():
+    """Every warp_tiled_copy case over both SMEM orientations, one process per
+    run (a fault poisons the CUDA context). The gate fails only when an
+    execution misplaces data or errors unexpectedly: the compiler rejecting an
+    orientation whose 16 B address rows are not contiguous is correct
+    behaviour, and the per-orientation table is what the tab's address-row
+    check (mtcWarpRowCheck) predicts."""
+    import json
+    import subprocess
+    from pathlib import Path
+    case_filter = sys.argv[sys.argv.index("--case") + 1] if "--case" in sys.argv else ""
+    cases = [c for c in json.loads(Path(__file__).with_name("cases.json").read_text())["warp_tiled_copy"]
+             if case_filter in c["id"]]
+    print("make_tiled_copy(_tv) over LdMatrix / StMatrix -- executed over N-major and M-major SMEM")
+    failures, executed = [], 0
+    for case in cases:
+        cells = []
+        for order in ("n", "m"):
+            p = subprocess.run([sys.executable, os.path.abspath(__file__), "--warp-tiled-one", case["id"], order],
+                               capture_output=True, text=True, timeout=600)
+            msg = " ".join((p.stdout + p.stderr).split())
+            cells.append("ok" if p.returncode == 0
+                         else "misplaced" if "misplaced" in msg
+                         else "rejected" if ("vectoriz" in msg or "alignment" in msg or "divisib" in msg)
+                         else "error: " + msg[-160:])
+        bad = any(c not in ("ok", "rejected") for c in cells)
+        runs = "ok" in cells
+        print(f"  {'FAIL' if bad else 'ok  '}  {case['id']:<22} N-major: {cells[0]:<10} M-major: {cells[1]}", flush=True)
+        if bad:
+            failures.append(case["id"])
+        executed += runs
+    print(f"{executed}/{len(cases)} execute correctly in a plain SMEM orientation; the rest are rejected "
+          f"by the compiler. {len(failures)} misplaced or errored.")
+    return 1 if failures else 0
+
+
 if __name__ == "__main__":
     sys.exit(warpgroup_main() if "--warpgroup" in sys.argv
+             else warp_tiled_one_main() if "--warp-tiled-one" in sys.argv
+             else warp_tiled_main() if "--warp-tiled" in sys.argv
              else tma_one_main() if "--tma-one" in sys.argv
              else tmem_one_main() if "--tmem-one" in sys.argv
              else tmem_main() if "--tmem" in sys.argv

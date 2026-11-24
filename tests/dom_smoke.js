@@ -1599,11 +1599,23 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     ctx.mcaImportAtom(TAB,'mca','renderMakeCopyAtom','?key=make_copy_atom-ldmatrix16x16x8b-128-int8_t-2-1');
     if (els.get(`${TAB}-mca-nm-input`).value !== '2' || els.get(`${TAB}-mca-trans-input`).value !== '1')
       throw new Error('CopyAtom decoder did not rebuild matrix/transpose options');
-    const before = ['op','bits','dtype'].map(x => els.get(`${TAB}-mtc-${x}-input`).value);
+    // ldmatrix / stmatrix atoms decode into both tiled tabs, with the per-Op
+    // num_matrices options rebuilt before the value is assigned.
+    for (const [p,render] of [['mtc','renderMakeTiledCopy'],['mtv','renderMakeTiledCopyTv']]) {
+      ctx.mcaImportAtom(TAB,p,render,'?key=make_copy_atom-ldmatrix16x16x8b-128-int8_t-1-1');
+      if (els.get(`${TAB}-${p}-op-input`).value !== 'ldmatrix16x16x8b' || els.get(`${TAB}-${p}-nm-input`).value !== '1' ||
+          els.get(`${TAB}-${p}-trans-input`).value !== '1' || els.get(`${TAB}-${p}-nm-group`).style.display === 'none')
+        throw new Error(`${p} did not decode the ldmatrix CopyAtom with its parameters`);
+    }
+    // Later steps assume the SIMT atom the loop above decoded (universal, 32 b).
+    ctx.setMTV(TAB,'universal',32,'half_t','(16,8):(8,1)','(1,8):(1,1)');
+    ctx.setMTC(TAB,'universal',128,'half_t','((8,16),8):((128,1),16)','(16,64)');
+    const fields = ['op','bits','dtype','nm','trans'];
+    const before = fields.map(x => els.get(`${TAB}-mtc-${x}-input`).value);
     let rejected = false;
-    try { ctx.mcaImportAtom(TAB,'mtc','renderMakeTiledCopy','?key=make_copy_atom-ldmatrix-128-half_t-4-0'); } catch (_) { rejected = true; }
-    if (!rejected || JSON.stringify(before) !== JSON.stringify(['op','bits','dtype'].map(x => els.get(`${TAB}-mtc-${x}-input`).value)))
-      throw new Error('SIMT-only tab accepted or mutated fields for an unsupported CopyAtom');
+    try { ctx.mcaImportAtom(TAB,'mtc','renderMakeTiledCopy','?key=make_copy_atom-tmem_ld32x32b-32-float-8'); } catch (_) { rejected = true; }
+    if (!rejected || JSON.stringify(before) !== JSON.stringify(fields.map(x => els.get(`${TAB}-mtc-${x}-input`).value)))
+      throw new Error('make_tiled_copy accepted or mutated fields for a TMEM CopyAtom');
     ctx.setPSDURL(TAB,'S','?key=make_tiled_copy_ab-A-f16bf16-half_t-half_t-16-(2,2,1)-(32,32,16)-ldmatrix-4-0-16-warp','0','(128,32,4):(32,1,4096)');
     els.get(`${TAB}-psd-manual-atom-nm-input`).value = '1';
     ctx.renderPartitionSD(TAB);
@@ -2398,8 +2410,90 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
       throw new Error('manual C TiledCopy diverged from its URL');
   }, psdPanes);
 
+  // ── make_tiled_copy / make_tiled_copy_tv over ldmatrix / stmatrix ─────────
+  const warpRef = JSON.parse(fs.readFileSync(path.join(__dirname, 'reference.json'), 'utf8')).warp_tiled_copy;
+  const mtcPanes = ['src', 'dst'].map(side => `${TAB}-mtc-${side}-svg`);
+  const mtvPanes = ['src', 'dst'].map(side => `${TAB}-mtv-${side}-svg`);
+  const A16 = '((4,8,2,2),((2,2,2),(1,1))):((64,1,16,0),((32,8,256),(0,0)))';
+  step('make_tiled_copy: ldmatrix .x1 draws CuTeDSL\'s two side maps, grey ignored lanes and a URL that round-trips', () => {
+    ctx.setMTC(TAB, 'ldmatrix', 128, 'half_t', A16, '(32, 16)', 1, 0);
+    const s = ctx.mtcState[TAB], ref = warpRef['wtc-A-x1'];
+    if (!s.warp || fmtL(s.warpCopy.src) !== ref.src.str || fmtL(s.warpCopy.dst) !== ref.dst.str)
+      throw new Error('displayed side maps differ from CuTeDSL');
+    const result = els.get(`${TAB}-mtc-tile-result`).innerHTML;
+    if (!result.includes(ref.src.str) || !result.includes(ref.dst.str)) throw new Error('result box lacks the side maps');
+    if (!/Address rows/.test(result)) throw new Error('address-row check missing');
+    const src = els.get(`${TAB}-mtc-src-svg`).innerHTML, dst = els.get(`${TAB}-mtc-dst-svg`).innerHTML;
+    if (src === dst) throw new Error('SRC and DST panes are identical for a warp atom');
+    if (!src.includes(ctx.TV_DISABLED_FG)) throw new Error('.x1 ignored address lanes are not greyed');
+    if (els.get(`${TAB}-mtc-bits-group`).style.display !== 'none' || els.get(`${TAB}-mtc-nm-group`).style.display === 'none')
+      throw new Error('warp atom shows num_bits_per_copy instead of num_matrices');
+    let exported;
+    const realExport = ctx.exportURL, realSwitch = ctx.switchInnerTab;
+    ctx.exportURL = (btn, feature, ...inputs) => { exported = [feature, ...inputs]; };
+    ctx.switchInnerTab = () => {};
+    try {
+      ctx.exportMTC(TAB);
+      if (exported.slice(-2).join() !== '1,0') throw new Error(`export lost num_matrices/transpose: ${exported}`);
+      ctx.setMTC(TAB, 'universal', 128, 'half_t', '((8,16),8):((128,1),16)', '(16, 64)');
+      ctx.location.search = '?' + new URLSearchParams({ key: exported.join('-') }).toString();
+      ctx.applyKeyParam(TAB);
+      const back = ctx.mtcState[TAB];
+      if (!back.warp || back.nm !== 1 || fmtL(back.warpCopy.src) !== ref.src.str) throw new Error('URL did not round trip');
+    } finally { ctx.exportURL = realExport; ctx.switchInnerTab = realSwitch; ctx.location.search = ''; }
+    els.get(`${TAB}-mtc-highlight-tid`).value = '9';
+    ctx.setMtcHighlight(TAB);
+    const panel = els.get(`${TAB}-mtc-thread-body`).innerHTML;
+    if (!/address is ignored/.test(panel)) throw new Error('lane 9 of an .x1 should be reported as ignored');
+    els.get(`${TAB}-mtc-highlight-tid`).value = '';
+    ctx.setMtcHighlight(TAB);
+  }, mtcPanes);
+  step('make_tiled_copy: a 16-thread ldmatrix TiledCopy is rejected (copy_atom.hpp:205)', () => {
+    ctx.setMTC(TAB, 'ldmatrix', 128, 'half_t', '(16,8):(8,1)', '(16, 8)', 4, 0);
+    if (els.get(`${TAB}-mtc-src-svg`).innerHTML) throw new Error('rejected TiledCopy left a stale picture');
+  }, [], { expectError: /too few thrs/ });
+  step('make_tiled_copy: back to a SIMT preset restores the shared picture', () => {
+    ctx.setMTC(TAB, 'universal', 32, 'half_t', '((8,4),(2,2)):((16,2),(8,1))', '(8, 16)');
+    if (ctx.mtcState[TAB].warp || els.get(`${TAB}-mtc-bits-group`).style.display === 'none')
+      throw new Error('SIMT atom still shows warp controls');
+    if (!/A SIMT Op has/.test(els.get(`${TAB}-mtc-tile-desc`).innerHTML)) throw new Error('description stayed on the warp text');
+  }, mtcPanes);
+  step('make_tiled_copy_tv: ldmatrix float .x4 matches CuTeDSL and its URL round-trips', () => {
+    ctx.setMTV(TAB, 'ldmatrix', 128, 'float', '(8,(4,4)):(4,(1,32))', '(4,1):(1,1)', 4, 0);
+    const s = ctx.mtvState[TAB], ref = warpRef['wtv-f32-x4-4warps'];
+    if (fmtL(s.layout_tv) !== ref.tv.str || fmtL(s.warpCopy.src) !== ref.src.str || fmtL(s.warpCopy.dst) !== ref.dst.str)
+      throw new Error('make_tiled_copy_tv side maps differ from CuTeDSL');
+    if (s.warpCopy.rowCheck.kind !== 'n') throw new Error('expected address rows along N');
+    let exported;
+    const realExport = ctx.exportURL, realSwitch = ctx.switchInnerTab;
+    ctx.exportURL = (btn, feature, ...inputs) => { exported = [feature, ...inputs]; };
+    ctx.switchInnerTab = () => {};
+    try {
+      ctx.exportMTV(TAB);
+      ctx.setMTV(TAB, 'cpasync', 128, 'half_t', '(16,8):(8,1)', '(1,8):(1,1)');
+      ctx.location.search = '?' + new URLSearchParams({ key: exported.join('-') }).toString();
+      ctx.applyKeyParam(TAB);
+      if (!ctx.mtvState[TAB].warp || fmtL(ctx.mtvState[TAB].warpCopy.src) !== ref.src.str) throw new Error('URL did not round trip');
+    } finally { ctx.exportURL = realExport; ctx.switchInnerTab = realSwitch; ctx.location.search = ''; }
+  }, mtvPanes);
+  step('partition_S/D: a make_tiled_copy ldmatrix URL fills the manual constructor and matches CuTeDSL', () => {
+    const url = `?key=make_tiled_copy-ldmatrix-128-half_t-${A16}-(32,16)-4-0`;
+    els.get(`${TAB}-psd-tensor-input`).value = '(64,32,2):(32,1,2048)';
+    ctx.psdImportTiledCopy(TAB, url);
+    for (const [key, want] of [['kind', 'make_tiled_copy'], ['atom-copy', 'ldmatrix'], ['atom-nm', '4'], ['atom-trans', '0']])
+      if (els.get(`${TAB}-psd-manual-${key}-input`).value !== want) throw new Error(`manual ${key} lost`);
+    const manual = ctx.mtcReadManualConstructor(TAB, 'psd-manual');
+    if (manual.inputs.slice(-2).join() !== '4,0') throw new Error('manual constructor dropped num_matrices/transpose');
+    const a = ctx.mtcDecodeURL(manual), b = ctx.mtcDecodeURL(ctx.parsePastedKeyParam(url));
+    if (fmtL(a.src) !== fmtL(b.src) || fmtL(b.src) !== warpRef['wtc-A-x4'].src.str)
+      throw new Error('manual ldmatrix TiledCopy diverged from its URL');
+  }, psdPanes);
+
   // ── URL round-trip: every ?key= form must parse ──────────────────────────
   for (const key of [
+    'make_tiled_copy-universal-32-half_t-(4,2):(1,4)-(4,2)',
+    'make_tiled_copy-ldmatrix-128-half_t-((4,8),((2,2,2),(1,1))):((32,1),((16,8,128),(0,0)))-(16,16)-4-0',
+    'make_tiled_copy_tv-stmatrix-128-float-(8,4):(4,1)-(4,1):(1,1)-4-0',
     'layout-(10,10):(1,10)',
     'index-((2,2,2),4,2,4):((1,256,8),1024,16,4096)-(_,_,_,0)',
     'make_copy_atom-universal-128-half_t',

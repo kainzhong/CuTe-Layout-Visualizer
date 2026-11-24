@@ -922,7 +922,11 @@ function make_layout_tv(thr_layout, val_layout) {
   const layout_mn = raked_product(thr_layout, val_layout);
   const thr_size = size(thr_layout);
   const val_size = size(val_layout);
-  const tmp = new Layout([thr_size, val_size]);          // auto col-major
+  // Compact col-major, except that CuTe gives a size-1 mode stride 0
+  // (CuTeDSL: make_layout((32,1)) is (32,1):(1,0)). The map is the same either
+  // way, but the printed layout_tv would otherwise disagree with CuTe's.
+  const tmp = new Layout([thr_size, val_size],
+                         [thr_size === 1 ? 0 : 1, val_size === 1 ? 0 : thr_size]);
   // layout_tv maps (tid, vid) -> flat MN index (col-major into tiler_mn)
   const layout_tv = composition(right_inverse(layout_mn), tmp);
   const tiler_mn = product_each(layout_mn.shape);

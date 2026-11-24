@@ -438,6 +438,48 @@ function runUnitTests(V, T) {
     check('require-compact', 'accepts a compact layout', fine, true);
   });
 
+  guard('warp-atom-thread-count', () => {
+    // copy_atom.hpp:205, TiledNumThr % AtomNumThr == 0. CuTeDSL does not check
+    // it (it pads a 16-thread ldmatrix TiledCopy to 32 lanes), so the oracle
+    // cannot pin this; the tab and the URL decoder must both reject it.
+    const atom = V.mcabCopyAtom('ldmatrix', 'half_t', 4, false, 0);
+    for (const thr of [16, 48]) {
+      let msg = '';
+      try { V.mtcComputeWarpTiledCopy(atom, new V.Layout([thr, 8], [8, 1]), [thr, 8]); } catch (e) { msg = e.message; }
+      check('warp-atom-thread-count', `rejects ${thr} threads`, /too few thrs/.test(msg), true);
+    }
+    let url = '';
+    try { V.mtcDecodeURL({ feature: 'make_tiled_copy', inputs: ['ldmatrix', '128', 'half_t', '(16,8):(8,1)', '(16,8)', '4', '0'] }); }
+    catch (e) { url = e.message; }
+    check('warp-atom-thread-count', 'URL decoder rejects 16 threads', /too few thrs/.test(url), true);
+    let vals = '';
+    try { V.mtcComputeWarpTiledCopy(atom, new V.Layout([32, 4], [4, 1]), [32, 4]); } catch (e) { vals = e.message; }
+    check('warp-atom-thread-count', 'rejects 4 values for an 8-value atom', /too few vals/.test(vals), true);
+  });
+
+  guard('warp-atom-url-fields', () => {
+    // A warp atom needs its num_matrices and transpose; a SIMT URL keeps five fields.
+    let threw = false;
+    try { V.mtcDecodeURL({ feature: 'make_tiled_copy', inputs: ['ldmatrix', '128', 'half_t', '(32,8):(8,1)', '(32,8)'] }); }
+    catch (e) { threw = /num_matrices/.test(e.message); }
+    check('warp-atom-url-fields', 'rejects a warp URL without num_matrices', threw, true);
+    const simt = V.mtcDecodeURL({ feature: 'make_tiled_copy', inputs: ['universal', '32', 'half_t', '(4,2):(1,4)', '(4,2)'] });
+    check('warp-atom-url-fields', 'SIMT URL still decodes', simt.copyAtom.threads, 1);
+  });
+
+  // mtcWarpRowCheck: where each addressing lane's 16 B lie in the tile.
+  guard('warp-atom-row-check', () => {
+    const lay = str => { const p = V.parseLayout(str); return new V.Layout(p.shape, p.stride); };
+    const run = (op, dtype, nm, tr, thr, val) => {
+      const m = V.make_layout_tv(lay(thr), lay(val));
+      return V.mtcComputeWarpTiledCopy(V.mcabCopyAtom(op, dtype, nm, tr, 0), m.layout_tv, m.tiler_mn).rowCheck;
+    };
+    check('warp-atom-row-check', 'float .x4 rows run along N', run('ldmatrix', 'float', 4, false, '(8,4):(4,1)', '(4,1):(1,1)').kind, 'n');
+    const bad = run('ldmatrix', 'half_t', 4, false, '(32,4):(1,32)', '(1,8):(1,1)');
+    check('warp-atom-row-check', 'naive half thr/val is not a single-axis run', bad.kind, 'none');
+    check('warp-atom-row-check', 'names the first offending lane', bad.tid, 0);
+  });
+
   guard('require-atom-divides', () => {
     // The one thing CuTe DOES assert: TiledNumVal % AtomNumVal == 0.
     let threw = false;

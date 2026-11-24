@@ -405,7 +405,12 @@ def decode_tiled_copy_url(url):
             atom = cute.make_copy_atom(LDSM_OPS[key](transpose=a[9] == "1", num_matrices=int(a[8])), dtype)
         return getattr(cute, "make_tiled_copy_" + a[0])(atom, tmma), dtype
     dtype = DTYPES[a[2]]
-    atom = cute.make_copy_atom(COPY_OPS[a[0]](), dtype, num_bits_per_copy=int(a[1]))
+    if a[0] in WARP_COPY_OPS:
+        # A warp atom's URL appends num_matrices and transpose after the layouts.
+        atom = make_warp_copy_atom({"copy_op": a[0], "num_matrices": int(a[5]),
+                                    "transpose": a[6] == "1"}, dtype)
+    else:
+        atom = cute.make_copy_atom(COPY_OPS[a[0]](), dtype, num_bits_per_copy=int(a[1]))
     if feature == "make_tiled_copy_tv":
         return cute.make_tiled_copy_tv(atom, parse_layout(a[3]), parse_layout(a[4])), dtype
     return cute.make_tiled_copy(atom, parse_layout(a[3]), parse_tiler_mn(a[4])), dtype
@@ -487,6 +492,31 @@ LDSM_OPS = {
     "stsm8x8x16b": warp.StMatrix8x8x16bOp,
     "stsm16x8x8b": warp.StMatrix16x8x8bOp,
 }
+
+
+# The tabs' CopyAtom Op keys (MCA_OPS) -> the LDSM_OPS entry they construct.
+WARP_COPY_OPS = {"ldmatrix": "ldsm8x8x16b", "ldmatrix16x8x8b": "ldsm16x8x8b",
+                 "ldmatrix16x16x8b": "ldsm16x16x8b", "ldmatrix8x16x8b": "ldsm8x16x8b",
+                 "stmatrix": "stsm8x8x16b", "stmatrix16x8x8b": "stsm16x8x8b"}
+
+
+def make_warp_copy_atom(c, dtype):
+    op = LDSM_OPS[WARP_COPY_OPS[c["copy_op"]]](
+        transpose=c["transpose"], num_matrices=c["num_matrices"])
+    return cute.make_copy_atom(op, dtype)
+
+
+def run_warp_tiled_copy(c):
+    """make_tiled_copy / make_tiled_copy_tv over a warp-collective ldmatrix or
+    stmatrix atom. layout_tv is the register (reference) side; CuTe derives the
+    address side from the atom's own maps, so all three are recorded."""
+    atom = make_warp_copy_atom(c, DTYPES[c["dtype"]])
+    if c["ctor"] == "tv":
+        tc = cute.make_tiled_copy_tv(atom, parse_layout(c["thr"]), parse_layout(c["val"]))
+    else:
+        tc = cute.make_tiled_copy(atom, parse_layout(c["tv"]), _parse_value(c["tiler"]))
+    return {"tiler_mn": canon(tc.tiler_mn), "tv": record(tc.layout_tv_tiled),
+            "src": record(tc.layout_src_tv_tiled), "dst": record(tc.layout_dst_tv_tiled)}
 
 
 def run_ldmatrix_atom(c):
@@ -715,12 +745,7 @@ def run_make_tiled_copy_ab(c):
         atom = cute.make_copy_atom(common.CopyUniversalOp(), dtype,
                                    num_bits_per_copy=c["bits"])
     else:
-        key = {"ldmatrix": "ldsm8x8x16b", "ldmatrix16x8x8b": "ldsm16x8x8b",
-               "ldmatrix16x16x8b": "ldsm16x16x8b", "ldmatrix8x16x8b": "ldsm8x16x8b",
-               "stmatrix": "stsm8x8x16b",
-               "stmatrix16x8x8b": "stsm16x8x8b"}[c["copy_op"]]
-        atom = cute.make_copy_atom(LDSM_OPS[key](
-            transpose=c["transpose"], num_matrices=c["num_matrices"]), dtype)
+        atom = make_warp_copy_atom(c, dtype)
     tc = getattr(cute, "make_tiled_copy_" + c["operand"])(atom, tmma)
     tile = [int(tmma.get_tile_size(i)) for i in {"A": [0, 2], "B": [1, 2], "C": [0, 1]}[c["operand"]]]
     if smem:
@@ -1132,6 +1157,7 @@ SECTIONS = [
     ("basis_ops", lambda c: run_layout_op(c, allow_basis=True)),
     ("make_layout_tv", run_make_layout_tv),
     ("make_tiled_copy", run_make_tiled_copy),
+    ("warp_tiled_copy", run_warp_tiled_copy),
     ("copy_atom", run_copy_atom),
     ("ldmatrix_atom", run_ldmatrix_atom),
     ("tmem_atom", run_tmem_atom),

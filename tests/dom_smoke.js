@@ -2491,25 +2491,29 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
 
   // ── make_tmem_copy ───────────────────────────────────────────────────────
   const tmemRef = JSON.parse(fs.readFileSync(path.join(__dirname, 'reference.json'), 'utf8')).tmem_copy;
-  const tmcPanes = [`${TAB}-tmc-tmem-svg`, `${TAB}-tmc-reg-svg`];
+  const tmcPanes = ['tmc', 'tmc-atom'].flatMap(p => ['src', 'dst'].map(side => `${TAB}-${p}-${side}-svg`));
   step('make_tmem_copy: displays CuTeDSL\'s TiledCopy, focuses a thread, and its URL round-trips', () => {
     ctx.setTMC(TAB, 'tmem_ld16x256b', 1, 'float', '(128,32):(65536,1)');
     const ref = tmemRef['tmc-Ld16x256b-x1-f32'], result = els.get(`${TAB}-tmc-result`).innerHTML;
     for (const want of [ref.tiler_mn, ref.tv.str, ref.src.str, ref.dst.str])
       if (!result.includes(want)) throw new Error(`result box lacks ${want}`);
     if (!/warp 1: 32–63/.test(result)) throw new Error('warp 1 should own rows 32–63');
-    if (els.get(`${TAB}-tmc-tmem-space`).textContent !== 'TMEM') throw new Error('TMEM pane badge');
+    for (const p of ['tmc', 'tmc-atom'])
+      if (els.get(`${TAB}-${p}-src-space`).textContent !== 'TMEM' || els.get(`${TAB}-${p}-dst-space`).textContent !== 'RMEM')
+        throw new Error(`${p} badges should read TMEM -> RMEM for a load`);
+    if (!els.get(`${TAB}-tmc-src-svg`).innerHTML.includes(ctx.TMEM_WARP_BG[1])) throw new Error('warp 1 not shaded');
+    if (!els.get(`${TAB}-tmc-atom-src-svg`).innerHTML.includes(ctx.TMEM_WARP_BG[0])) throw new Error('atom TMEM colour');
     els.get(`${TAB}-tmc-highlight-tid`).value = '33';
     ctx.renderMakeTmemCopy(TAB);
     const panel = els.get(`${TAB}-tmc-thread-body`).innerHTML;
     if (!/warp 1, lane 1/.test(panel) || !/\(32,2\)/.test(panel)) throw new Error(`thread 33 panel: ${panel}`);
     els.get(`${TAB}-tmc-highlight-tid`).value = '';
     // Earlier steps click every button, so test that the toggle flips, from either state.
-    const hadCoord = ctx.tmcState[TAB].tmemMode.has('coord');
-    ctx.setTmcMode(TAB, 'tmemMode', 'coord');
-    if (ctx.tmcState[TAB].tmemMode.has('coord') === hadCoord) throw new Error('coord toggle did not flip');
+    const hadCoord = ctx.tmcState[TAB].tileMode.has('coord');
+    ctx.setTmcMode(TAB, 'coord');
+    if (ctx.tmcState[TAB].tileMode.has('coord') === hadCoord) throw new Error('coord toggle did not flip');
     ctx.renderMakeTmemCopy(TAB);
-    if (ctx.tmcState[TAB].tmemMode.has('coord') === hadCoord) throw new Error('label modes lost on re-render');
+    if (ctx.tmcState[TAB].tileMode.has('coord') === hadCoord) throw new Error('label modes lost on re-render');
     let exported;
     const realExport = ctx.exportURL, realSwitch = ctx.switchInnerTab;
     ctx.exportURL = (btn, feature, ...inputs) => { exported = [feature, ...inputs]; };
@@ -2524,10 +2528,33 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
         throw new Error('URL did not round trip');
     } finally { ctx.exportURL = realExport; ctx.switchInnerTab = realSwitch; ctx.location.search = ''; }
   }, tmcPanes);
+  step('make_tmem_copy: highlighting a warp keeps only its cells coloured', () => {
+    ctx.setTMC(TAB, 'tmem_ld32x32b', 8, 'float', '(128,32):(65536,1)');
+    els.get(`${TAB}-tmc-highlight-warp`).value = '1';
+    ctx.renderMakeTmemCopy(TAB);
+    const tmem = els.get(`${TAB}-tmc-src-svg`).innerHTML, reg = els.get(`${TAB}-tmc-dst-svg`).innerHTML;
+    if (!tmem.includes(ctx.TMEM_WARP_BG[1])) throw new Error('warp 1 lost its shade');
+    for (const w of [0, 2, 3]) if (tmem.includes(`fill="${ctx.TMEM_WARP_BG[w]}"`)) throw new Error(`warp ${w} still coloured`);
+    // Warp 1 owns rows 32–63 of a 128x32 tensor: a quarter of the cells stay coloured.
+    const grey = html => (html.match(/fill="#f0f0f0"/g) || []).length;
+    if (grey(tmem) !== 96 * 32 || grey(reg) !== 96 * 32) throw new Error(`grey cells ${grey(tmem)} / ${grey(reg)}`);
+    if (!/warp 1/.test(els.get(`${TAB}-tmc-tile-title`).textContent)) throw new Error('title lacks the warp');
+    els.get(`${TAB}-tmc-highlight-tid`).value = '5';
+    ctx.renderMakeTmemCopy(TAB);
+    if (!/not warp 1/.test(els.get(`${TAB}-tmc-warning`).textContent)) throw new Error('mismatched thread/warp not warned');
+    els.get(`${TAB}-tmc-highlight-tid`).value = '';
+    els.get(`${TAB}-tmc-highlight-warp`).value = '7';
+    ctx.renderMakeTmemCopy(TAB);
+    if (!/out of range/.test(els.get(`${TAB}-tmc-warning`).textContent)) throw new Error('out-of-range warp not warned');
+    els.get(`${TAB}-tmc-highlight-warp`).value = '';
+    ctx.renderMakeTmemCopy(TAB);
+  }, tmcPanes);
   step('make_tmem_copy: decodes a TMEM CopyAtom and refuses an ldmatrix one without changing fields', () => {
     ctx.tmcImportAtom(TAB, '?key=make_copy_atom-tmem_st16x64b-32-float-2');
     if (els.get(`${TAB}-tmc-op-input`).value !== 'tmem_st16x64b' || els.get(`${TAB}-tmc-rep-input`).value !== '2')
       throw new Error('TMEM CopyAtom not decoded');
+    if (els.get(`${TAB}-tmc-src-space`).textContent !== 'RMEM' || els.get(`${TAB}-tmc-dst-space`).textContent !== 'TMEM')
+      throw new Error('a store should read RMEM -> TMEM');
     const before = ['op', 'rep', 'dtype'].map(k => els.get(`${TAB}-tmc-${k}-input`).value).join();
     let threw = false;
     try { ctx.tmcImportAtom(TAB, '?key=make_copy_atom-ldmatrix-128-half_t-4-0'); } catch (_) { threw = true; }
@@ -2536,12 +2563,14 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
   }, tmcPanes);
   step('make_tmem_copy: Ld32x32b over an M = 64 accumulator is rejected as CuTe rejects it', () => {
     ctx.setTMC(TAB, 'tmem_ld32x32b', 4, 'float', '((16,4),32):((65536,2097152),1)');
-    if (els.get(`${TAB}-tmc-tmem-svg`).innerHTML) throw new Error('rejected copy left a picture');
+    if (els.get(`${TAB}-tmc-src-svg`).innerHTML || els.get(`${TAB}-tmc-atom-src-svg`).innerHTML) throw new Error('rejected copy left a picture');
   }, [], { expectError: /16-lane shape/ });
   step('make_tmem_copy: a 64-row tensor warns that warps 2–3 are outside their lanes', () => {
     ctx.setTMC(TAB, 'tmem_ld32x32b', 4, 'float', '(64,16):(65536,1)');
     if (JSON.stringify(ctx.tmcState[TAB].r.outside) !== '[2,3]') throw new Error(`outside = ${ctx.tmcState[TAB].r.outside}`);
-    if (!/Warps 2, 3/.test(els.get(`${TAB}-tmc-warning`).textContent)) throw new Error('missing alias warning');
+    const w = els.get(`${TAB}-tmc-warning`).textContent;
+    if (!/Warps 2, 3/.test(w) || !/lanes 64–95/.test(w) || !/only on warps 0, 1/.test(w))
+      throw new Error(`alias warning: ${w}`);
     ctx.setTMC(TAB, 'tmem_ld32x32b', 8, 'float', '(128,32):(65536,1)');
   }, tmcPanes);
 

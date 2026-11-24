@@ -69,12 +69,25 @@ function tmcComputeCopy(atom, data) {
   const back = coalesce(composition(oob(data, tvData.mode(1).cosize()), tvData.mode(1)));
   const want = coalesce(atom_tv.mode(1));
   if (formatLayoutStr(back.shape, back.stride) !== formatLayoutStr(want.shape, want.stride)) {
-    const hint = lanes === 32
-      ? ` ${atom.op.label} needs 32 consecutive TMEM lanes in each warp's quarter; an accumulator with ` +
+    // Name the cause. Most often the rows are not lanes at all: a row stride
+    // smaller than DP packs several rows into one lane's columns.
+    const spanned = new Set();
+    for (let i = 0; i < data.size(); i++) spanned.add(Math.floor(data.call(i) / DP));
+    const lanesUsed = spanned.size;
+    let hint;
+    if (lanesUsed < lanes) {
+      hint = ` This tensor spans only ${lanesUsed} TMEM lane${lanesUsed === 1 ? '' : 's'}: a row is a lane only ` +
+        `when its stride is one lane, ${DP} ${atom.dtype} address units (2^21 / ${atom.bits}). With a smaller ` +
+        `row stride the rows are packed into one lane's columns. For a ${flat[0]}-row accumulator use ` +
+        `(${flat[0]},${flat[1]}):(${DP},1).`;
+    } else if (lanes === 32) {
+      hint = ` ${atom.op.label} needs 32 consecutive TMEM lanes in each warp's quarter; an accumulator with ` +
         `fewer rows per quarter (e.g. M = 64: 16 rows in each) needs a 16-lane shape — 16x64b, 16x128b, ` +
-        `16x256b or 16x32bx2.`
-      : ` Check that each lane quarter holds at least ${lanes} consecutive rows and ${perLane} consecutive ` +
+        `16x256b or 16x32bx2.`;
+    } else {
+      hint = ` Check that each lane quarter holds ${lanes} consecutive lanes and ${perLane} consecutive ` +
         `${atom.dtype} columns.`;
+    }
     throw new Error(`One ${atom.label} moves ${lanes} lanes × ${perLane} ${atom.dtype} per warp, and those ` +
       `TMEM addresses are not all in this tensor — CuTe's assert "The memory pointed to by AtomTVLayout ` +
       `does not exist in the DataLayout" (copy_atom.hpp:543).${hint}`);
@@ -96,13 +109,14 @@ function tmcComputeCopy(atom, data) {
   const fragSize = frag.size(), threads = product(tv.shape[0]), M = flat[0];
   const cells = Array.from({ length: flat[0] * flat[1] }, () => []);
   const perThread = [], outside = new Set();
-  let maxLane = 0;
+  let maxLane = 0, maxCol = 0;
   for (let t = 0; t < threads; t++) {
     const base = tf.mode(0).call(t), coords = [];
     for (let v = 0; v < fragSize; v++) {
       const idx = base + frag.call(v), m = idx % M, n = Math.floor(idx / M);
-      const lane = Math.floor(data.call(idx) / DP);
+      const addr = data.call(idx), lane = Math.floor(addr / DP);
       maxLane = Math.max(maxLane, lane);
+      maxCol = Math.max(maxCol, Math.floor((addr % DP) * atom.bits / 32));   // 32-bit TMEM column
       // The hardware: warp w (mod 4) reaches only lanes 32(w%4)..+31.
       const legal = Math.floor(lane / 32) % 4 === Math.floor(t / 32) % 4;
       if (!legal) outside.add(Math.floor(t / 32));
@@ -111,11 +125,24 @@ function tmcComputeCopy(atom, data) {
     }
     perThread.push(coords);
   }
-  if (maxLane >= 128)
-    throw new Error(`The tensor reaches TMEM lane ${maxLane}, but TMEM has 128 lanes. A lane is ` +
-      `${DP} ${atom.dtype} address units (2^21 / ${atom.bits}); check the row stride.`);
-  return { DP, flat, tiler, tile, tv, src, dst, threads, fragSize, perThread, cells,
+  return { DP, flat, tiler, tile, tv, src, dst, threads, fragSize, perThread, cells, maxLane, maxCol,
            outside: [...outside].sort((a, b) => a - b), lanes, perLane };
+}
+
+/** The hardware's capacity, which CuTe does not check: TMEM has 128 lanes of
+ *  512 32-bit columns per SM, and tcgen05.alloc gives at most 512 columns.
+ *  Kept out of tmcComputeCopy so that stays a faithful port of what CuTe
+ *  computes (the oracle pins CuTe's result even for tensors it should refuse). */
+function tmcRequireCapacity(r, atom, data) {
+  const hint = tmcStrideWarning(data, atom);
+  if (r.maxLane >= 128)
+    throw new Error(`The tensor reaches TMEM lane ${r.maxLane}, but TMEM has 128 lanes. A lane is ` +
+      `${r.DP} ${atom.dtype} address units (2^21 / ${atom.bits}); check the row stride.` + (hint ? ` ${hint}` : ''));
+  if (r.maxCol >= 512)
+    throw new Error(`The tensor reaches TMEM column ${r.maxCol}, but each lane has 512 32-bit columns ` +
+      `(tcgen05.alloc gives at most 512): ${512 * 32 / atom.bits} ${atom.dtype} per lane.` +
+      (hint ? ` ${hint}` : ` Tile N so one accumulator fits, e.g. N ≤ ${512 * 32 / atom.bits} for ` +
+       `${atom.dtype}, or loop over N tiles.`));
 }
 
 /** Advice the computation cannot throw on: a row stride that is past one
@@ -165,6 +192,10 @@ function generateMakeTmemCopyTabContent(id) {
           </div>
         </details>
         <div class="form-group">
+          <label>Highlight warp (empty = show all warps)</label>
+          <input type="text" id="${id}-tmc-highlight-warp" value="" placeholder="0–3" oninput="renderMakeTmemCopy('${id}')">
+        </div>
+        <div class="form-group">
           <label>Highlight thread (empty = show all threads)</label>
           <input type="text" id="${id}-tmc-highlight-tid" value="" placeholder="e.g. 33" oninput="renderMakeTmemCopy('${id}')">
         </div>
@@ -201,12 +232,43 @@ function generateMakeTmemCopyTabContent(id) {
         </div>
       </div>
       <div class="comp-results" style="grid-template-columns:1fr">
-        ${layoutVisualization({ hostId: `${id}-tmc-tmem-svg`,
-          title: `<span id="${id}-tmc-tmem-title">TMEM tensor</span> ${memorySpaceBadge(`${id}-tmc-tmem-space`, 'TMEM')}`,
-          onMode: mode => `setTmcMode('${id}','tmemMode','${mode}')` })}
-        ${layoutVisualization({ hostId: `${id}-tmc-reg-svg`,
-          title: `<span id="${id}-tmc-reg-title">Registers</span> ${memorySpaceBadge(`${id}-tmc-reg-space`, 'RMEM')}`,
-          onMode: mode => `setTmcMode('${id}','regMode','${mode}')` })}
+        <div class="comp-viz-item">
+          <div class="comp-viz-header">
+            <span class="comp-viz-label" id="${id}-tmc-atom-title">Copy_Atom &mdash; the unit being tiled</span>
+            <span style="display:flex;align-items:center;gap:4px">
+              ${copyDirButtons(id, 'tmc-atom')}
+              <button class="mode-btn" id="${id}-tmc-atom-src-svg-zoom" onclick="toggleCopyZoom('${id}','tmc-atom')">Zoom in</button>
+            </span>
+          </div>
+          <div class="cuo-viz-desc">
+            One instruction, drawn exactly as the <b>make_copy_atom</b> tab draws it: one warp's TMEM
+            block (lane <code>l</code>, 32-bit column <code>c</code>), which the whole warp addresses,
+            and which thread's registers each element lands in. Everything below is this unit
+            replicated over the tensor, four warps at a time.
+          </div>
+${copyPanes(id, 'tmc-atom')}
+        </div>
+        <div class="comp-viz-item">
+          <div class="comp-viz-header">
+            <span class="comp-viz-label" id="${id}-tmc-tile-title">TiledCopy over the TMEM tensor</span>
+            <span style="display:flex;align-items:center;gap:4px">
+              ${copyDirButtons(id, 'tmc')}
+              <span class="mode-btn-group" id="${id}-tmc-tile-mode-btns">
+                ${['value', 'index', 'coord'].map(m => `<button class="mode-btn" onclick="setTmcMode('${id}','${m}')">${m}</button>`).join('')}
+              </span>
+              <button class="mode-btn" id="${id}-tmc-src-svg-zoom" onclick="toggleCopyZoom('${id}','tmc')">Zoom in</button>
+            </span>
+          </div>
+          <div class="cuo-viz-desc">
+            The whole tensor, indexed two ways. The <b>TMEM</b> side is labelled lane / column and shaded
+            by warp &mdash; the atom's violet, shallower to deeper for warps 0&ndash;3 &mdash; with purple
+            lines between lane quarters. The <b>RMEM</b> side shows which thread and register receive each
+            element, coloured by thread. <code>value</code> adds the other side's label,
+            <code>index</code> the flat index, <code>coord</code> the tensor coordinate. A red edge marks a
+            warp mapped onto lanes outside its quarter.
+          </div>
+${copyPanes(id, 'tmc')}
+        </div>
         <div class="comp-viz-item" id="${id}-tmc-thread-item" style="display:none">
           <div class="comp-viz-header"><span class="comp-viz-label" id="${id}-tmc-thread-title">Per-thread view</span></div>
           <div class="viz-box" style="background:#0b1220;color:#d1d5db;font-family:monospace;font-size:0.82rem;padding:14px 16px">
@@ -235,6 +297,7 @@ function renderMakeTmemCopy(tabId) {
     const p = parseLayout(tensorStr);
     const data = new Layout(p.shape, p.stride);
     const r = tmcComputeCopy(atom, data);
+    tmcRequireCapacity(r, atom, data);
     const fmt = L => formatLayoutStr(L.shape, L.stride);
     document.getElementById(`${tabId}-tmc-atom-result`).innerHTML =
       `<div class="cuo-result-line"><b>Copy_Atom&lt;${atom.op.label}.x${atom.repeat}, ${atom.dtype}&gt;</b></div>` +
@@ -258,26 +321,39 @@ function renderMakeTmemCopy(tabId) {
       `<div class="cuo-result-line">4 warps, 128 threads; ${r.fragSize} values per thread in ${instr} ` +
       `${atom.op.label}.x${atom.repeat} per warp; one lane = ${r.DP} address units</div>` +
       `<div class="cuo-result-line">Rows per warp &mdash; ${quarters.join('; ')}</div>`;
-    const warns = [tmcStrideWarning(data, atom)];
-    if (r.outside.length)
-      warns.push(`Warp${r.outside.length > 1 ? 's' : ''} ${r.outside.join(', ')} ${r.outside.length > 1 ? 'are' : 'is'} ` +
-        `mapped onto TMEM lanes outside ${r.outside.length > 1 ? 'their' : 'its'} quarter (the tensor has fewer ` +
-        `than 128 rows, so CuTe aliases the missing warps onto existing ones). Hardware cannot execute that ` +
-        `part: run this copy only on the warps whose quarter holds the rows (CuTe asserts it at run time, ` +
-        `copy_traits_sm100.hpp:399).`);
+    const warns = [];
+    if (r.outside.length) {
+      // Measured on GB200: the hardware puts each warp in its own lane quarter,
+      // whatever lane the address names. An aliased warp therefore runs, but on
+      // the lanes of its own quarter: outside this tensor, silently.
+      const ok = [0, 1, 2, 3].filter(w => !r.outside.includes(w));
+      const quarterLanes = w => `${32 * (w % 4)}–${32 * (w % 4) + 31}`;
+      const many = r.outside.length > 1;
+      warns.push(`Warp${many ? 's' : ''} ${r.outside.join(', ')} ${many ? 'have' : 'has'} no rows of ` +
+        `${many ? 'their' : 'its'} own in this ${r.flat[0]}-row tensor, so CuTe gives ${many ? 'them' : 'it'} ` +
+        `the rows of other warps. The hardware does not follow: a warp always reaches the lanes of its own ` +
+        `quarter, so if ${many ? 'they execute' : 'it executes'} the copy, warp ${r.outside[0]} actually ` +
+        `touches TMEM lanes ${quarterLanes(r.outside[0])}${many ? ' (and so on)' : ''}, outside this tensor. A store ` +
+        `silently overwrites whatever is there and a load reads it; nothing faults (checked on GB200). ` +
+        `Execute the copy only on warp${ok.length > 1 ? 's' : ''} ${ok.join(', ')}. C++ CuTe asserts this ` +
+        `only in debug device builds (copy_traits_sm100.hpp:399); CuTeDSL does not check it.`);
+    }
     const hl = readHighlightTid(tabId, 'tmc', r.threads);
-    warns.push(hl.warn);
+    const hw = tmcReadHighlightWarp(tabId, r.threads / 32);
+    warns.push(hl.warn, hw.warn);
+    if (hl.tid !== null && hw.warp !== null && Math.floor(hl.tid / 32) !== hw.warp)
+      warns.push(`Thread ${hl.tid} is in warp ${Math.floor(hl.tid / 32)}, not warp ${hw.warp}, so no cell matches both highlights.`);
     const warn = warns.filter(Boolean).join(' ');
     if (warn) showWarn(`${tabId}-tmc-warning`, warn);
     const prev = tmcState[tabId] || {};
-    tmcState[tabId] = { atom, data, r, highlightTid: hl.tid,
-      tmemMode: prev.tmemMode instanceof Set ? prev.tmemMode : new Set(['value']),
-      regMode: prev.regMode instanceof Set ? prev.regMode : new Set(['value']) };
+    tmcState[tabId] = { atom, data, r, highlightTid: hl.tid, highlightWarp: hw.warp,
+      tileMode: prev.tileMode instanceof Set ? prev.tileMode : new Set() };
     tmcRenderViz(tabId);
     updateOuterTabLabel(tabId, `make_tmem_copy:${atom.op.tmem}.x${atom.repeat}/${atom.dtype}`);
   } catch (e) {
     showErr(`${tabId}-tmc-error`, e.message);
-    for (const k of ['tmem', 'reg']) document.getElementById(`${tabId}-tmc-${k}-svg`).innerHTML = '';
+    for (const p of ['tmc', 'tmc-atom']) for (const side of ['src', 'dst'])
+      document.getElementById(`${tabId}-${p}-${side}-svg`).innerHTML = '';
     document.getElementById(`${tabId}-tmc-result`).innerHTML = '';
     document.getElementById(`${tabId}-tmc-thread-item`).style.display = 'none';
     delete tmcState[tabId];
@@ -298,45 +374,73 @@ function tmcRanges(list) {
 
 function tmcRenderViz(tabId) {
   const s = tmcState[tabId], r = s.r, a = s.atom, [M, N] = r.flat;
-  const k = 32 / a.bits, focus = s.highlightTid;
-  const warpColor = t => colorTV(Math.floor(t / 32));
-  // TMEM pane: the tensor itself, each cell colored by the warp that reads it.
-  // Value is the TMEM address, shown as lane / 32-bit column (.element when
-  // several elements pack one column) rather than as the raw 2^16-scaled int.
-  const quarterOf = (m) => Math.floor(Math.floor(s.data.call(m) / r.DP) / 32);
-  const tmemSVG = buildColoredLayoutSVG(s.data.shape, s.data.stride, s.tmemMode, (m, n, addr, flatI) => {
+  const k = 32 / a.bits, focus = s.highlightTid, focusWarp = s.highlightWarp, modes = s.tileMode;
+  // A claimant is shown when it passes both highlights; everything else greys out.
+  const shown = x => (focus === null || x.t === focus) && (focusWarp === null || Math.floor(x.t / 32) === focusWarp);
+  const filtering = focus !== null || focusWarp !== null;
+  // Badges follow the Op's direction: a load reads TMEM, a store writes it.
+  for (const p of ['tmc', 'tmc-atom']) {
+    setMemorySpaceBadge(`${tabId}-${p}-${a.tmemSide}-space`, 'TMEM');
+    setMemorySpaceBadge(`${tabId}-${p}-${a.regSide}-space`, 'RMEM');
+  }
+  // The atom strip: exactly make_copy_atom's picture of this atom.
+  for (const side of ['src', 'dst']) {
+    document.getElementById(`${tabId}-tmc-atom-${side}-svg`).innerHTML = mcaTmemPaneHTML(a.a, side, a.dtype, false);
+    applyZoomState(`${tabId}-tmc-atom-${side}-svg`);
+  }
+  document.getElementById(`${tabId}-tmc-atom-title`).textContent =
+    `${a.op.label}.x${a.repeat} — ${a.dtype} → one warp: ${r.lanes} lanes × ${a.a.cols32} columns`;
+
+  // The tiled pair, both over the tensor's (row, column) cells.
+  const cell = (m, n) => {
     const e = r.cells[m + n * M];
-    const lane = Math.floor(addr / r.DP), col = addr % r.DP;
-    const where = `l${lane} c${Math.floor(col / k)}${k > 1 ? '.' + (col % k) : ''}`;
-    const owner = e.find(x => x.legal) || e[0];
-    const lines = owner ? [`T${owner.t}V${owner.v}`] : ['—'];
-    lines.push(...buildCellLines(s.tmemMode, where, flatI, `(${m},${n})`));
-    const dim = focus !== null && !e.some(x => x.t === focus);
-    const illegal = e.some(x => !x.legal);
-    return { bg: !owner || dim ? '#f0f0f0' : warpColor(owner.t), fg: dim ? '#bbb' : undefined, text: lines,
-             stroke: illegal ? '#e53e3e' : undefined, sw: illegal ? 1.5 : undefined };
-  }, { overlay: ({ cs, margin, W }) => {
-    // A line where the lane quarter changes between consecutive rows.
+    // Label the highlighted claimant when there is one (an aliased cell has several).
+    const owner = (filtering && e.find(shown)) || e.find(x => x.legal) || e[0];
+    const addr = s.data.call(m + n * M), lane = Math.floor(addr / r.DP), col = addr % r.DP;
+    return { e, owner, lane, colLabel: `c${Math.floor(col / k)}${k > 1 ? '.' + (col % k) : ''}`,
+             dim: filtering && !e.some(shown), illegal: e.some(x => !x.legal) };
+  };
+  const extra = (c, flatI, m, n, other) => {
+    const lines = [];
+    if (modes.has('value')) lines.push(...other);
+    if (modes.has('index')) lines.push(`${flatI}`);
+    if (modes.has('coord')) lines.push(`(${m},${n})`);
+    return lines;
+  };
+  const quarterOf = m => Math.floor(Math.floor(s.data.call(m) / r.DP) / 32);
+  const overlay = ({ cs, margin, W }) => {
     let out = '';
     for (let m = 1; m < M; m++) if (quarterOf(m) !== quarterOf(m - 1))
       out += `<line x1="${margin}" x2="${W}" y1="${margin + m * cs}" y2="${margin + m * cs}" stroke="#7c3aed" stroke-width="2.5"/>`;
     return out;
-  } });
-  renderLayoutVisualization({ hostId: `${tabId}-tmc-tmem-svg`, modes: s.tmemMode, svg: tmemSVG });
-  // Register pane: thread x value, each cell the tensor coordinate it holds.
-  const regSVG = buildColoredLayoutSVG([r.threads, r.fragSize], [1, r.threads], s.regMode, (t, v, _, flatI) => {
-    const [m, n] = r.perThread[t][v];
-    const dim = focus !== null && t !== focus;
-    return { bg: dim ? '#f0f0f0' : warpColor(t), fg: dim ? '#bbb' : undefined,
-             text: buildCellLines(s.regMode, `(${m},${n})`, flatI, `T${t}V${v}`) };
-  });
-  renderLayoutVisualization({ hostId: `${tabId}-tmc-reg-svg`, modes: s.regMode, svg: regSVG });
-  document.getElementById(`${tabId}-tmc-tmem-title`).textContent =
-    `${a.tmemSide.toUpperCase()} · TMEM tensor ${M}×${N} — colour = warp, purple lines = lane quarters`;
-  document.getElementById(`${tabId}-tmc-reg-title`).textContent =
-    `${a.regSide.toUpperCase()} · registers: thread × value → tensor coordinate`;
-  setMemorySpaceBadge(`${tabId}-tmc-tmem-space`, 'TMEM');
-  setMemorySpaceBadge(`${tabId}-tmc-reg-space`, 'RMEM');
+  };
+  const style = (c, bg, lines) => ({ bg: !c.owner || c.dim ? '#f0f0f0' : bg, fg: c.dim ? '#bbb' : undefined,
+    text: c.owner ? lines : ['\u2014'], stroke: c.illegal ? '#e53e3e' : undefined, sw: c.illegal ? 1.5 : undefined });
+  const tmemSVG = buildColoredLayoutSVG(s.data.shape, s.data.stride, 'value', (m, n, _, flatI) => {
+    const c = cell(m, n);
+    return style(c, c.owner ? TMEM_WARP_BG[Math.floor(c.owner.t / 32) % 4] : '',
+      [`l${c.lane}`, c.colLabel, ...extra(c, flatI, m, n, c.owner ? [`T${c.owner.t}V${c.owner.v}`] : [])]);
+  }, { overlay });
+  const regSVG = buildColoredLayoutSVG(s.data.shape, s.data.stride, 'value', (m, n, _, flatI) => {
+    const c = cell(m, n);
+    return style(c, c.owner ? colorTV(c.owner.t) : '',
+      c.owner ? [`T${c.owner.t}`, `V${c.owner.v}`, ...extra(c, flatI, m, n, [`l${c.lane} ${c.colLabel}`])] : []);
+  }, { overlay });
+  const fmt = L => formatLayoutStr(L.shape, L.stride);
+  const head = txt => `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">${txt}</div>`;
+  const sideL = side => side === 'src' ? r.src : r.dst;
+  const heads = {
+    [a.tmemSide]: `${a.tmemSide === 'src' ? 'layout_src_tv' : 'layout_dst_tv'} = ${fmt(sideL(a.tmemSide))} — TMEM, shaded by warp`,
+    [a.regSide]: `${a.regSide === 'src' ? 'layout_src_tv' : 'layout_dst_tv'} = ${fmt(sideL(a.regSide))} — ${r.fragSize} ${a.dtype} per thread`,
+  };
+  document.getElementById(`${tabId}-tmc-${a.tmemSide}-svg`).innerHTML = head(heads[a.tmemSide]) + tmemSVG;
+  document.getElementById(`${tabId}-tmc-${a.regSide}-svg`).innerHTML = head(heads[a.regSide]) + regSVG;
+  for (const side of ['src', 'dst']) applyZoomState(`${tabId}-tmc-${side}-svg`);
+  updateModeBtns(`${tabId}-tmc-tile-mode-btns`, modes);
+  document.getElementById(`${tabId}-tmc-tile-title`).textContent =
+    `TiledCopy over the TMEM tensor (${M}×${N}) — 4 warps × ${r.fragSize / a.values} instruction` +
+    `${r.fragSize / a.values === 1 ? '' : 's'} each` +
+    (focusWarp !== null ? ` — warp ${focusWarp}` : '') + (focus !== null ? ` — focus T${focus}` : '');
   tmcRenderThreadPanel(tabId);
 }
 
@@ -355,10 +459,21 @@ function tmcRenderThreadPanel(tabId) {
     r.perThread[t].map(([m, n]) => `(${m},${n})`).join(' ') + `</div>`;
 }
 
-function setTmcMode(tabId, key, mode) {
+/** The tiled pair's label toggles; like make_tiled_copy's, all may be off. */
+/** The warp box, read like readHighlightTid: blank shows every warp, and an
+ *  out-of-range id warns instead of failing. */
+function tmcReadHighlightWarp(tabId, warps) {
+  const raw = (document.getElementById(`${tabId}-tmc-highlight-warp`).value || '').trim();
+  if (raw === '') return { warp: null, warn: '' };
+  const w = Number(raw);
+  if (Number.isInteger(w) && w >= 0 && w < warps) return { warp: w, warn: '' };
+  return { warp: null, warn: `Highlight warp "${raw}" is out of range [0, ${warps}) — showing all warps.` };
+}
+
+function setTmcMode(tabId, mode) {
   const s = tmcState[tabId];
   if (!s) return;
-  toggleLayoutVisualizationMode(s[key], mode);
+  if (s.tileMode.has(mode)) s.tileMode.delete(mode); else s.tileMode.add(mode);
   tmcRenderViz(tabId);
 }
 
@@ -395,7 +510,8 @@ function tmcDecodeAtomPasteboard(tabId) {
 function tmcSummaryText(inputs) {
   const atom = tmcAtom(inputs[0], inputs[2], inputs[1]);
   const p = parseLayout(inputs[3]);
-  const r = tmcComputeCopy(atom, new Layout(p.shape, p.stride));
+  const data = new Layout(p.shape, p.stride), r = tmcComputeCopy(atom, data);
+  tmcRequireCapacity(r, atom, data);
   const fmt = L => formatLayoutStr(L.shape, L.stride);
   return `make_tmem_copy(${atom.op.label}.x${atom.repeat} ${atom.dtype}, ${inputs[3]})\n` +
     `Tiler MN = (${r.tiler.map(fmt).join(',')})\nTV Layout tiled = ${fmt(r.tv)}\n` +

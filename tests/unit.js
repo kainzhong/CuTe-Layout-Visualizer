@@ -489,9 +489,29 @@ function runUnitTests(V, T) {
           /131072/.test(V.tmcStrideWarning(lay('(128,32):(65536,1)'), atom)), true);
     check('tmem-copy-validations', 'the right stride does not warn',
           V.tmcStrideWarning(lay('(128,32):(131072,1)'), atom), '');
-    let msg = '';
-    try { V.tmcComputeCopy(V.tmcAtom('tmem_ld32x32b', 'float', 1), lay('(256,32):(65536,1)')); } catch (e) { msg = e.message; }
+    const fits = (atomArgs, t) => {
+      const a = V.tmcAtom(...atomArgs), d = lay(t);
+      try { V.tmcRequireCapacity(V.tmcComputeCopy(a, d), a, d); return 'ok'; } catch (e) { return e.message; }
+    };
+    const msg = fits(['tmem_ld32x32b', 'float', 1], '(256,32):(65536,1)');
     check('tmem-copy-validations', 'more than 128 lanes is rejected', /128 lanes/.test(msg), true);
+    // 512 32-bit columns per lane: 512 float, 1024 half_t.
+    const cols = (dt, t) => fits(['tmem_ld32x32b', dt, 8], t);
+    check('tmem-copy-validations', '512 float columns fit', cols('float', '(128,512):(65536,1)'), 'ok');
+    check('tmem-copy-validations', '1024 float columns are rejected', /512 32-bit columns/.test(cols('float', '(128,1024):(65536,1)')), true);
+    check('tmem-copy-validations', '1024 half_t columns fit', cols('half_t', '(128,1024):(131072,1)'), 'ok');
+    check('tmem-copy-validations', '2048 half_t columns are rejected', /512 32-bit columns/.test(cols('half_t', '(128,2048):(131072,1)')), true);
+    // The 32-bit lane stride on half_t: CuTe accepts it (the oracle pins that), but its rows sit
+    // past column 512, so the tab refuses it and names the stride.
+    // A row stride below one lane packs every row into lane 0: name that, and the fix.
+    let packed = '';
+    try { V.tmcComputeCopy(V.tmcAtom('tmem_ld16x128b', 'uint8_t', 1), lay('(128,32):(128,1)')); } catch (e) { packed = e.message; }
+    check('tmem-copy-validations', 'rows packed into one lane are diagnosed',
+          /spans only 1 TMEM lane/.test(packed) && /\(128,32\):\(262144,1\)/.test(packed), true);
+    check('tmem-copy-validations', 'the corrected stride works', cols('uint8_t', '(128,32):(262144,1)'), 'ok');
+    const wrong = cols('half_t', '(128,32):(65536,1)');
+    check('tmem-copy-validations', 'a 32-bit lane stride on half_t is refused with the stride hint',
+          /512 32-bit columns/.test(wrong) && /131072/.test(wrong), true);
   });
 
   guard('require-atom-divides', () => {

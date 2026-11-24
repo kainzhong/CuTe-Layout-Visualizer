@@ -4,7 +4,7 @@ const tabSessionState = {initialized: false, restoring: false, timer: null, laun
 const TAB_SESSION_PREFERENCES = new Set([
   'which','side','copyURL','mmaInputs','inputs','altView','showValue','mode',
   'bankCheck','coalCheck','bankToHighlight','waveVid','swizzle',
-  'tileMode','boxMode','sweepMode','extraMode','srcMode','dstMode','tmemMode','regMode',
+  'tileMode','boxMode','sweepMode','extraMode','srcMode','dstMode',
 ]);
 
 function tabSessionStores() {
@@ -26,7 +26,7 @@ function tabSessionEncode(value) {
 
 function tabSessionPreference(key, value) {
   const labels = new Set(['value','index','coord']);
-  if (['tileMode','boxMode','sweepMode','extraMode','srcMode','dstMode','tmemMode','regMode'].includes(key) || (key === 'mode' && value && typeof value === 'object'))
+  if (['tileMode','boxMode','sweepMode','extraMode','srcMode','dstMode'].includes(key) || (key === 'mode' && value && typeof value === 'object'))
     return Array.isArray(value?.set) && value.set.every(label => labels.has(label)) ? new Set(value.set) : undefined;
   if (key === 'mode') return ['','value','index','coord','warp','warpgroup','tv'].includes(value) ? value : undefined;
   if (key === 'which') return ['A','B','C'].includes(value) ? value : undefined;

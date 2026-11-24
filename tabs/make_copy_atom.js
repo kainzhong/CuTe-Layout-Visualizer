@@ -1083,25 +1083,39 @@ function mcaRenderTmem(tabId, opKey, op, dtype, elemBits, prev) {
   updateOuterTabLabel(tabId, `make_copy_atom:tmem${a.spec.ptx}.x${repeat}/${dtype}`);
 }
 
-function mcaDrawTmem(tabId, s) {
-  const a = s.atom, [L, C] = a.tile.shape;
-  const labelMode = s.showValue ? 'value' : '';
+/** TMEM cell colours: make_copy_atom's violet for one warp's block, and
+ *  shallower / deeper shades of it when a tiled copy spans four warps
+ *  (index = warp mod 4, i.e. the lane quarter). */
+const TMEM_WARP_BG = ['#ede9fe', '#ddd6fe', '#c4b5fd', '#a78bfa'];
+
+/** One TMEM-atom pane (header line + SVG) for `mcaTmemAtom`'s result: the
+ *  TMEM block labelled lane / 32-bit column, or the register side as a TV
+ *  grid. Shared with make_tmem_copy's atom strip so the two cannot drift. */
+function mcaTmemPaneHTML(a, side, dtype, showValue) {
+  const [L, C] = a.tile.shape;
   const head = (txt) => `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">${txt}</div>`;
-  const tmemSVG = buildColoredLayoutSVG([L, C], [C, 1], 'value', (m, n) => {
-    const col = Math.floor(n / a.k), sub = n % a.k;
-    const lines = [`l${m}`, a.k > 1 ? `c${col}.${sub}` : `c${col}`];
-    if (s.showValue) lines.push(String(m * C + n));
-    return { bg: '#ede9fe', text: lines };
-  });
+  const name = side === 'src' ? 'ValLayoutSrc' : 'ValLayoutDst', str = side === 'src' ? a.srcStr : a.dstStr;
+  if (side === a.tmemSide) {
+    return head(`${name} = ${str} — TMEM, addressed by the whole warp`) +
+      buildColoredLayoutSVG([L, C], [C, 1], 'value', (m, n) => {
+        const col = Math.floor(n / a.k), sub = n % a.k;
+        const lines = [`l${m}`, a.k > 1 ? `c${col}.${sub}` : `c${col}`];
+        if (showValue) lines.push(String(m * C + n));
+        return { bg: TMEM_WARP_BG[0], text: lines };
+      });
+  }
   const reg = a[a.regSide];
-  const regSVG = buildTVSVG(reg.shape, reg.stride, a.tile.shape, a.tile.stride, false, 'row', null, labelMode,
-                            { cellIndex: (m, n) => m * C + n });
-  const tmemStr = a.tmemSide === 'src' ? a.srcStr : a.dstStr, regStr = a.regSide === 'src' ? a.srcStr : a.dstStr;
-  document.getElementById(`${tabId}-mca-${a.tmemSide}-svg`).innerHTML =
-    head(`Val${a.tmemSide === 'src' ? 'LayoutSrc' : 'LayoutDst'} = ${tmemStr} — TMEM, addressed by the whole warp`) + tmemSVG;
-  document.getElementById(`${tabId}-mca-${a.regSide}-svg`).innerHTML =
-    head(`Val${a.regSide === 'src' ? 'LayoutSrc' : 'LayoutDst'} = ${regStr} — ${product(reg.shape[1])} ${s.dtype} per thread`) + regSVG;
-  for (const side of ['src', 'dst']) applyZoomState(`${tabId}-mca-${side}-svg`);
+  return head(`${name} = ${str} — ${product(reg.shape[1])} ${dtype} per thread`) +
+    buildTVSVG(reg.shape, reg.stride, a.tile.shape, a.tile.stride, false, 'row', null, showValue ? 'value' : '',
+               { cellIndex: (m, n) => m * C + n });
+}
+
+function mcaDrawTmem(tabId, s) {
+  const a = s.atom, [L] = a.tile.shape;
+  for (const side of ['src', 'dst']) {
+    document.getElementById(`${tabId}-mca-${side}-svg`).innerHTML = mcaTmemPaneHTML(a, side, s.dtype, s.showValue);
+    applyZoomState(`${tabId}-mca-${side}-svg`);
+  }
   document.getElementById(`${tabId}-mca-atom-title`).textContent =
     `tcgen05.${a.store ? 'st' : 'ld'}${a.spec.ptx}.x${a.repeat} — ${s.dtype} → ${L} lanes × ${a.cols32} columns`;
 }

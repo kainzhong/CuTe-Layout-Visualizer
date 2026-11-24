@@ -12301,5 +12301,2597 @@
       "tensor": "((2,2),4):((1,8),2)",
       "coord": "((2,0),1)"
     }
+  ],
+  "tmem_atom": [
+    {
+      "id": "tmem-ld32x32b-x1-float",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld32x32b-x1-half_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x1-uint8_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x1-int32_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x1-bfloat16_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x2-float",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld32x32b-x2-half_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x2-uint8_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x2-int32_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x2-bfloat16_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x4-float",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld32x32b-x4-half_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x4-uint8_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x4-int32_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x4-bfloat16_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x8-float",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld32x32b-x8-half_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x8-uint8_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x8-int32_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x8-bfloat16_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x16-float",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld32x32b-x16-half_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x16-uint8_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x16-int32_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x16-bfloat16_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x32-float",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld32x32b-x32-half_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x32-uint8_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x32-int32_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x32-bfloat16_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x64-float",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld32x32b-x64-half_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x64-uint8_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x64-int32_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x64-bfloat16_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x128-float",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 128,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld32x32b-x128-half_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 128,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x128-uint8_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 128,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x128-int32_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 128,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld32x32b-x128-bfloat16_t",
+      "shape": "32x32b",
+      "store": false,
+      "repeat": 128,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x1-float",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x64b-x1-half_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x1-uint8_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x1-int32_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x1-bfloat16_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x2-float",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x64b-x2-half_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x2-uint8_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x2-int32_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x2-bfloat16_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x4-float",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x64b-x4-half_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x4-uint8_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x4-int32_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x4-bfloat16_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x8-float",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x64b-x8-half_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x8-uint8_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x8-int32_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x8-bfloat16_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x16-float",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x64b-x16-half_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x16-uint8_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x16-int32_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x16-bfloat16_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x32-float",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x64b-x32-half_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x32-uint8_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x32-int32_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x32-bfloat16_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x64-float",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x64b-x64-half_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x64-uint8_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x64-int32_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x64-bfloat16_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x128-float",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 128,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x64b-x128-half_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 128,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x128-uint8_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 128,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x128-int32_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 128,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x64b-x128-bfloat16_t",
+      "shape": "16x64b",
+      "store": false,
+      "repeat": 128,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x1-float",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x128b-x1-half_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x1-uint8_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x1-int32_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x1-bfloat16_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x2-float",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x128b-x2-half_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x2-uint8_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x2-int32_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x2-bfloat16_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x4-float",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x128b-x4-half_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x4-uint8_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x4-int32_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x4-bfloat16_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x8-float",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x128b-x8-half_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x8-uint8_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x8-int32_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x8-bfloat16_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x16-float",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x128b-x16-half_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x16-uint8_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x16-int32_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x16-bfloat16_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x32-float",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x128b-x32-half_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x32-uint8_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x32-int32_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x32-bfloat16_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x64-float",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x128b-x64-half_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x64-uint8_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x64-int32_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x128b-x64-bfloat16_t",
+      "shape": "16x128b",
+      "store": false,
+      "repeat": 64,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x1-float",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x256b-x1-half_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x1-uint8_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x1-int32_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x1-bfloat16_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 1,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x2-float",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x256b-x2-half_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x2-uint8_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x2-int32_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x2-bfloat16_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 2,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x4-float",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x256b-x4-half_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x4-uint8_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x4-int32_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x4-bfloat16_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 4,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x8-float",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x256b-x8-half_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x8-uint8_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x8-int32_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x8-bfloat16_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 8,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x16-float",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x256b-x16-half_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x16-uint8_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x16-int32_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x16-bfloat16_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 16,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x32-float",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x256b-x32-half_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x32-uint8_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x32-int32_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x256b-x32-bfloat16_t",
+      "shape": "16x256b",
+      "store": false,
+      "repeat": 32,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x1-float",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 1,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x1-half_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 1,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x1-uint8_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 1,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x1-int32_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 1,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x1-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 1,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x2-float",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 2,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x2-half_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 2,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x2-uint8_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 2,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x2-int32_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 2,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x2-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 2,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x4-float",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 4,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x4-half_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 4,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x4-uint8_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 4,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x4-int32_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 4,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x4-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 4,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x8-float",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 8,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x8-half_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 8,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x8-uint8_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 8,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x8-int32_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 8,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x8-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 8,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x16-float",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 16,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x16-half_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 16,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x16-uint8_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 16,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x16-int32_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 16,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x16-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 16,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x32-float",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 32,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x32-half_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 32,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x32-uint8_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 32,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x32-int32_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 32,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x32-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 32,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x64-float",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 64,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x64-half_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 64,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x64-uint8_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 64,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x64-int32_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 64,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x64-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 64,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x128-float",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 128,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x128-half_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 128,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x128-uint8_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 128,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x128-int32_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 128,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-ld16x32bx2-x128-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": false,
+      "repeat": 128,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st32x32b-x1-float",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st32x32b-x1-half_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st32x32b-x1-uint8_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st32x32b-x1-int32_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st32x32b-x1-bfloat16_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st32x32b-x2-float",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st32x32b-x2-half_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st32x32b-x2-uint8_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st32x32b-x2-int32_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st32x32b-x2-bfloat16_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st32x32b-x4-float",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st32x32b-x4-half_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st32x32b-x4-uint8_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st32x32b-x4-int32_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st32x32b-x4-bfloat16_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st32x32b-x8-float",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st32x32b-x8-half_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st32x32b-x8-uint8_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st32x32b-x8-int32_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st32x32b-x8-bfloat16_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st32x32b-x16-float",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st32x32b-x16-half_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st32x32b-x16-uint8_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st32x32b-x16-int32_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st32x32b-x16-bfloat16_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st32x32b-x32-float",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st32x32b-x32-half_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st32x32b-x32-uint8_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st32x32b-x32-int32_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st32x32b-x32-bfloat16_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st32x32b-x64-float",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st32x32b-x64-half_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st32x32b-x64-uint8_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st32x32b-x64-int32_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st32x32b-x64-bfloat16_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st32x32b-x128-float",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 128,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st32x32b-x128-half_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 128,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st32x32b-x128-uint8_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 128,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st32x32b-x128-int32_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 128,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st32x32b-x128-bfloat16_t",
+      "shape": "32x32b",
+      "store": true,
+      "repeat": 128,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x64b-x1-float",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x64b-x1-half_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x64b-x1-uint8_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x64b-x1-int32_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x64b-x1-bfloat16_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x64b-x2-float",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x64b-x2-half_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x64b-x2-uint8_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x64b-x2-int32_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x64b-x2-bfloat16_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x64b-x4-float",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x64b-x4-half_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x64b-x4-uint8_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x64b-x4-int32_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x64b-x4-bfloat16_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x64b-x8-float",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x64b-x8-half_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x64b-x8-uint8_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x64b-x8-int32_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x64b-x8-bfloat16_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x64b-x16-float",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x64b-x16-half_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x64b-x16-uint8_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x64b-x16-int32_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x64b-x16-bfloat16_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x64b-x32-float",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x64b-x32-half_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x64b-x32-uint8_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x64b-x32-int32_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x64b-x32-bfloat16_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x64b-x64-float",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x64b-x64-half_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x64b-x64-uint8_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x64b-x64-int32_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x64b-x64-bfloat16_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x64b-x128-float",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 128,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x64b-x128-half_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 128,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x64b-x128-uint8_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 128,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x64b-x128-int32_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 128,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x64b-x128-bfloat16_t",
+      "shape": "16x64b",
+      "store": true,
+      "repeat": 128,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x128b-x1-float",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x128b-x1-half_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x128b-x1-uint8_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x128b-x1-int32_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x128b-x1-bfloat16_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x128b-x2-float",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x128b-x2-half_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x128b-x2-uint8_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x128b-x2-int32_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x128b-x2-bfloat16_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x128b-x4-float",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x128b-x4-half_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x128b-x4-uint8_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x128b-x4-int32_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x128b-x4-bfloat16_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x128b-x8-float",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x128b-x8-half_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x128b-x8-uint8_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x128b-x8-int32_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x128b-x8-bfloat16_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x128b-x16-float",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x128b-x16-half_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x128b-x16-uint8_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x128b-x16-int32_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x128b-x16-bfloat16_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x128b-x32-float",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x128b-x32-half_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x128b-x32-uint8_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x128b-x32-int32_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x128b-x32-bfloat16_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x128b-x64-float",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x128b-x64-half_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x128b-x64-uint8_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x128b-x64-int32_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x128b-x64-bfloat16_t",
+      "shape": "16x128b",
+      "store": true,
+      "repeat": 64,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x256b-x1-float",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x256b-x1-half_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x256b-x1-uint8_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x256b-x1-int32_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x256b-x1-bfloat16_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 1,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x256b-x2-float",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x256b-x2-half_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x256b-x2-uint8_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x256b-x2-int32_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x256b-x2-bfloat16_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 2,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x256b-x4-float",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x256b-x4-half_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x256b-x4-uint8_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x256b-x4-int32_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x256b-x4-bfloat16_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 4,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x256b-x8-float",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x256b-x8-half_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x256b-x8-uint8_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x256b-x8-int32_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x256b-x8-bfloat16_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 8,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x256b-x16-float",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x256b-x16-half_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x256b-x16-uint8_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x256b-x16-int32_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x256b-x16-bfloat16_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 16,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x256b-x32-float",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x256b-x32-half_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x256b-x32-uint8_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x256b-x32-int32_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x256b-x32-bfloat16_t",
+      "shape": "16x256b",
+      "store": true,
+      "repeat": 32,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x1-float",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 1,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x32bx2-x1-half_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 1,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x1-uint8_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 1,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x1-int32_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 1,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x1-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 1,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x2-float",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 2,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x32bx2-x2-half_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 2,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x2-uint8_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 2,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x2-int32_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 2,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x2-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 2,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x4-float",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 4,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x32bx2-x4-half_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 4,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x4-uint8_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 4,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x4-int32_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 4,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x4-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 4,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x8-float",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 8,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x32bx2-x8-half_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 8,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x8-uint8_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 8,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x8-int32_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 8,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x8-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 8,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x16-float",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 16,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x32bx2-x16-half_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 16,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x16-uint8_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 16,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x16-int32_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 16,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x16-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 16,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x32-float",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 32,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x32bx2-x32-half_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 32,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x32-uint8_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 32,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x32-int32_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 32,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x32-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 32,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x64-float",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 64,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x32bx2-x64-half_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 64,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x64-uint8_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 64,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x64-int32_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 64,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x64-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 64,
+      "dtype": "bfloat16_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x128-float",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 128,
+      "dtype": "float"
+    },
+    {
+      "id": "tmem-st16x32bx2-x128-half_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 128,
+      "dtype": "half_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x128-uint8_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 128,
+      "dtype": "uint8_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x128-int32_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 128,
+      "dtype": "int32_t"
+    },
+    {
+      "id": "tmem-st16x32bx2-x128-bfloat16_t",
+      "shape": "16x32bx2",
+      "store": true,
+      "repeat": 128,
+      "dtype": "bfloat16_t"
+    }
   ]
 }

@@ -101,7 +101,7 @@ Every operation tab shows the inputs and the result as linked visualizations, no
   - **Basics** (blue) — Layout, TV Layout, Swizzle, Index, Composed Layout.
   - **Layout Operations** (purple) — Composition, Complement, Logical Divide, Zipped / Tiled / Flat Divide, Logical Product, Zipped / Tiled / Flat Product, Blocked Product, Raked Product.
   - **Copy** (emerald) — the copy-construction pipeline, eight tabs mirroring CuTe's own layering.
-    - **make_copy_atom** — build one Copy_Atom. Pick the Op (`CopyUniversalOp` or `cpasync.CopyG2SOp`; neither takes constructor parameters), then give `make_copy_atom` its `tensor_dtype` and `num_bits_per_copy`. Shows the one-thread / N-contiguous-value shape a single instruction moves.
+    - **make_copy_atom** — build one Copy_Atom. Pick the Op (`CopyUniversalOp` or `cpasync.CopyG2SOp`; neither takes constructor parameters), then give `make_copy_atom` its `tensor_dtype` and `num_bits_per_copy`. Shows the one-thread / N-contiguous-value shape a single instruction moves. **tcgen05 TMEM load/store (SM100+):** the ten `tcgen05.Ld*` / `St*` Ops draw one instruction's TMEM block (lanes × 32-bit columns) as a **TMEM** pane, which the whole warp addresses, next to the **RMEM** pane showing which thread holds each element; `repeat` widens the block, and narrower dtypes pack 2 or 4 elements per column (`c.e` labels). `pack`/`unpack` does not change ownership and is noted rather than offered.
     - **make_tiled_copy** — the primitive. You supply `layout_tv` and `Tiler_MN` yourself. (They need *not* have matching shapes — `layout_tv` is `(num_threads, num_values)`, `Tiler_MN` is the `(M, N)` tile.)
     - **make_tiled_copy_tv** — the derived form. Give it a `thr_layout` × `val_layout` and it runs `raked_product` → `right_inverse`, prints `layout_mn` / `Tiler_MN` / `layout_tv`, and hands them to the above.
     - **make_tiled_copy_A / B / C** — derive a TiledCopy from the selected MMA operand layout and a CopyAtom. A and B take an SMEM → RMEM load (ldmatrix or SIMT). C is the accumulator: choose the epilogue store (`StMatrix8x8x16bOp` / `StMatrix16x8x8bOp`, or CopyUniversalOp, RMEM → SMEM) or a SIMT load of a C source (SMEM → RMEM). C's CopyAtom has its own **dtype**, defaulting to the accumulator's: an SM90 epilogue converts float accumulators to e.g. `half_t` and stores those with stmatrix. Every StMatrix configuration offered was executed on the GPU (`tests/gpu_check.py --stmatrix`). With **MMA/COPY**, the right pane shows the copy's register side, DST for a load and SRC for the C store. A TiledMMA replicated along both N and K is refused for C, because CuTe's `get_layoutC_TV`, which `make_tiled_copy_C` uses, contradicts `partition_C` there. The **Compare** picker switches between **SRC/DST** and **MMA/COPY**. The left pane shows the copy address-supplying lanes or the MMA operand register slots; the right always shows the TiledCopy destination over the same logical operand tile. **Show TVs / Show Warps** and a shared focus box apply to both panes. **Decode from Pasteboard** in each constructor section imports a copied `make_tiled_mma` or `make_copy_atom` URL (or its query string). Supports the existing ldmatrix Ops and SIMT loads; dtype follows the MMA operand and `unpack_bits=None`. It visualizes logical ownership, without a tensor's physical SMEM addresses or access-legality analysis. With WGMMA, operand A with A source = RMEM loads the register A of an RS warpgroup MMA (**Show Warp Groups** focuses one 128-thread group); a shared-memory A or B is read by WGMMA through a descriptor, so the tab explains that there is no register fragment to copy into instead of drawing CuTeDSL's degenerate whole-tile-per-thread copy. Both TiledMMA and CopyAtom have a folded **Manual construction** section below their decode buttons; decoding fills the editable fields.
@@ -188,14 +188,10 @@ See [`AGENTS.md`](AGENTS.md) for the working conventions and
    - im2col mode, `gather4` / `scatter4`, `internal_type` recasts, nested GMEM modes.
    - `tma_partition`, which splits a tile into `(TMA, REST)` when the box doesn't cover it in one instruction (the tab already reports the instruction count).
 
-3. **tcgen05 TMEM load / store** — single tab collapses all ~160 `SM100_TMEM_LOAD_*` / `SM100_TMEM_STORE_*` variants:
-   - Direction toggle: load (TMEM → regs) vs store (regs → TMEM).
-   - DP picker: `16dp` / `32dp` (rows per warp).
-   - Width picker: `64b` / `128b` / `256b`.
-   - Repeat picker: `1` / `2` / `4` / `8` / `16` / `32` / `64`.
-   - `_16b` packing toggle.
-
-   Most combinatorial space of the four. Needs the shared SVG builder (`buildColoredLayoutSVG` and the tile-lookup helpers) to generalize beyond the rank-2 `(1, elements)` atom-val-layout assumption — TMEM atoms have rank ≥ 3 atom layouts like `(tid, (dp, bit, rep))`.
+3. **tcgen05 TMEM load / store** — *atom level built*: `make_copy_atom` offers all ten
+   `tcgen05.Ld*` / `St*` Ops (`32x32b`, `16x64b`, `16x128b`, `16x256b`, `16x32bx2`) with a
+   `repeat` picker limited to what CuTeDSL accepts. Still to come, with the tcgen05 MMA:
+   `make_tmem_copy` over a real accumulator, and the `LdRed*` / `LdSPCompress*` variants.
 
 4. **UTCCP** (tcgen05 multicast into TMEM) — single tab, smallest family:
    - Shape picker: `128dp{256,128}bit`, `4dp256bit`, `4x32dp128bit`, `2x64dp128bitlw{0213,0123}` (4-5 options).

@@ -2196,6 +2196,23 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     if (exported.at(-1) !== 'tma_s2g' || els.get(`${TAB}-tp-op-input`).value !== 'tma_s2g') throw new Error('store lost in URL');
   }, tpPanes);
 
+  step('make_copy_atom: tcgen05 TMEM load/store — badges, repeat domain, panes and URL', () => {
+    ctx.setMCA(TAB, 'tmem_ld16x256b', 32, 'float', 1);
+    expectBadge('mca-src', 'TMEM'); expectBadge('mca-dst', 'RMEM');
+    const reps = [...els.get(`${TAB}-mca-rep-input`).innerHTML.matchAll(/value="(\d+)"/g)].map(m => m[1]).join();
+    if (reps !== '1,2,4,8,16,32') throw new Error(`16x256b repeat domain = ${reps}`);
+    if (!/TMEM, addressed by the whole warp/.test(els.get(`${TAB}-mca-src-svg`).innerHTML) ||
+        !/T0/.test(els.get(`${TAB}-mca-dst-svg`).innerHTML)) throw new Error('TMEM / register panes not drawn on the load sides');
+    ctx.setMCA(TAB, 'tmem_st32x32b', 32, 'half_t', 4);
+    expectBadge('mca-src', 'RMEM'); expectBadge('mca-dst', 'TMEM');
+    if (!/c0\.1/.test(els.get(`${TAB}-mca-dst-svg`).innerHTML)) throw new Error('packed half_t elements not labelled within their column');
+    const { exported } = urlRoundTrip(() => ctx.exportMCA(TAB));
+    if (exported[1] !== 'tmem_st32x32b' || exported[4] !== '4' || els.get(`${TAB}-mca-rep-input`).value !== '4')
+      throw new Error(`TMEM CopyAtom URL = ${exported}`);
+    let msg = '';
+    try { ctx.mcaDecodeAtomURL('?key=make_copy_atom-tmem_ld16x256b-32-float-64'); } catch (e) { msg = e.message; }
+    if (!/x64 is not offered/.test(msg)) throw new Error('out-of-domain repeat accepted');
+  }, [`${TAB}-mca-src-svg`, `${TAB}-mca-dst-svg`]);
   step('make_copy_atom: LdMatrix8x16x8bOp pins transpose to False and draws 8x8x16b ownership', () => {
     ctx.setMCA(TAB, 'ldmatrix8x16x8b', 128, 'uint8_t', 4, 1);
     const tr = els.get(`${TAB}-mca-trans-input`);

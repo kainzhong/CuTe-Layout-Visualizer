@@ -168,6 +168,19 @@ Execution validated with CuTeDSL 4.8.0 on NVIDIA GB200 (SM100): of 108 cases, 92
 bit-exact and all 16 `hw_invalid` cases failed as flagged. `uint128_t` is not a TMA case: CuTeDSL
 4.8 cannot compile a 128-bit TMA copy, so the TMA tabs do not offer it.
 
+## TMEM load / store
+
+```bash
+python3 tests/gpu_check.py --tmem
+```
+
+Requires SM100. For every tcgen05 `Ld*` / `St*` Op at every repeat CuTeDSL accepts, it allocates
+TMEM, builds a 128x256 float accumulator from a tcgen05 TiledMMA and round-trips each element's
+index through `make_tmem_copy`: a load test writes with `St32x32bOp` (thread t <-> lane t by the
+PTX definition) and reads through the Op under test; a store test writes through it and reads with
+`Ld32x32bOp`. Every element must return as its own index. Validated with CuTeDSL 4.8.0 on
+NVIDIA GB200: 74/74. The atom layouts are the 370 `tmem_atom` oracle cases.
+
 ## StMatrix
 
 ```bash

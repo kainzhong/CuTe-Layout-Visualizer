@@ -696,6 +696,118 @@ def ldmatrix_main():
     return 1 if failures else 0
 
 
+TMEM_OPS = ["Ld32x32b", "Ld16x64b", "Ld16x128b", "Ld16x256b", "Ld16x32bx2",
+            "St32x32b", "St16x64b", "St16x128b", "St16x256b", "St16x32bx2"]
+TMEM_REPEATS = {"Ld16x128b": 64, "St16x128b": 64, "Ld16x256b": 32, "St16x256b": 32}   # CuTeDSL's caps
+
+
+def run_tmem_roundtrip(op_name, repeat, compile_only=False):
+    """One tcgen05.ld or .st Op, executed through make_tmem_copy over a real
+    128 x 256 float accumulator in TMEM. The other direction uses the 32x32b
+    Op, whose mapping is the PTX definition (thread t <-> lane t). A store test
+    writes every element's logical index through the Op under test and reads
+    it back with Ld32x32b; a load test writes with St32x32b and reads through
+    the Op under test. Every element must come back as its own index, so the
+    Op's thread/value ownership (what make_copy_atom draws) is confirmed on the
+    hardware. Returns the number of wrong elements."""
+    from cutlass.cute.nvgpu import tcgen05
+    from cutlass.memory import SmemAllocator
+    M, N = 128, 256
+    R = getattr(tcgen05.Repetition, f"x{repeat}")
+    test = getattr(tcgen05, op_name + "Op")(R)
+    is_store = op_name.startswith("St")
+    st_op = test if is_store else tcgen05.St32x32bOp(tcgen05.Repetition.x32)
+    ld_op = tcgen05.Ld32x32bOp(tcgen05.Repetition.x32) if is_store else test
+
+    @cute.kernel
+    def kern(pout: cute.Pointer):
+        tid, _, _ = cute.arch.thread_idx()
+        warp = cute.arch.make_warp_uniform(cute.arch.warp_idx())
+        holder = SmemAllocator().allocate_tensor(cutlass.Int32, cute.make_layout(4), 16)
+        if warp == 0:
+            cute.arch.alloc_tmem(N, holder.iterator)
+            cute.arch.relinquish_tmem_alloc_permit()
+        cute.arch.barrier()
+        tmem_ptr = cute.arch.retrieve_tmem_ptr(cutlass.Float32, 16, holder.iterator)
+        tmma = cute.make_tiled_mma(tcgen05.MmaF16BF16Op(
+            cutlass.Float16, cutlass.Float32, (M, N, 16), tcgen05.CtaGroup.ONE,
+            tcgen05.OperandSource.SMEM, cute.nvgpu.OperandMajorMode.K, cute.nvgpu.OperandMajorMode.K))
+        acc_shape = tmma.partition_shape_C((M, N))
+        tAcc = cute.make_tensor(tmem_ptr, tmma.make_fragment_C(acc_shape).layout)
+        ident = cute.make_identity_tensor(acc_shape)
+
+        st = tcgen05.make_tmem_copy(cute.make_copy_atom(st_op, cutlass.Float32), tAcc)
+        thr_st = st.get_slice(tid)
+        cS = thr_st.partition_S(ident)
+        regs = cute.make_fragment_like(cS, cutlass.Float32)
+        for i in cutlass.range_constexpr(cute.size(regs)):
+            c = cS[i]
+            regs[i] = cutlass.Float32(c[0][0] * N + c[0][1])
+        cute.copy(st, regs, thr_st.partition_D(tAcc))
+        cute.arch.fence_view_async_tmem_store()
+        cute.arch.barrier()
+
+        ld = tcgen05.make_tmem_copy(cute.make_copy_atom(ld_op, cutlass.Float32), tAcc)
+        thr_ld = ld.get_slice(tid)
+        cD = thr_ld.partition_D(ident)
+        back = cute.make_fragment_like(cD, cutlass.Float32)
+        cute.copy(ld, thr_ld.partition_S(tAcc), back)
+        cute.arch.fence_view_async_tmem_load()
+        gOut = cute.make_tensor(pout, cute.make_layout(M * N))
+        for i in cutlass.range_constexpr(cute.size(back)):
+            c = cD[i]
+            gOut[c[0][0] * N + c[0][1]] = back[i]
+        cute.arch.barrier()
+        if warp == 0:
+            cute.arch.dealloc_tmem(tmem_ptr, N)
+
+    @cute.jit
+    def launch(pout: cute.Pointer):
+        kern(pout).launch(grid=(1, 1, 1), block=(128, 1, 1), smem=256)
+
+    out = np.full(M * N, -1.0, np.float32)
+    pout = to_device(out) if not compile_only else 0x1000
+    p = cute.runtime.make_ptr(cutlass.Float32, int(pout), cute.AddressSpace.gmem, assumed_align=16)
+    compiled = cute.compile(launch, p)
+    if compile_only:
+        return 0
+    compiled(p)
+    ck(drv.cuCtxSynchronize())
+    got = from_device(pout, out)
+    return int((got != np.arange(M * N, dtype=np.float32)).sum())
+
+
+def tmem_one_main():
+    ck(drv.cuInit(0))
+    ck(drv.cuCtxCreate(0, ck(drv.cuDeviceGet(0))))
+    i = sys.argv.index("--tmem-one")
+    bad = run_tmem_roundtrip(sys.argv[i + 1], int(sys.argv[i + 2]))
+    if bad:
+        sys.exit(f"{bad} elements misplaced")
+    return 0
+
+
+def tmem_main():
+    """Every tcgen05 ld/st Op at every repetition CuTeDSL allows, each in its
+    own process (a TMEM fault poisons the CUDA context)."""
+    import subprocess
+    case_filter = sys.argv[sys.argv.index("--case") + 1] if "--case" in sys.argv else ""
+    cases = [(op, r) for op in TMEM_OPS for r in (1, 2, 4, 8, 16, 32, 64, 128)
+             if r <= TMEM_REPEATS.get(op, 128) and case_filter in f"{op}-x{r}"]
+    print("make_copy_atom(tcgen05 ld/st) -- round trip through a 128x256 TMEM accumulator")
+    failures = []
+    for op, r in cases:
+        p = subprocess.run([sys.executable, os.path.abspath(__file__), "--tmem-one", op, str(r)],
+                           capture_output=True, text=True, timeout=600)
+        if p.returncode == 0:
+            print(f"  ok    {op} x{r}", flush=True)
+        else:
+            print(f"  FAIL  {op} x{r}  {' '.join((p.stdout + p.stderr).split())[-220:]}", flush=True)
+            failures.append(f"{op} x{r}")
+    print(f"{len(cases) - len(failures)}/{len(cases)} TMEM cases executed correctly")
+    return 1 if failures else 0
+
+
 def stmatrix_main():
     import json
     from pathlib import Path
@@ -731,6 +843,8 @@ def stmatrix_main():
 if __name__ == "__main__":
     sys.exit(warpgroup_main() if "--warpgroup" in sys.argv
              else tma_one_main() if "--tma-one" in sys.argv
+             else tmem_one_main() if "--tmem-one" in sys.argv
+             else tmem_main() if "--tmem" in sys.argv
              else stmatrix_main() if "--stmatrix" in sys.argv
              else ldmatrix_one_main() if "--ldmatrix-one" in sys.argv
              else ldmatrix_main() if "--ldmatrix" in sys.argv

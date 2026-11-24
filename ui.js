@@ -1503,6 +1503,17 @@ const COPY_OP_MOVES = {
   stmatrix16x8x8b: [
     ['RMEM', 'SMEM'],
   ],
+  // tcgen05.ld / .st: TMEM <-> registers, one direction per Op.
+  tmem_ld32x32b: [['TMEM', 'RMEM']],
+  tmem_st32x32b: [['RMEM', 'TMEM']],
+  tmem_ld16x64b: [['TMEM', 'RMEM']],
+  tmem_st16x64b: [['RMEM', 'TMEM']],
+  tmem_ld16x128b: [['TMEM', 'RMEM']],
+  tmem_st16x128b: [['RMEM', 'TMEM']],
+  tmem_ld16x256b: [['TMEM', 'RMEM']],
+  tmem_st16x256b: [['RMEM', 'TMEM']],
+  tmem_ld16x32bx2: [['TMEM', 'RMEM']],
+  tmem_st16x32bx2: [['RMEM', 'TMEM']],
   ldmatrix16x16x8b: [
     ['SMEM', 'RMEM'],
   ],

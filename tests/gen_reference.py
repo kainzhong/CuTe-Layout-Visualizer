@@ -217,6 +217,24 @@ def record(layout, cap=EVAL_CAP):
     return out
 
 
+def dump_reference(obj, depth=0):
+    """json.dumps(indent=1, sort_keys=True), except that a list of scalars
+    (an eval map, a shape) stays on one line. One number per line roughly
+    doubled the file size and line count for no readability gain."""
+    pad, inner = " " * depth, " " * (depth + 1)
+    if isinstance(obj, dict):
+        if not obj:
+            return "{}"
+        items = [inner + json.dumps(k) + ": " + dump_reference(obj[k], depth + 1)
+                 for k in sorted(obj)]
+        return "{\n" + ",\n".join(items) + "\n" + pad + "}"
+    if isinstance(obj, list):
+        if all(not isinstance(x, (dict, list)) for x in obj):
+            return json.dumps(obj, separators=(",", ":"))
+        return "[\n" + ",\n".join(inner + dump_reference(x, depth + 1) for x in obj) + "\n" + pad + "]"
+    return json.dumps(obj)
+
+
 # ── the op dispatch ───────────────────────────────────────────────────────────
 
 def run_layout_op(c, allow_basis=False):
@@ -488,6 +506,20 @@ def run_ldmatrix_atom(c):
         "src": record(atom.layout_src_tv),
         "dst": record(atom.layout_dst_tv),
     }
+
+
+def run_tmem_atom(c):
+    # make_copy_atom(tcgen05.<Ld|St><shape>Op(repeat), dtype). pack/unpack is
+    # left at its default: it does not change ownership.
+    from cutlass.cute.nvgpu import tcgen05
+    op = getattr(tcgen05, ("St" if c["store"] else "Ld") + c["shape"] + "Op")(
+        getattr(tcgen05.Repetition, "x%d" % c["repeat"]))
+    atom = cute.make_copy_atom(op, DTYPES[c["dtype"]])
+    # run.js matches these layouts by exact string, so eval is only a small
+    # sanity sample of the JS evaluator. Recording full domains (up to
+    # 32x16384, 370 cases) made this section ~180 MB of reference.json.
+    sample = lambda L: record(L, 256)
+    return {"thr_id": canon(atom.thr_id), "src": sample(atom.layout_src_tv), "dst": sample(atom.layout_dst_tv)}
 
 
 MMA_OPS = {
@@ -1102,6 +1134,7 @@ SECTIONS = [
     ("make_tiled_copy", run_make_tiled_copy),
     ("copy_atom", run_copy_atom),
     ("ldmatrix_atom", run_ldmatrix_atom),
+    ("tmem_atom", run_tmem_atom),
     ("mma_atom", run_mma_atom),
     ("warpgroup_mma_atom", run_warpgroup_mma_atom),
     ("warpgroup_tiled_mma", run_warpgroup_tiled_mma),
@@ -1219,11 +1252,10 @@ def main():
         data = {**{k:v for k,v in existing.items() if not k.startswith('_')},
                 **{k:v for k,v in data.items() if k in args.section}}
 
-    text = json.dumps(
+    text = dump_reference(
         {"_generated_by": "tests/gen_reference.py (CuTeDSL oracle) -- do not edit by hand",
          "_cutlass_version": getattr(cutlass, "__version__", "unknown"),
-         **data},
-        indent=1, sort_keys=True) + "\n"
+         **data}) + "\n"
 
     if args.check:
         if not os.path.exists(REFERENCE):

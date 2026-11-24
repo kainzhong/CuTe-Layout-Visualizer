@@ -115,6 +115,38 @@ const MCA_OPS = {
   },
 };
 
+// ── tcgen05 TMEM load / store (SM100+) ─────────────────────────────────────
+// A warp moves a lanes x columns block between TMEM and registers. The five
+// shapes differ in how the 32 threads own that block; `repeat` widens it.
+// Layouts are formulas in 32-bit columns (mcaTmemAtom), checked against
+// CuTeDSL for every Op x repeat x dtype (section `tmem_atom`).
+const MCA_TMEM_SPECS = {
+  '32x32b':   { lanes: 32, ptx: '.32x32b',   maxRepeat: 128,
+                note: 'One TMEM lane per thread: thread t owns lane t, and repeat adds 32-bit columns. The plain epilogue read of an accumulator.' },
+  '16x64b':   { lanes: 16, ptx: '.16x64b',   maxRepeat: 128,
+                note: '16 lanes x 64 bits per repetition: two threads share each lane.' },
+  '16x128b':  { lanes: 16, ptx: '.16x128b',  maxRepeat: 64,
+                note: '16 lanes x 128 bits per repetition: four threads share each lane. CuTeDSL rejects x128.' },
+  '16x256b':  { lanes: 16, ptx: '.16x256b',  maxRepeat: 32,
+                note: '16 lanes x 256 bits per repetition, in the m16n8 MMA-fragment arrangement: thread (t0, t1) holds lanes t1 and t1+8, columns 2t0 and 2t0+1. CuTeDSL rejects x64 and x128.' },
+  '16x32bx2': { lanes: 16, ptx: '.16x32bx2', maxRepeat: 128,
+                note: 'Two 16-lane x 32-bit halves: threads 0-15 and 16-31 each take one half. In PTX the second half sits at an immediate column offset; CuTe draws it as the next column.' },
+};
+const MCA_TMEM_REPEATS = [1, 2, 4, 8, 16, 32, 64, 128];
+for (const [shape, spec] of Object.entries(MCA_TMEM_SPECS)) {
+  for (const dir of ['ld', 'st']) {
+    const name = `${dir === 'ld' ? 'Ld' : 'St'}${shape}Op`;
+    MCA_OPS[`tmem_${dir}${shape}`] = {
+      label: `tcgen05.${name}`,
+      ctor: `cute.nvgpu.tcgen05.${name}(repeat, ${dir === 'ld' ? 'pack' : 'unpack'})`,
+      kind: 'tmem', tmem: shape, store: dir === 'st', cpasync: false,
+      params: ['repeat'],
+      note: `${dir === 'ld' ? 'TMEM &rarr; RMEM' : 'RMEM &rarr; TMEM'}, PTX <code>tcgen05.${dir}.sync.aligned${spec.ptx}.x{repeat}</code> (SM100+). ` +
+            spec.note + ` <code>${dir === 'ld' ? 'pack' : 'unpack'}</code> (16-bit packing in 32-bit registers) leaves the ownership unchanged, so it is not a control.`,
+    };
+  }
+}
+
 // Stamp each entry with its own key, so anything holding an Op object can name
 // it without the caller having to thread the key through as well.
 for (const [k, v] of Object.entries(MCA_OPS)) v.key = k;
@@ -242,6 +274,16 @@ const MCA_PRESETS = [
   { op: 'ldmatrix8x16x8b', bits: 128, dtype: 'uint8_t', nm: 4, tr: 0, label: '.x4 &mdash; 16 unpacked 8-bit values per row, all 32 lanes' },
   { op: 'ldmatrix8x16x8b', bits: 128, dtype: 'uint8_t', nm: 1, tr: 0, label: '.x1 &mdash; 8 lanes address' },
   { op: 'stmatrix', bits: 128, dtype: 'half_t', nm: 4, tr: 0, label: '.x4 half_t &mdash; the epilogue store, all 32 lanes address' },
+  { op: 'tmem_ld32x32b', bits: 32, dtype: 'float', nm: 1, label: 'x1 float &mdash; thread t reads TMEM lane t' },
+  { op: 'tmem_ld32x32b', bits: 32, dtype: 'float', nm: 8, label: 'x8 float &mdash; 8 accumulator columns per thread' },
+  { op: 'tmem_ld32x32b', bits: 32, dtype: 'half_t', nm: 4, label: 'x4 half_t &mdash; two 16-bit values per 32-bit column' },
+  { op: 'tmem_ld16x64b', bits: 32, dtype: 'float', nm: 1, label: 'x1 float &mdash; two threads per lane' },
+  { op: 'tmem_ld16x128b', bits: 32, dtype: 'float', nm: 2, label: 'x2 float &mdash; four threads per lane' },
+  { op: 'tmem_ld16x256b', bits: 32, dtype: 'float', nm: 1, label: 'x1 float &mdash; the m16n8 MMA-fragment arrangement' },
+  { op: 'tmem_ld16x256b', bits: 32, dtype: 'half_t', nm: 2, label: 'x2 half_t &mdash; a 16-bit epilogue read' },
+  { op: 'tmem_ld16x32bx2', bits: 32, dtype: 'float', nm: 4, label: 'x4 float &mdash; two 16-lane halves' },
+  { op: 'tmem_st32x32b', bits: 32, dtype: 'float', nm: 4, label: 'x4 float &mdash; thread t writes TMEM lane t' },
+  { op: 'tmem_st16x256b', bits: 32, dtype: 'half_t', nm: 1, label: 'x1 half_t &mdash; write an operand into TMEM' },
   { op: 'stmatrix', bits: 128, dtype: 'half_t', nm: 4, tr: 1, label: '.x4.trans half_t &mdash; store into M-major SMEM' },
   { op: 'stmatrix', bits: 128, dtype: 'half_t', nm: 1, tr: 0, label: '.x1 half_t &mdash; 8 lanes address' },
   { op: 'stmatrix16x8x8b', bits: 128, dtype: 'int8_t', nm: 4, tr: 1, label: '.x4 int8_t &mdash; plain addressing' },
@@ -390,6 +432,64 @@ function mcaLdmatrixAtom(opKey, elemBits, numMatrices, transpose) {
   };
 }
 
+/** The Copy_Atom of `make_copy_atom(tcgen05.<Ld|St><shape>Op(repeat), dtype)`.
+ *  DOM-free; tests/run.js diffs it against CuTeDSL (section `tmem_atom`).
+ *
+ *  The TMEM side is `(32, total):(0, 1)`: the warp addresses the block as a
+ *  whole, so every thread names all of it. The register side is a TV map
+ *  over the block, row-major: flat = lane * cols + col. Each shape's map is a
+ *  formula in 32-bit columns; a narrower element splits every 32-bit cell
+ *  into k = 32 / elemBits adjacent elements (the leading value extent times k,
+ *  every other stride times k), which is the recast CuTeDSL applies. Elements
+ *  wider than a 32-bit cell are not drawn here. */
+function mcaTmemAtom(shape, elemBits, repeat, store) {
+  const spec = MCA_TMEM_SPECS[shape];
+  if (!spec) throw new Error(`Unknown tcgen05 TMEM shape "${shape}"`);
+  const r = repeat;
+  if (!MCA_TMEM_REPEATS.includes(r) || r > spec.maxRepeat)
+    throw new Error(`repeat x${r} is not offered for ${shape}: CuTeDSL accepts x1 to x${spec.maxRepeat}.`);
+  if (![8, 16, 32].includes(elemBits))
+    throw new Error(`TMEM cells are 32 bits; this view draws 8-, 16- and 32-bit elements, not ${elemBits}-bit ones.`);
+  const k = 32 / elemBits;
+  // 32-bit-unit register layouts.
+  let thr, val, cols32;
+  if (shape === '32x32b') {
+    thr = { shape: 32, stride: r }; val = { shape: r, stride: 1 }; cols32 = r;
+  } else if (shape === '16x64b') {
+    thr = { shape: [2, 2, 8], stride: [16 * r, 1, 2 * r] };
+    val = r === 1 ? { shape: 1, stride: 1 } : { shape: [1, r], stride: [1, 2] };
+    cols32 = 2 * r;
+  } else if (shape === '16x128b') {
+    thr = { shape: [4, 8], stride: [1, 4 * r] };
+    val = r === 1 ? { shape: [1, 2], stride: [1, 32] } : { shape: [1, 2, r], stride: [1, 32 * r, 4] };
+    cols32 = 4 * r;
+  } else if (shape === '16x256b') {
+    thr = { shape: [4, 8], stride: [2, 8 * r] };
+    val = r === 1 ? { shape: [2, 2], stride: [1, 64] } : { shape: [2, 2, r], stride: [1, 64 * r, 8] };
+    cols32 = 8 * r;
+  } else {  // 16x32bx2
+    thr = { shape: [16, 2], stride: [2 * r, r] }; val = { shape: r, stride: 1 }; cols32 = 2 * r;
+  }
+  // Recast to elements: k adjacent elements per 32-bit cell.
+  const scale = x => Array.isArray(x) ? x.map(v => v * k) : x * k;
+  thr = { shape: thr.shape, stride: scale(thr.stride) };
+  val = Array.isArray(val.shape)
+    ? { shape: [val.shape[0] * k, ...val.shape.slice(1)], stride: [1, ...val.stride.slice(1).map(v => v * k)] }
+    : { shape: val.shape * k, stride: 1 };
+  const reg = { shape: [thr.shape, val.shape], stride: [thr.stride, val.stride] };
+  const lanes = spec.lanes, cols = cols32 * k, total = lanes * cols;
+  const tmem = { shape: [32, total], stride: [0, 1] };
+  const [src, dst] = store ? [reg, tmem] : [tmem, reg];
+  return {
+    shape, spec, store, repeat: r, k, lanes, cols, cols32, total,
+    thrId: { shape: 32, stride: 1 }, src, dst,
+    regSide: store ? 'src' : 'dst', tmemSide: store ? 'dst' : 'src',
+    tile: { shape: [lanes, cols], stride: [cols, 1] },   // row-major: flat = lane * cols + col
+    srcStr: formatLayoutStr(src.shape, src.stride),
+    dstStr: formatLayoutStr(dst.shape, dst.stride),
+  };
+}
+
 function generateMakeCopyAtomTabContent(id) {
   return `
     <!-- make_copy_atom panel -->
@@ -417,6 +517,7 @@ ${copyMoveField(id, 'mca')}
                 <option value="ldmatrix8x16x8b">warp.LdMatrix8x16x8bOp</option>
                 <option value="stmatrix">warp.StMatrix8x8x16bOp</option>
                 <option value="stmatrix16x8x8b">warp.StMatrix16x8x8bOp</option>
+                ${Object.entries(MCA_OPS).filter(([, o]) => o.kind === 'tmem').map(([key, o]) => `<option value="${key}">${o.label}</option>`).join('')}
               </select>
             </div>
             <div id="${id}-mca-ldsm-params" style="display:none">
@@ -431,6 +532,13 @@ ${copyMoveField(id, 'mca')}
                   <option value="0" selected>False</option>
                   <option value="1">True</option>
                 </select>
+              </div>
+            </div>
+            <div id="${id}-mca-tmem-params" style="display:none">
+              <div class="form-group">
+                <label>repeat<span style="color:#6b7280;font-weight:normal">&nbsp;&mdash; the .x{N} qualifier: how many times the block repeats along TMEM columns</span></label>
+                <!-- options are rebuilt per Op by mcaSyncTmemControls -->
+                <select id="${id}-mca-rep-input" onchange="renderMakeCopyAtom('${id}')"></select>
               </div>
             </div>
             <div class="form-group">
@@ -583,8 +691,9 @@ function renderMakeCopyAtom(tabId) {
     if (!elemBits) throw new Error(`Unknown tensor_dtype "${dtype}"`);
 
     const prev = mcaState[tabId] || {};
-    if (op.kind === 'ldmatrix') mcaRenderLdmatrix(tabId, opKey, op, dtype, elemBits, prev);
-    else                        mcaRenderSimt(tabId, opKey, op, dtype, elemBits, prev);
+    if (op.kind === 'ldmatrix')  mcaRenderLdmatrix(tabId, opKey, op, dtype, elemBits, prev);
+    else if (op.kind === 'tmem') mcaRenderTmem(tabId, opKey, op, dtype, elemBits, prev);
+    else                         mcaRenderSimt(tabId, opKey, op, dtype, elemBits, prev);
   } catch (e) {
     showErr(`${tabId}-mca-error`, e.message);
     for (const side of ['src', 'dst']) {
@@ -791,13 +900,18 @@ function mcaRenderOpParams(tabId, op) {
   const ldsm = document.getElementById(`${tabId}-mca-ldsm-params`);
   if (ldsm) ldsm.style.display = op.kind === 'ldmatrix' ? '' : 'none';
   if (op.kind === 'ldmatrix') mcaSyncLdsmControls(tabId, MCA_LDSM_SPECS[op.ldsm]);
+  const tmem = document.getElementById(`${tabId}-mca-tmem-params`);
+  if (tmem) tmem.style.display = op.kind === 'tmem' ? '' : 'none';
+  if (op.kind === 'tmem') mcaSyncTmemControls(tabId, op);
   mcaSyncPresets(tabId, op.key);
   // num_bits_per_copy is meaningless for ldmatrix — grey it out rather than
   // hide it, so the absence is legible instead of just missing.
+  // ... and for the TMEM Ops, whose width is the shape times repeat.
+  const fixedWidth = op.kind === 'ldmatrix' || op.kind === 'tmem';
   const bits = document.getElementById(`${tabId}-mca-bits-input`);
-  if (bits) bits.disabled = op.kind === 'ldmatrix';
+  if (bits) bits.disabled = fixedWidth;
   const bitsGroup = document.getElementById(`${tabId}-mca-bits-group`);
-  if (bitsGroup) bitsGroup.style.opacity = op.kind === 'ldmatrix' ? '0.45' : '';
+  if (bitsGroup) bitsGroup.style.opacity = fixedWidth ? '0.45' : '';
 
   const host = document.getElementById(`${tabId}-mca-op-params`);
   if (!host) return;
@@ -858,11 +972,12 @@ function renderMcaAtomViz(tabId) {
   if (btn) {
     // The SIMT pane already prints Vk in every cell, so the overlay has nothing
     // to add there — hide the button rather than ship one that does nothing.
-    btn.style.display = s.kind === 'ldmatrix' ? '' : 'none';
+    btn.style.display = s.kind === 'ldmatrix' || s.kind === 'tmem' ? '' : 'none';
     btn.classList.toggle('active', !!s.showValue);
   }
-  if (s.kind === 'ldmatrix') mcaDrawLdmatrix(tabId, s);
-  else                       mcaDrawSimt(tabId, s);
+  if (s.kind === 'ldmatrix')  mcaDrawLdmatrix(tabId, s);
+  else if (s.kind === 'tmem') mcaDrawTmem(tabId, s);
+  else                        mcaDrawSimt(tabId, s);
 }
 
 function mcaDrawSimt(tabId, s) {
@@ -925,6 +1040,66 @@ function mcaDrawLdmatrix(tabId, s) {
 }
 
 
+/** Rebuild the repeat picker for a TMEM Op; its domain differs per shape. */
+function mcaSyncTmemControls(tabId, op) {
+  const sel = document.getElementById(`${tabId}-mca-rep-input`);
+  if (!sel) return;
+  const spec = MCA_TMEM_SPECS[op.tmem], want = sel.value;
+  const reps = MCA_TMEM_REPEATS.filter(r => r <= spec.maxRepeat);
+  sel.innerHTML = reps.map(r => `<option value="${r}">x${r}</option>`).join('');
+  sel.value = reps.map(String).includes(want) ? want : '1';
+}
+
+function mcaRenderTmem(tabId, opKey, op, dtype, elemBits, prev) {
+  const repeat = parseInt(document.getElementById(`${tabId}-mca-rep-input`).value, 10);
+  const a = mcaTmemAtom(op.tmem, elemBits, repeat, op.store);
+  mcaState[tabId] = { kind: 'tmem', opKey, op, dtype, elemBits, atom: a, showValue: !!prev.showValue };
+  const reg = a[a.regSide], perThread = product(reg.shape[1]);
+  const regName = a.regSide === 'src' ? 'ValLayoutSrc' : 'ValLayoutDst';
+  const tmemName = a.tmemSide === 'src' ? 'ValLayoutSrc' : 'ValLayoutDst';
+  document.getElementById(`${tabId}-mca-atom-result`).innerHTML =
+    `<div class="cuo-result-line"><b>Copy_Atom&lt;${op.label.replace('tcgen05.', '')}.x${repeat}, ${dtype}&gt;</b></div>` +
+    `<div class="cuo-result-line" style="color:#9ca3af">tcgen05.${op.store ? 'st' : 'ld'}.sync.aligned${a.spec.ptx}.x${repeat} &mdash; SM100+</div>` +
+    `<div class="cuo-result-line">ThrID        = 32:1<span style="color:#9ca3af"> &mdash; one warp; warp w reaches TMEM lanes 32&middot;(w mod 4) &hellip; +31</span></div>` +
+    `<div class="cuo-result-line">ValLayoutSrc = ${a.srcStr}</div>` +
+    `<div class="cuo-result-line">ValLayoutDst = ${a.dstStr}</div>` +
+    `<div class="cuo-result-line">TMEM block = ${a.lanes} lanes &times; ${a.cols32} 32-bit columns` +
+    (a.k > 1 ? ` = ${a.lanes} &times; ${a.cols} ${dtype}` : '') + `; ${perThread} ${dtype} per thread</div>` +
+    `<div class="cuo-result-line" style="color:#9ca3af">${tmemName} has thread stride 0: the warp addresses the TMEM block as a whole, ` +
+    `so every thread names all of it. ${regName} says which thread holds which element. ` +
+    `<code>num_bits_per_copy</code> is not read: the width is the shape times repeat.</div>`;
+  document.getElementById(`${tabId}-mca-viz-desc`).innerHTML =
+    `One instruction's TMEM block: ${a.lanes} lanes (rows) &times; ${a.cols} ${dtype} columns. ` +
+    `The <b>TMEM</b> pane labels each cell with its lane <code>l</code> and 32-bit column <code>c</code>` +
+    (a.k > 1 ? ` (<code>c.e</code>: element e of the ${a.k} packed in that column)` : '') + `. ` +
+    `The <b>RMEM</b> pane shows which thread and value slot holds it. ${a.spec.note}`;
+  renderMcaAtomViz(tabId);
+  updateOuterTabLabel(tabId, `make_copy_atom:tmem${a.spec.ptx}.x${repeat}/${dtype}`);
+}
+
+function mcaDrawTmem(tabId, s) {
+  const a = s.atom, [L, C] = a.tile.shape;
+  const labelMode = s.showValue ? 'value' : '';
+  const head = (txt) => `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">${txt}</div>`;
+  const tmemSVG = buildColoredLayoutSVG([L, C], [C, 1], 'value', (m, n) => {
+    const col = Math.floor(n / a.k), sub = n % a.k;
+    const lines = [`l${m}`, a.k > 1 ? `c${col}.${sub}` : `c${col}`];
+    if (s.showValue) lines.push(String(m * C + n));
+    return { bg: '#ede9fe', text: lines };
+  });
+  const reg = a[a.regSide];
+  const regSVG = buildTVSVG(reg.shape, reg.stride, a.tile.shape, a.tile.stride, false, 'row', null, labelMode,
+                            { cellIndex: (m, n) => m * C + n });
+  const tmemStr = a.tmemSide === 'src' ? a.srcStr : a.dstStr, regStr = a.regSide === 'src' ? a.srcStr : a.dstStr;
+  document.getElementById(`${tabId}-mca-${a.tmemSide}-svg`).innerHTML =
+    head(`Val${a.tmemSide === 'src' ? 'LayoutSrc' : 'LayoutDst'} = ${tmemStr} — TMEM, addressed by the whole warp`) + tmemSVG;
+  document.getElementById(`${tabId}-mca-${a.regSide}-svg`).innerHTML =
+    head(`Val${a.regSide === 'src' ? 'LayoutSrc' : 'LayoutDst'} = ${regStr} — ${product(reg.shape[1])} ${s.dtype} per thread`) + regSVG;
+  for (const side of ['src', 'dst']) applyZoomState(`${tabId}-mca-${side}-svg`);
+  document.getElementById(`${tabId}-mca-atom-title`).textContent =
+    `tcgen05.${a.store ? 'st' : 'ld'}${a.spec.ptx}.x${a.repeat} — ${s.dtype} → ${L} lanes × ${a.cols32} columns`;
+}
+
 function setMCA(tabId, opKey, bits, dtype, nm, tr) {
   document.getElementById(`${tabId}-mca-op-input`).value    = opKey;
   document.getElementById(`${tabId}-mca-bits-input`).value  = bits;
@@ -934,8 +1109,9 @@ function setMCA(tabId, opKey, bits, dtype, nm, tr) {
   // options silently does nothing and the render uses a stale k.
   const op = MCA_OPS[opKey] || MCA_OPS.universal;
   mcaRenderOpParams(tabId, op);
-  if (nm !== undefined) document.getElementById(`${tabId}-mca-nm-input`).value = String(nm);
-  if (tr !== undefined) document.getElementById(`${tabId}-mca-trans-input`).value = String(tr);
+  // For a TMEM Op the fourth field is its repeat.
+  if (nm !== undefined) document.getElementById(`${tabId}-mca-${op.kind === 'tmem' ? 'rep' : 'nm'}-input`).value = String(nm);
+  if (tr !== undefined && op.kind !== 'tmem') document.getElementById(`${tabId}-mca-trans-input`).value = String(tr);
   renderMakeCopyAtom(tabId);
 }
 
@@ -952,6 +1128,8 @@ function exportMCA(tabId) {
   if (op.kind === 'ldmatrix') {
     base.push(document.getElementById(`${tabId}-mca-nm-input`).value);
     base.push(document.getElementById(`${tabId}-mca-trans-input`).value);
+  } else if (op.kind === 'tmem') {
+    base.push(document.getElementById(`${tabId}-mca-rep-input`).value);
   }
   exportURL(`${tabId}-mca-export`, 'make_copy_atom', ...base);
 }
@@ -968,6 +1146,8 @@ function mcaDecodeAtomURL(text) {
   if (op.kind === 'ldmatrix') {
     if (a[4] !== undefined && !['0','1'].includes(a[4])) throw new Error('CopyAtom transpose must be 0 or 1.');
     mcaLdmatrixAtom(op.ldsm, elemBits, nm, trans);
+  } else if (op.kind === 'tmem') {
+    mcaTmemAtom(op.tmem, elemBits, nm, op.store);   // nm carries the repeat
   } else if (numBits % elemBits) throw new Error('CopyAtom bit count must be a multiple of the dtype width.');
   return {opKey, numBits, dtype, nm, trans};
 }

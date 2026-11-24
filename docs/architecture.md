@@ -877,6 +877,18 @@ the 8x8 Op is exactly ldmatrix's two layouts swapped; the 16x8 Op's register sid
 ldmatrix's permutation exists to match this store; and it accepts `num_matrices = 1`, which the
 ldmatrix rejects. `COPY_OP_MOVES` gives both RMEM→SMEM.
 
+**tcgen05 TMEM load / store.** `MCA_TMEM_SPECS` holds the five shapes; `MCA_OPS` gets a `tmem_ld*`
+and `tmem_st*` entry for each (kind `tmem`), and `COPY_OP_MOVES` gives TMEM→RMEM or RMEM→TMEM.
+`mcaTmemAtom` is a formula, not a lookup: each shape's register TV map in 32-bit columns, then the
+recast to 8/16-bit elements (leading value extent × k, every other stride × k, k = 32/bits), which
+reproduces CuTeDSL's printed layouts exactly; 64-bit elements are not drawn. The TMEM side is
+`(32, total):(0, 1)`: the warp addresses the block as a whole, so the tab draws it as one uniform
+TMEM grid labelled lane / 32-bit column, rather than a thread-colored TV grid. The register side is
+row-major over lanes × columns (`cellIndex`), like ldmatrix. `repeat` reuses the CopyAtom URL's
+fourth field; the picker is rebuilt per shape (16x128b stops at x64, 16x256b at x32). Pinned by 370
+`tmem_atom` cases (all five dtypes the tab draws) and executed through a real TMEM accumulator by
+`gpu_check.py --tmem`.
+
 **`LdMatrix8x16x8bOp` completes the family.** It loads 16 packed 4- or 6-bit values per 16 B row
 (`unpack_bits` 4 / 6, PTX `.m8n16 .b8x16.b{4,6}x16_p*`) into 8-bit register slots. Its ownership
 layouts equal `LdMatrix8x8x16bOp`'s for every dtype x `num_matrices` x `unpack_bits` (90

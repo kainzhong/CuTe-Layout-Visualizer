@@ -395,6 +395,23 @@ if (section('ldmatrix_atom')) {
   }
 }
 
+// tcgen05 TMEM load/store atoms (mcaTmemAtom): both layouts, every point.
+if (section('tmem_atom')) {
+  for (const c of CASES.tmem_atom) {
+    const ref = refFor('tmem_atom', c.id);
+    if (!ref) continue;
+    guard(c.id, () => {
+      const a = V.mcaTmemAtom(c.shape, V.DTYPE_BITS[c.dtype], c.repeat, c.store);
+      check(c.id, 'thr_id', fmt(V, new V.Layout(a.thrId.shape, a.thrId.stride)), ref.thr_id);
+      checkLayout(`${c.id}/src`, new V.Layout(a.src.shape, a.src.stride), ref.src);
+      checkLayout(`${c.id}/dst`, new V.Layout(a.dst.shape, a.dst.stride), ref.dst);
+      // The drawn block is the atom's whole codomain on both sides.
+      check(c.id, 'tile_cells', a.lanes * a.cols, ref.src.cosize);
+      check(c.id, 'tile_cells_dst', a.lanes * a.cols, ref.dst.cosize);
+    });
+  }
+}
+
 // ═══════════════════════════════════════════════════════
 //  4c. make_mma_atom(warp.Mma*Op(...))  (mmaWarpAtom)
 // ═══════════════════════════════════════════════════════

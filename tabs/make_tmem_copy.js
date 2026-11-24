@@ -385,11 +385,14 @@ function tmcRenderViz(tabId) {
   }
   // The atom strip: exactly make_copy_atom's picture of this atom.
   for (const side of ['src', 'dst']) {
-    document.getElementById(`${tabId}-tmc-atom-${side}-svg`).innerHTML = mcaTmemPaneHTML(a.a, side, a.dtype, false);
+    // A highlighted thread is atom lane T mod 32 of its warp's instruction.
+    document.getElementById(`${tabId}-tmc-atom-${side}-svg`).innerHTML =
+      mcaTmemPaneHTML(a.a, side, a.dtype, false, focus === null ? null : focus % 32);
     applyZoomState(`${tabId}-tmc-atom-${side}-svg`);
   }
   document.getElementById(`${tabId}-tmc-atom-title`).textContent =
-    `${a.op.label}.x${a.repeat} — ${a.dtype} → one warp: ${r.lanes} lanes × ${a.a.cols32} columns`;
+    `${a.op.label}.x${a.repeat} — ${a.dtype} → one warp: ${r.lanes} lanes × ${a.a.cols32} columns` +
+    (focus !== null ? ` — T${focus} is lane ${focus % 32} of warp ${Math.floor(focus / 32)}'s instruction` : '');
 
   // The tiled pair, both over the tensor's (row, column) cells.
   const cell = (m, n) => {

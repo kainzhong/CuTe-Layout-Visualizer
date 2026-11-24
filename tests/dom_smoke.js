@@ -2507,6 +2507,12 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     ctx.renderMakeTmemCopy(TAB);
     const panel = els.get(`${TAB}-tmc-thread-body`).innerHTML;
     if (!/warp 1, lane 1/.test(panel) || !/\(32,2\)/.test(panel)) throw new Error(`thread 33 panel: ${panel}`);
+    // The atom strip follows the highlight as lane 33 % 32 = 1 of one instruction.
+    const atomTmem = els.get(`${TAB}-tmc-atom-src-svg`).innerHTML;
+    const coloured = (atomTmem.match(new RegExp(`fill="${ctx.TMEM_WARP_BG[0]}"`, 'g')) || []).length;
+    const atomOwn = ctx.product(ctx.tmcState[TAB].atom.a[ctx.tmcState[TAB].atom.regSide].shape[1]);
+    if (coloured !== atomOwn) throw new Error(`atom TMEM pane keeps ${coloured} cells coloured, lane 1 holds ${atomOwn}`);
+    if (!/lane 1 of warp 1/.test(els.get(`${TAB}-tmc-atom-title`).textContent)) throw new Error('atom title lacks the lane');
     els.get(`${TAB}-tmc-highlight-tid`).value = '';
     // Earlier steps click every button, so test that the toggle flips, from either state.
     const hadCoord = ctx.tmcState[TAB].tileMode.has('coord');

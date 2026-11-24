@@ -1091,8 +1091,17 @@ const TMEM_WARP_BG = ['#ede9fe', '#ddd6fe', '#c4b5fd', '#a78bfa'];
 /** One TMEM-atom pane (header line + SVG) for `mcaTmemAtom`'s result: the
  *  TMEM block labelled lane / 32-bit column, or the register side as a TV
  *  grid. Shared with make_tmem_copy's atom strip so the two cannot drift. */
-function mcaTmemPaneHTML(a, side, dtype, showValue) {
+function mcaTmemPaneHTML(a, side, dtype, showValue, focusLane = null) {
   const [L, C] = a.tile.shape;
+  // A focused lane (make_tmem_copy's highlighted thread, mod 32) keeps colour
+  // only on the elements its registers hold; the register side dims the rest
+  // through buildTVSVG's own highlight.
+  const reg = a[a.regSide];
+  const owned = new Set();
+  if (focusLane !== null) {
+    const R = new Layout(reg.shape, reg.stride);
+    for (let v = 0; v < product(reg.shape[1]); v++) owned.add(R.call(focusLane, v));
+  }
   const head = (txt) => `<div style="font-size:0.78rem;color:#9ca3af;font-family:monospace;margin-bottom:4px">${txt}</div>`;
   const name = side === 'src' ? 'ValLayoutSrc' : 'ValLayoutDst', str = side === 'src' ? a.srcStr : a.dstStr;
   if (side === a.tmemSide) {
@@ -1101,12 +1110,12 @@ function mcaTmemPaneHTML(a, side, dtype, showValue) {
         const col = Math.floor(n / a.k), sub = n % a.k;
         const lines = [`l${m}`, a.k > 1 ? `c${col}.${sub}` : `c${col}`];
         if (showValue) lines.push(String(m * C + n));
-        return { bg: TMEM_WARP_BG[0], text: lines };
+        const dim = focusLane !== null && !owned.has(m * C + n);
+        return { bg: dim ? '#f0f0f0' : TMEM_WARP_BG[0], fg: dim ? '#bbb' : undefined, text: lines };
       });
   }
-  const reg = a[a.regSide];
   return head(`${name} = ${str} — ${product(reg.shape[1])} ${dtype} per thread`) +
-    buildTVSVG(reg.shape, reg.stride, a.tile.shape, a.tile.stride, false, 'row', null, showValue ? 'value' : '',
+    buildTVSVG(reg.shape, reg.stride, a.tile.shape, a.tile.stride, false, 'row', focusLane, showValue ? 'value' : '',
                { cellIndex: (m, n) => m * C + n });
 }
 

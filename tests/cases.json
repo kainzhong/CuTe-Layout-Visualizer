@@ -294,6 +294,98 @@
       "a": "((2,2),2):((4,1),2)"
     },
     {
+      "id": "rinv-gap",
+      "op": "right_inverse",
+      "a": "4:2"
+    },
+    {
+      "id": "rinv-skip",
+      "op": "right_inverse",
+      "a": "(2,2):(3,1)"
+    },
+    {
+      "id": "rinv-overlap",
+      "op": "right_inverse",
+      "a": "(4,2):(1,2)"
+    },
+    {
+      "id": "rinv-nodiv",
+      "op": "right_inverse",
+      "a": "(2,2):(2,3)"
+    },
+    {
+      "id": "rinv-neg",
+      "op": "right_inverse",
+      "a": "(2,2):(1,-2)"
+    },
+    {
+      "id": "rinv-nested-gap",
+      "op": "right_inverse",
+      "a": "(3,(2,4)):(8,(1,24))"
+    },
+    {
+      "id": "linv-gap",
+      "op": "left_inverse",
+      "a": "4:2"
+    },
+    {
+      "id": "linv-gap-mid",
+      "op": "left_inverse",
+      "a": "(2,4):(1,4)"
+    },
+    {
+      "id": "linv-lead-gap",
+      "op": "left_inverse",
+      "a": "(3,4):(2,8)"
+    },
+    {
+      "id": "linv-skip",
+      "op": "left_inverse",
+      "a": "(2,2):(3,1)"
+    },
+    {
+      "id": "linv-nested-gap",
+      "op": "left_inverse",
+      "a": "(3,(2,4)):(8,(1,24))"
+    },
+    {
+      "id": "linv-broadcast",
+      "op": "left_inverse",
+      "a": "(2,4):(0,1)"
+    },
+    {
+      "id": "linv-all-zero",
+      "op": "left_inverse",
+      "a": "4:0"
+    },
+    {
+      "id": "linv-overlap",
+      "op": "left_inverse",
+      "a": "(4,2):(1,2)"
+    },
+    {
+      "id": "linv-duplicate",
+      "op": "left_inverse",
+      "a": "((2,2),2):((1,2),1)"
+    },
+    {
+      "id": "linv-same-stride",
+      "op": "left_inverse",
+      "a": "(2,2):(4,4)"
+    },
+    {
+      "id": "linv-nodiv",
+      "op": "left_inverse",
+      "a": "(2,2):(2,3)",
+      "expect_error": true
+    },
+    {
+      "id": "linv-neg",
+      "op": "left_inverse",
+      "a": "(2,2):(1,-2)",
+      "expect_error": true
+    },
+    {
       "id": "ld-1",
       "op": "logical_divide",
       "a": "(4,8):(8,1)",

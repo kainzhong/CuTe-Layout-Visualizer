@@ -194,6 +194,10 @@ function variablesClipboardChoices(raw) {
   if (feature === 'index') return [variablesLayoutChoice(idxComputeIndex(a[0],a[1]).layout)];
   if (feature === 'composition') return [variablesLayoutChoice(composition(layout(a[0]),tiler(a[1])))];
   if (feature === 'complement') return [variablesLayoutChoice(complement(layout(a[0]),layout(a[1]).size()))];
+  if (feature === 'inverse') {
+    const r = invCompute(a[0]);
+    return [...(r.L ? [variablesLayoutChoice(r.L,'left_inverse')] : []), variablesLayoutChoice(r.R,'right_inverse')];
+  }
   const ops = {logical_divide, logical_product, blocked_product, raked_product};
   if (ops[feature]) return [variablesLayoutChoice(ops[feature](layout(a[0]),tiler(a[1])))];
   if (feature === 'zipped_divide' || feature === 'zipped_product') {

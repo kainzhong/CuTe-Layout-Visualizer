@@ -120,6 +120,15 @@ async function main() {
       check('composed preview preserves layout and swizzle',V.variablesPreviewText(row)===row.value);
     }
   });
+  await test('inverse variables offer the oracle left and right inverses',()=>{
+    for (const c of cases.layout_ops.filter(c=>c.op==='left_inverse' || c.op==='right_inverse')) {
+      const rows=V.variablesClipboardChoices(V.encodeKeyParam('inverse',c.a)), ref=refs.layout_ops[c.id];
+      const row=rows.find(r=>r.label===c.op);
+      check(`inverse variables are Layouts: ${c.id}`,rows.every(r=>r.type==='Layout'));
+      if (ref.error) check(`no left_inverse variable when CuTe raises: ${c.id}`,!row && rows.length===1);
+      else same(`inverse variable matches oracle: ${c.id}`,row && row.value,ref.str);
+    }
+  });
   await test('domain_offset variables retain shifted tensor iterators',()=>{
     for(const c of cases.domain_offset) {
       const url=V.encodeKeyParam('domain_offset',c.tensor,c.coord), row=V.variablesClipboardChoices(url)[0];

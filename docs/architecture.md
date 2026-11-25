@@ -146,7 +146,7 @@ two lines in `include/cute/layout.hpp`:
 | `logical_product` and every product variant | **no** | `= (A, composition(complement(A), B))` (`:1656`) |
 
 `layout.js` implements this with `stride_mul` / `stride_eq` / `stride_is_zero` / `has_basis_stride`,
-and `reject_basis(op, layout)` guards `complement` and `right_inverse` — so the product family fails
+and `reject_basis(op, layout)` guards `complement`, `right_inverse` and `left_inverse` — so the product family fails
 with the *reason* rather than producing NaN. `composition`'s only two contacts with A's strides are
 `stride_mul` calls; everything else in it is integer arithmetic on B's side.
 
@@ -1752,9 +1752,10 @@ what `get_layoutA_TV`'s `atile` does. `spec.pm` indexes `permutation_mnk` (0=M, 
 the assembled VMNK tuple where 0 is V, so A broadcasts at **2**; getting that off by one swaps A's
 and B's tiling and is what the differential test caught first.
 
-**Then compose the thread mode with `left_inverse(thr_layout_vmnk)`** — which is exactly the C++
-expression, since `mma_atom.hpp` builds `right_inverse(make_layout(vmnk, complement(vmnk)))` and that
-is what `layout.js`'s `left_inverse` expands to. Without it the thread mode is indexed by the
+**Then compose the thread mode with `right_inverse(make_layout(thr_layout_vmnk, complement(thr_layout_vmnk)))`**
+— exactly the C++ expression `mma_atom.hpp` builds. It is spelled out rather than written as
+`left_inverse`, because CuTe's `left_inverse` uses a different construction that agrees only on a
+bijection (see "left_inverse / right_inverse"). Without it the thread mode is indexed by the
 `(v,m,n,k)` coordinate rather than by thread *index*, which is the same thing only while
 `atom_layout_mnk` is plain column-major. `(2,2,1):(2,1,4)` reorders which warp is which and is the
 only reason that step exists. `thr_layout_vmnk` itself must be a **bijection** — a stride-0 mode
@@ -2482,6 +2483,43 @@ Domain-offset selections use the same shared red/blue palette and `layoutAxisLab
 
 
 `domainOffsetColorMap` assigns the shared highlight palette to the unique addressed elements in the shifted view. Original cells receive the same color exactly when their addressed element appears in that map; other original cells are gray. Numeric tensors key by full element offset including the initial iterator, while coordinate tensors key by the entire output tuple, not just axis 0. Broadcast/aliased elements share colors. This is address correspondence, not memory-space or thread ownership coloring. The shared layout renderer's color callback accepts a scalar offset or full output-coordinate tuple. DOM tests compare every input/output cell color against the CuTeDSL oracle's before/after values across the full domain-offset corpus, including reversed strides, aliases, and coordinate tensors.
+
+## left_inverse / right_inverse (Layout Operations)
+
+`tabs/inverse.js` (prefix `inv`, URL feature `inverse`) shows one integer layout `f` with
+`L = left_inverse(f)` and `R = right_inverse(f)`, plus two identity-check grids: `L(f(j))` over f's
+domain and `f(R(i))` over R's domain. `invCompute` is DOM-free and evaluates both identities pointwise.
+Neither CuTe function reports a meaningless result, so that evaluation is the only diagnosis. All
+findings are **warnings**, never errors: f and R always render, so every preset, including "no left
+inverse", stays a valid preset.
+
+**`left_inverse` follows CuTe C++ / CuTeDSL, not pycute.** pycute builds
+`right_inverse(make_layout(f, complement(f)))`. CuTe instead sorts f's coalesced non-zero-stride
+modes by stride `d_0 <= ... <= d_k` (a stable sort) and returns
+`coalesce((d_0, d_1/d_0, ..., d_k/d_{k-1}, s_k) : (0, r_0, ..., r_k))`, where `r_i` is the mode's
+domain stride. The two constructions agree on a bijection but differ elsewhere:
+
+- `4:2` gives `(2,4):(0,1)` in CuTe and `(2,4):(4,1)` in pycute. They agree on f's image and differ off it.
+- `(2,2):(3,1)` is injective with non-dividing extents. CuTe gives `(3,2):(2,1)`, while pycute's
+  complement collapses and returns a wrong `2:2`.
+- On non-injective inputs, pycute's complement can assert, while CuTe returns a layout.
+- CuTeDSL raises "unable to compute the left inverse" for a negative stride or a sorted stride that
+  does not divide the next. The port throws too, and the `expect_error` cases in `layout_ops` pin this.
+
+A 437-layout random sweep against CuTeDSL matched both inverses exactly, including where it raises.
+`make_tiled_mma` therefore spells out `mma_atom.hpp`'s own
+`right_inverse(make_layout(vmnk, complement(vmnk)))` instead of calling `left_inverse`. Its input is a
+bijection, so the result is unchanged, but the expression no longer relies on the two constructions
+coinciding. `make_tmem_copy` keeps `left_inverse`, because `make_cotiled_copy` calls CuTe's.
+
+`right_inverse` already matched CuTeDSL. It skips a non-matching stride with `continue` rather than
+pycute's `break`, so stride-0 modes do not truncate it.
+
+Every pane is drawn with mode 0 as rows and the remaining modes as columns, like domain_offset. The
+cell index is therefore the layout's own domain index. The tab has no `<details>`, so inserting it
+after Complement does not shift stored session disclosure indices. Inputs are URI-encoded in URLs
+(`encodedInputs`) so negative strides survive the hyphen-separated key. The variables pasteboard
+offers both inverses as **Layout** results, or only `right_inverse` when CuTe cannot form L.
 
 ## Composed Layout (BASICS)
 

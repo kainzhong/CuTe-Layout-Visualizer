@@ -87,6 +87,7 @@ Every operation tab shows the inputs and the result as linked visualizations, no
 
 - **Composition & Complement** — Render `A`, `B`, `B_complement`, and `composition(A, B)`. Toggle the complement view to see how `complement(B, size(A))` fills in the remaining layout. Cells from the first tile in A are edge-highlighted in amber; the complement layout mirrors those highlights so the correspondence is immediate.
 - **Complement** (standalone) — Render a layout and its complement against a given cotarget size. Useful for isolating what the complement operation actually produces before involving composition.
+- **left / right_inverse** — Render a layout `f` next to `L = left_inverse(f)` and `R = right_inverse(f)`, plus two grids that evaluate the identities they promise: `L(f(j)) = I(j)` over f's domain and `f(R(i)) = I(i)` over R's domain, where `I(i) = i`. Colors follow f's domain index, so cell `j` of f, cell `f(j)` of L and the cell of R holding `j` match. L's cells at offsets f never produces are grayed out because their values are unconstrained. CuTe returns these layouts without complaint even when they don't mean anything, so the tab warns instead. R is flagged when it's only a partial inverse because f isn't a bijection onto `[0, size(f))`. L is flagged when f isn't injective, and when CuTe can't compute it at all (a negative stride, or a sorted stride that doesn't divide the next). Failing points are outlined in red.
 - **Logical Divide** — `logical_divide(A, tiler)` with full tile coloring: cells belonging to the same tile share a color across A and the result. Supports single-layout and multi-line (by-mode) tilers. For 2-mode tilers, the two axes use distinct accent colors (red for mode-0, deep blue for mode-1) so the row-axis and column-axis selections are visually separable.
 - **Zipped / Tiled / Flat Divide** — `zipped_divide(A, tiler)` and its two reshape-only siblings `tiled_divide` (unpacks outer one level) and `flat_divide` (every mode flat). All three produce the same set of cells at the same positions; a dropdown picks which textual form to display while the visualization stays identical. Coloring matches Logical Divide so you can see that these are pure rearrangements of the same cells.
 - **Logical Product** — `logical_product(A, tiler)` with slide-based coloring: A is the block being reproduced and gets color 0; each "slide" of A across the tiler produces the next tile, colored in the next shade. Supports single-layout and multi-line (by-mode) tilers.
@@ -99,7 +100,7 @@ Every operation tab shows the inputs and the result as linked visualizations, no
 
 - **Scoped navigation** — Tabs are grouped into scopes so the tab bar doesn't turn into a wall of buttons as more features are added. The current scopes are:
   - **Basics** (blue) — Layout, TV Layout, Swizzle, Index, Composed Layout.
-  - **Layout Operations** (purple) — Composition, Complement, Logical Divide, Zipped / Tiled / Flat Divide, Logical Product, Zipped / Tiled / Flat Product, Blocked Product, Raked Product.
+  - **Layout Operations** (purple) — Composition, Complement, left / right_inverse, Logical Divide, Zipped / Tiled / Flat Divide, Logical Product, Zipped / Tiled / Flat Product, Blocked Product, Raked Product.
   - **Copy** (emerald) — the copy-construction pipeline, eight tabs mirroring CuTe's own layering.
     - **make_copy_atom** — build one Copy_Atom. Pick the Op (`CopyUniversalOp` or `cpasync.CopyG2SOp`; neither takes constructor parameters), then give `make_copy_atom` its `tensor_dtype` and `num_bits_per_copy`. Shows the one-thread / N-contiguous-value shape a single instruction moves. **tcgen05 TMEM load/store (SM100+):** the ten `tcgen05.Ld*` / `St*` Ops draw one instruction's TMEM block (lanes × 32-bit columns) as a **TMEM** pane, which the whole warp addresses, next to the **RMEM** pane showing which thread holds each element; `repeat` widens the block, and narrower dtypes pack 2 or 4 elements per column (`c.e` labels). `pack`/`unpack` does not change ownership and is noted rather than offered.
     - **make_tiled_copy** — the primitive. You supply `layout_tv` and `Tiler_MN` yourself. (They need *not* have matching shapes — `layout_tv` is `(num_threads, num_values)`, `Tiler_MN` is the `(M, N)` tile.)
@@ -153,6 +154,7 @@ The `?key=...` query parameter deep-links to a specific visualization:
 ?key=tv-2-(2,3):(3,1)-(2,2):(2,1)
 ?key=composition-(4,4):(4,1)-(2,2):(1,2)
 ?key=complement-(2,2):(1,2)-(4,4):(1,4)
+?key=inverse-(4,2):(2,1)
 ?key=logical_divide-(12,32):(32,1)-3:1\n8:1
 ?key=zipped_divide-(12,32):(32,1)-3:1\n8:1
 ?key=logical_product-(2,2):(1,2)-(2,2):(1,2)

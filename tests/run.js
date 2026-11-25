@@ -153,6 +153,12 @@ function runLayoutOps(sectionName, basis) {
     if (!ref) continue;
     guard(c.id, () => {
       const opts = { basis };
+      if (ref.error) {
+        let rejected = false;
+        try { V[c.op](parseExact(V, c.a, opts)); } catch (_) { rejected = true; }
+        check(c.id, 'rejected by CuTeDSL and JS', rejected, true);
+        return;
+      }
       if (UNARY.includes(c.op)) {
         // coalesce / filter take an optional target profile, which decides how
         // deep the merge goes (`[1,1]` == CuTe's Shape<Shape<_1,_1>>).
@@ -406,6 +412,9 @@ if (section('tmem_copy')) {
         }
       }
       check(c.id, 'every register holds CuTe\'s coordinate', bad, null);
+      // Each warp issues a whole number of instructions; one gives each thread regValues registers.
+      check(c.id, 'whole instructions per warp', Number.isInteger(r.instructions) && r.instructions >= 1, true);
+      check(c.id, 'instructions x registers per instruction', r.instructions * atom.regValues, part.length);
     });
   }
 }

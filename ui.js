@@ -756,6 +756,7 @@ const TAB_RENDER_FN = {
   swizzle:            'renderSwizzle',
   composition:        'renderComposition',
   complement:         'renderComplementFeature',
+  inverse:            'renderInverse',
   divide:             'renderLogicalDivide',
   zipped:             'renderZippedDivide',
   local_tile:         'renderLocalTile',
@@ -850,7 +851,7 @@ function generateTabContent(id) {
         </div>
         <div class="tab-scope-btn" data-scope="operations" onclick="switchTabGroup('${id}', 'operations')">
           <span class="tab-scope-icon">\u25A3</span>Layout Operations
-          <span class="tab-scope-count">10</span>
+          <span class="tab-scope-count">11</span>
         </div>
         <div class="tab-scope-btn" data-scope="copy" onclick="switchTabGroup('${id}', 'copy')">
           <span class="tab-scope-icon">⇄</span>Copy
@@ -870,6 +871,7 @@ function generateTabContent(id) {
       <div data-tab="composed_layout" class="tab" data-scope="basics" onclick="switchInnerTab('${id}', 'composed_layout')">Composed Layout</div>
       <div data-tab="composition" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'composition')">Composition</div>
       <div data-tab="complement" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'complement')">Complement</div>
+      <div data-tab="inverse" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'inverse')">left / right_inverse</div>
       <div data-tab="divide" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'divide')">Logical Divide</div>
       <div data-tab="zipped" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'zipped')">Zipped / Tiled / Flat Divide</div>
       <div data-tab="local_tile" class="tab" data-scope="operations" onclick="switchInnerTab('${id}', 'local_tile')">Local Tile</div>
@@ -908,6 +910,7 @@ function generateTabContent(id) {
     ${generateComposedLayoutTabContent(id)}
     ${generateCompositionTabContent(id)}
     ${generateComplementTabContent(id)}
+    ${generateInverseTabContent(id)}
     ${generateDivideTabContent(id)}
     ${generateZippedDivideTabContent(id)}
     ${generateLocalTileTabContent(id)}
@@ -1162,7 +1165,7 @@ function switchInnerTab(tabId, mode) {
   panel.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   panel.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = panel.querySelectorAll('.tab-bar .tab');
-  const modeIndex = { layout: 0, tv: 1, swizzle: 2, index: 3, composed_layout: 4, composition: 5, complement: 6, divide: 7, zipped: 8, local_tile: 9, product: 10, zipped_product: 11, blocked_product: 12, raked_product: 13, make_copy_atom: 14, make_tiled_copy: 15, make_tiled_copy_tv: 16, make_tiled_copy_ab: 17, make_tmem_copy: 18, retile: 19, make_tiled_tma_atom: 20, tma_partition: 21, partition_sd: 22, make_mma_atom: 23, make_tiled_mma: 24, partition_abc: 25, partition_shape_abc: 26, make_fragment_abc: 27, gemm: 28, make_smem_layout_a: 29, make_smem_layout_b: 30, make_smem_layout_epi: 31, domain_offset: 32 };
+  const modeIndex = { layout: 0, tv: 1, swizzle: 2, index: 3, composed_layout: 4, composition: 5, complement: 6, inverse: 7, divide: 8, zipped: 9, local_tile: 10, product: 11, zipped_product: 12, blocked_product: 13, raked_product: 14, make_copy_atom: 15, make_tiled_copy: 16, make_tiled_copy_tv: 17, make_tiled_copy_ab: 18, make_tmem_copy: 19, retile: 20, make_tiled_tma_atom: 21, tma_partition: 22, partition_sd: 23, make_mma_atom: 24, make_tiled_mma: 25, partition_abc: 26, partition_shape_abc: 27, make_fragment_abc: 28, gemm: 29, make_smem_layout_a: 30, make_smem_layout_b: 31, make_smem_layout_epi: 32, domain_offset: 33 };
   const activeTab = tabs[modeIndex[mode]];
   activeTab.classList.add('active');
   document.getElementById(`${tabId}-tab-${mode}`).classList.add('active');
@@ -1860,6 +1863,7 @@ function downloadSVG(hostId, filename) {
 //    tv-2-<thr_layout>-<val_layout> (method 2: compute via make_layout_tv)
 //    composition-<A>-<B>
 //    complement-<layout>-<cotarget>
+//    inverse-<layout f>             (URI-encoded: strides may be negative)
 //    logical_divide-<A>-<tiler>
 //    zipped_divide-<A>-<tiler>
 //    logical_product-<A>-<tiler>
@@ -1887,6 +1891,7 @@ const FEATURE_SPEC = {
   tv:             { inputs: 2, methods: ['1', '2'] },
   composition:    { inputs: 2 },
   complement:     { inputs: 2 },
+  inverse:        { inputs: 1, encodedInputs: true },
   logical_divide: { inputs: 2 },
   zipped_divide:  { inputs: 2 },
   local_tile:     { inputs: 3, optional: 1 },  // A, tiler, coord [, proj]
@@ -2139,6 +2144,10 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
       document.getElementById(`${tabId}-cpl-cotarget-input`).value = inputs[1];
       switchInnerTab(tabId, 'complement');
       renderComplementFeature(tabId);
+      break;
+    case 'inverse':
+      setInv(tabId, inputs[0]);
+      switchInnerTab(tabId, 'inverse');
       break;
     case 'logical_divide':
       document.getElementById(`${tabId}-ld-a-input`).value = inputs[0];

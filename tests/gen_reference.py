@@ -250,6 +250,14 @@ def run_layout_op(c, allow_basis=False):
         # tests/unit.js instead.
         return record(cute.filter(parse_layout(c["a"], allow_basis)))
     if op in ("right_inverse", "left_inverse"):
+        if c.get("expect_error"):
+            # CuTeDSL: "unable to compute the left inverse" (a sorted stride
+            # that does not divide the next, or a negative stride).
+            try:
+                getattr(cute, op)(parse_layout(c["a"], allow_basis))
+            except Exception:                               # noqa: BLE001
+                return {"error": True}
+            raise AssertionError("CuTeDSL unexpectedly accepted %s(%s)" % (op, c["a"]))
         return record(getattr(cute, op)(parse_layout(c["a"], allow_basis)))
     if op == "composition":
         return record(cute.composition(parse_layout(c["a"], allow_basis), parse_tiler(c["b"])))

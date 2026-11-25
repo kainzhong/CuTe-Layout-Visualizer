@@ -509,6 +509,16 @@ function runUnitTests(V, T) {
     check('tmem-copy-validations', 'rows packed into one lane are diagnosed',
           /spans only 1 TMEM lane/.test(packed) && /\(128,32\):\(262144,1\)/.test(packed), true);
     check('tmem-copy-validations', 'the corrected stride works', cols('uint8_t', '(128,32):(262144,1)'), 'ok');
+    // The generic rejection names which condition broke.
+    const why = t => { try { V.tmcComputeCopy(V.tmcAtom('tmem_ld16x64b', 'uint8_t', 1), lay(t)); return 'ok'; } catch (e) { return e.message; } };
+    check('tmem-copy-validations', 'strided columns name the missing column',
+          /column 1 is not in this tensor: its columns step by 2/.test(why('(128,32):(262144,2)')), true);
+    check('tmem-copy-validations', 'short column runs are named',
+          /come in runs of only 4/.test(why('(32,(4,8)):(262144,(1,16))')), true);
+    check('tmem-copy-validations', 'skipped lanes name the lane step',
+          /rows step by 2 lanes/.test(why('(128,32):(524288,1)')), true);
+    check('tmem-copy-validations', 'too few columns are named',
+          /holds only 4 uint8_t columns/.test(why('(128,4):(262144,1)')), true);
     const wrong = cols('half_t', '(128,32):(65536,1)');
     check('tmem-copy-validations', 'a 32-bit lane stride on half_t is refused with the stride hint',
           /512 32-bit columns/.test(wrong) && /131072/.test(wrong), true);

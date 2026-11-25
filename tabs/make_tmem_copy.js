@@ -39,8 +39,12 @@ function tmcAtom(opKey, dtype, repeat) {
   const a = mcaTmemAtom(op.tmem, bits, Number(repeat), op.store);
   const src = new Layout(a.src.shape, a.src.stride), dst = new Layout(a.dst.shape, a.dst.stride);
   const ref = a.tmemSide === 'src' ? src : dst;
+  const reg = a.regSide === 'src' ? src : dst;
+  // `values` is CuTe's AtomNumVal (the reference = TMEM side, what tidfrg
+  // divides by); `regValues` is what one instruction puts in each thread.
   return { opKey, op, a, bits, dtype, repeat: Number(repeat), store: op.store, src, dst, ref,
-           threads: 32, values: product(ref.shape[1]), tmemSide: a.tmemSide, regSide: a.regSide,
+           threads: 32, values: product(ref.shape[1]), regValues: product(reg.shape[1]),
+           tmemSide: a.tmemSide, regSide: a.regSide,
            label: `${op.label}(x${repeat})` };
 }
 
@@ -69,21 +73,61 @@ function tmcComputeCopy(atom, data) {
   const back = coalesce(composition(oob(data, tvData.mode(1).cosize()), tvData.mode(1)));
   const want = coalesce(atom_tv.mode(1));
   if (formatLayoutStr(back.shape, back.stride) !== formatLayoutStr(want.shape, want.stride)) {
-    // Name the cause. Most often the rows are not lanes at all: a row stride
-    // smaller than DP packs several rows into one lane's columns.
-    const spanned = new Set();
-    for (let i = 0; i < data.size(); i++) spanned.add(Math.floor(data.call(i) / DP));
-    const lanesUsed = spanned.size;
+    // Name the cause. One instruction reads, in each warp's quarter, `lanes`
+    // consecutive lanes and `perLane` consecutive columns of each; find which
+    // of those the tensor breaks.
+    const addrs = new Set();
+    for (let i = 0; i < data.size(); i++) addrs.add(data.call(i));
+    const byLane = new Map();
+    for (const x of addrs) {
+      const l = Math.floor(x / DP);
+      if (!byLane.has(l)) byLane.set(l, []);
+      byLane.get(l).push(x % DP);
+    }
+    const laneList = [...byLane.keys()].sort((a, b) => a - b);
+    // Columns: every run the instruction starts must be fully present.
+    const cols = byLane.get(laneList[0]).sort((a, b) => a - b), colSet = new Set(cols);
+    // The first run the instruction would start whose columns are not all here.
+    const runStart = cols.find(c => c % perLane === 0 &&
+      !Array.from({ length: perLane }, (_, j) => colSet.has(c + j)).every(Boolean));
+    let missing = null, run = 0;
+    if (runStart !== undefined) {
+      for (let j = 0; j < perLane; j++) if (!colSet.has(runStart + j)) { missing = runStart + j; break; }
+      while (colSet.has(runStart + run)) run++;
+    }
+    const colsOK = cols.length >= perLane &&
+      cols.every(c => c % perLane !== 0 || Array.from({ length: perLane }, (_, j) => colSet.has(c + j)).every(Boolean));
+    // Lanes: each quarter's lanes must come in aligned runs of `lanes`.
+    const laneSet = new Set(laneList);
+    const lanesOK = laneList.every(l => l % lanes !== 0 || Array.from({ length: lanes }, (_, j) => laneSet.has(l + j)).every(Boolean)) &&
+      laneList.every(l => laneSet.has(l - (l % lanes)));
+    const laneStep = laneList.length > 1 ? laneList[1] - laneList[0] : 1;
     let hint;
-    if (lanesUsed < lanes) {
-      hint = ` This tensor spans only ${lanesUsed} TMEM lane${lanesUsed === 1 ? '' : 's'}: a row is a lane only ` +
+    if (laneList.length < lanes) {
+      hint = ` This tensor spans only ${laneList.length} TMEM lane${laneList.length === 1 ? '' : 's'}: a row is a lane only ` +
         `when its stride is one lane, ${DP} ${atom.dtype} address units (2^21 / ${atom.bits}). With a smaller ` +
         `row stride the rows are packed into one lane's columns. For a ${flat[0]}-row accumulator use ` +
         `(${flat[0]},${flat[1]}):(${DP},1).`;
-    } else if (lanes === 32) {
+    } else if (!colsOK) {
+      hint = cols.length < perLane
+        ? ` Each row holds only ${cols.length} ${atom.dtype} column${cols.length === 1 ? '' : 's'}, but one instruction ` +
+          `reads ${perLane} consecutive columns of every lane. Widen the tensor to a multiple of ${perLane} columns ` +
+          `or choose a narrower shape or repeat.`
+        : ` One instruction reads ${perLane} consecutive ${atom.dtype} columns of each lane (columns ` +
+          `${runStart}–${runStart + perLane - 1}, …), but column ${missing} is not in this tensor: its columns ` +
+          (run > 1 ? `come in runs of only ${run}` : `step by ${cols[1] - cols[0]}`) + `. Give each row runs of at least ` +
+          `${perLane} consecutive columns, e.g. column stride 1: (${flat[0]},${flat[1]}):(${DP},1).`;
+    } else if (!lanesOK && lanes === 32) {
       hint = ` ${atom.op.label} needs 32 consecutive TMEM lanes in each warp's quarter; an accumulator with ` +
         `fewer rows per quarter (e.g. M = 64: 16 rows in each) needs a 16-lane shape — 16x64b, 16x128b, ` +
         `16x256b or 16x32bx2.`;
+    } else if (!lanesOK) {
+      hint = laneStep > 1
+        ? ` One instruction reads ${lanes} consecutive TMEM lanes, but this tensor's rows step by ${laneStep} lanes ` +
+          `(stride ${laneStep * DP}), so lanes between them are not in it. One lane is ${DP} ${atom.dtype} ` +
+          `address units: use (${flat[0]},${flat[1]}):(${DP},1).`
+        : ` One instruction reads ${lanes} consecutive TMEM lanes starting at a multiple of ${lanes}; this tensor's ` +
+          `lanes do not come in such runs.`;
     } else {
       hint = ` Check that each lane quarter holds ${lanes} consecutive lanes and ${perLane} consecutive ` +
         `${atom.dtype} columns.`;
@@ -125,7 +169,9 @@ function tmcComputeCopy(atom, data) {
     }
     perThread.push(coords);
   }
-  return { DP, flat, tiler, tile, tv, src, dst, threads, fragSize, perThread, cells, maxLane, maxCol,
+  // Instructions each warp issues for the whole tensor.
+  const instructions = fragSize / atom.regValues;
+  return { DP, flat, tiler, tile, tv, src, dst, threads, fragSize, perThread, cells, maxLane, maxCol, instructions,
            outside: [...outside].sort((a, b) => a - b), lanes, perLane };
 }
 
@@ -305,7 +351,7 @@ function renderMakeTmemCopy(tabId) {
       `(${atom.store ? 'RMEM &rarr; TMEM' : 'TMEM &rarr; RMEM'})</div>` +
       `<div class="cuo-result-line">ValLayoutSrc = ${fmt(atom.src)}</div>` +
       `<div class="cuo-result-line">ValLayoutDst = ${fmt(atom.dst)}</div>`;
-    const instr = r.fragSize / atom.values;
+    const instr = r.instructions;
     const quarters = [0, 1, 2, 3].map(w => {
       const rows = new Set();
       r.perThread.slice(32 * w, 32 * w + 32).forEach(c => c.forEach(([m]) => rows.add(m)));
@@ -441,8 +487,8 @@ function tmcRenderViz(tabId) {
   for (const side of ['src', 'dst']) applyZoomState(`${tabId}-tmc-${side}-svg`);
   updateModeBtns(`${tabId}-tmc-tile-mode-btns`, modes);
   document.getElementById(`${tabId}-tmc-tile-title`).textContent =
-    `TiledCopy over the TMEM tensor (${M}×${N}) — 4 warps × ${r.fragSize / a.values} instruction` +
-    `${r.fragSize / a.values === 1 ? '' : 's'} each` +
+    `TiledCopy over the TMEM tensor (${M}×${N}) — 4 warps × ${r.instructions} instruction` +
+    `${r.instructions === 1 ? '' : 's'} each` +
     (focusWarp !== null ? ` — warp ${focusWarp}` : '') + (focus !== null ? ` — focus T${focus}` : '');
   tmcRenderThreadPanel(tabId);
 }

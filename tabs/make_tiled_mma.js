@@ -35,9 +35,9 @@
 // VMNK mode this operand does not depend on as a STRIDE-0 entry -- literally
 // `make_layout((aM, aN), (1, 0))` for A and `(0, 1)` for B -- which is what
 // makes A broadcast across the N warps and B across the M warps. Finally the
-// thread mode is composed with `left_inverse(thr_layout_vmnk)` (C++ spells it
-// `right_inverse(make_layout(vmnk, complement(vmnk)))`, which is the same
-// thing) so it is indexed by THREAD INDEX rather than by the (v,m,n,k)
+// thread mode is composed with C++'s
+// `right_inverse(make_layout(vmnk, complement(vmnk)))` (a left inverse of the
+// bijective vmnk) so it is indexed by THREAD INDEX rather than by the (v,m,n,k)
 // coordinate -- which matters as soon as atom_layout_mnk carries a
 // non-column-major stride.
 //
@@ -235,10 +235,10 @@ function mtmComputeTiledMma(atom, atomLayout, perm, tensors) {
       `A stride of 0, or two modes landing on the same index, would make two atoms share an id.`);
   // thread index -> the (v, m, n, k) coordinate of thr_layout_vmnk. The
   // identity for the usual column-major atom_layout_mnk, a real permutation
-  // once a stride is given. `left_inverse` IS the C++ expression: mma_atom.hpp
-  // builds `right_inverse(make_layout(vmnk, complement(vmnk)))`, which is what
-  // layout.js's left_inverse expands to.
-  const idx2vmnk = left_inverse(thrVmnk);
+  // once a stride is given. This is mma_atom.hpp's own expression, spelled out
+  // rather than via left_inverse: CuTe's left_inverse differs off the image of
+  // a non-surjective layout. thrVmnk is a bijection here, so both agree.
+  const idx2vmnk = right_inverse(make_layout(thrVmnk, complement(thrVmnk)));
 
   const build = (which) => {
     // Which two axes this operand spans, which atom_layout modes tile it, and

@@ -691,14 +691,57 @@ function right_inverse(layout) {
 }
 
 
-// Layout left inverse
+// Layout left inverse: L with L(f(j)) == j for every j when f is injective.
+// This follows CuTe C++ / CuTeDSL, NOT pycute's
+// right_inverse(make_layout(f, complement(f))). Both satisfy L(f(j)) == j on an
+// injective f with dividing strides, but they disagree off f's image (CuTe maps
+// a gap below the first stride with stride 0, not to the complement), and CuTe
+// also handles injective layouts whose strides do not divide each other's
+// extents, e.g. (2,2):(3,1) -> (3,2):(2,1), where pycute's complement collapses.
+//
+// Over f's coalesced modes, stably sorted by stride d_0 <= d_1 <= ...:
+//   result = (d_0, d_1/d_0, ..., d_k/d_{k-1}, s_k) : (0, r_0, ..., r_{k-1}, r_k)
+// where r_i is mode i's domain stride (prefix product of f's shape). Stride-0
+// modes are ignored. CuTeDSL rejects a negative stride, or a sorted stride that
+// does not divide the next one ("unable to compute the left inverse").
 function left_inverse(layout) {
   if (layout === null) {
     return null;
   } else if (is_int(layout)) {
     return new Layout(layout);
   }
-  return right_inverse(make_layout(layout, complement(layout)));
+  reject_basis('left_inverse', layout);
+
+  const flat = coalesce(layout);
+  const flat_shape  = flatten(flat.shape);
+  const flat_stride = flatten(flat.stride);
+  const flat_pp     = prefix_product(flat_shape);
+  // Array.prototype.sort is stable, matching CuTe's order for equal strides.
+  const modes = flat_stride.map((d, i) => [d, flat_shape[i], flat_pp[i]])
+                           .filter(([d, s]) => d !== 0 && s !== 1)
+                           .sort((a, b) => a[0] - b[0]);
+  const fmtT = x => Array.isArray(x) ? `(${x.map(fmtT).join(',')})` : String(x);
+  const fmtL = () => `${fmtT(layout.shape)}:${fmtT(layout.stride)}`;
+  if (modes.some(([d]) => d < 0)) {
+    throw new Error(`Unable to compute the left inverse of ${fmtL()}: CuTe does not invert negative strides.`);
+  }
+  if (modes.length === 0) return new Layout(1, 0);
+
+  const result_shape  = [modes[0][0]];
+  const result_stride = [0];
+  for (let i = 0; i + 1 < modes.length; i++) {
+    const [d, , r] = modes[i];
+    const next = modes[i + 1][0];
+    if (next % d !== 0) {
+      throw new Error(`Unable to compute the left inverse of ${fmtL()}: sorted stride ${d} does not divide the next stride ${next}.`);
+    }
+    result_shape.push(next / d);
+    result_stride.push(r);
+  }
+  const [, s_last, r_last] = modes[modes.length - 1];
+  result_shape.push(s_last);
+  result_stride.push(r_last);
+  return coalesce(new Layout(result_shape, result_stride));
 }
 
 

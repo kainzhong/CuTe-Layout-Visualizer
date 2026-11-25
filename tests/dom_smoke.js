@@ -124,7 +124,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
   const errorIds = [...html.matchAll(/id="([^"]*-(?:error|warning))"/g)].map(m => m[1]);
   // Every viz host a render is expected to fill: the Copy tabs' src/dst panes,
   // the MMA tabs' a/b/c grids, and partition_sd's two stacked results.
-  const paneIds = [...html.matchAll(/id="([^"]*-(?:src|dst|tile|sweep|extra|frag|strip|mma|copy|[abc]|f|left|right|leftchk|rightchk)-svg)"/g)].map(m => m[1]);
+  const paneIds = [...html.matchAll(/id="([^"]*-(?:src|dst|tile|sweep|extra|frag|strip|mma|copy|[abc]|f|out)-svg)"/g)].map(m => m[1]);
 
   // Seed every control with the default the markup declares. A real browser does
   // this for free; without it the tabs render from empty strings and every
@@ -320,7 +320,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     const hit = /^\s*(set[A-Z][A-Za-z]*)\('tab1'\s*,/.exec(src);
     if (!hit || typeof ctx[hit[1]] !== 'function') continue;
     const fnName = hit[1];
-    const pfx = { setCL: 'cl', setDomainOffset: 'dof', setInv: 'inv', setSml: 'sml', setGemm: 'gemm', setIdx: 'idx', setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm', setMCAB: 'mcab', setRT: 'rt',
+    const pfx = { setCL: 'cl', setDomainOffset: 'dof', setInv: 'inv', setInvSide: 'inv', setSml: 'sml', setGemm: 'gemm', setIdx: 'idx', setMCA: 'mca', setMMA: 'mma', setMTC: 'mtc', setMTV: 'mtv', setMTM: 'mtm', setMCAB: 'mcab', setRT: 'rt',
                   setPSD: 'psd', setPSDURL: 'psd', setPsdSide: 'psd', setPsdMode: 'psd',
                   setPABC: 'pabc', setPabcOperand: 'pabc', setPabcMode: 'pabc',
                   setPshp: 'pshp', setPshpOperand: 'pshp',
@@ -1925,49 +1925,59 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     if (!els.get(`${TAB}-sw-swizzled-svg`).innerHTML.includes('val=9 → 8')) throw new Error('Swizzle lost before/after values');
     ctx.toggleSwizzleMode(TAB,'index');ctx.toggleSwizzleMode(TAB,'coord');
   });
-  const invPanes=['f','left','right','leftchk','rightchk'].map(k=>`${TAB}-inv-${k}-svg`);
-  step('inverse: oracle L and R, identity checks, warnings and signed URL round trips',()=>{
+  const invPanes=['f','out'].map(k=>`${TAB}-inv-${k}-svg`);
+  step('inverse: picker, oracle inverses, warnings and signed URL round trips',()=>{
     const corpus=JSON.parse(fs.readFileSync(path.join(__dirname,'cases.json'),'utf8')).layout_ops
       .filter(c=>c.op==='left_inverse' || c.op==='right_inverse');
     const oracle=JSON.parse(fs.readFileSync(path.join(__dirname,'reference.json'),'utf8')).layout_ops;
     const realSwitch=ctx.switchInnerTab, realExport=ctx.exportURL;
+    const warnText=()=>els.get(`${TAB}-inv-warning`).textContent.replace(/Note: .*rank > 2.*/,'');
     try {
       ctx.switchInnerTab=()=>{};
       for (const c of corpus) {
-        ctx.setInv(TAB,c.a);
-        const ref=oracle[c.id], left=c.op==='left_inverse';
-        const title=els.get(`${TAB}-inv-${left?'left':'right'}-title`).textContent;
-        const warn=els.get(`${TAB}-inv-warning`).textContent;
+        const side=c.op==='left_inverse'?'left':'right';
+        ctx.setInv(TAB,c.a,side);
+        const ref=oracle[c.id], r=ctx.invState[TAB].r;
+        const title=els.get(`${TAB}-inv-out-title`).textContent, warn=warnText();
+        if (ctx.invState[TAB].inverseSide!==side) throw new Error('Picker not applied: '+c.id);
         if (ref.error) {
           if (!/undefined/.test(title) || !/cannot compute left_inverse/.test(warn)) throw new Error('Missing left inverse not reported: '+c.id);
         } else if (!title.endsWith(`= ${ref.str}`)) throw new Error(`${c.id}: title "${title}" != oracle ${ref.str}`);
-        const r=ctx.invState[TAB].r;
-        if (r.bijective===!!warn.replace(/Note: .*rank > 2.*/,'')) throw new Error('Warning does not match bijectivity: '+c.id);
+        const meaningless=side==='left' ? (!r.L || r.leftBad.length>0) : r.sizeR<r.sizeF;
+        if (meaningless!==!!warn) throw new Error(`Warning (${!!warn}) does not match the ${side} inverse: ${c.id}`);
         for (const id of invPanes) if (!els.get(id).innerHTML.includes('<svg')) throw new Error(`empty pane ${id}: ${c.id}`);
-        const outlined=(els.get(`${TAB}-inv-leftchk-svg`).innerHTML.match(/class="layout-selection"/g)||[]).length;
-        if (outlined!==r.leftBad.length) throw new Error('Failing L(f(j)) points not outlined: '+c.id);
+        const outlined=(els.get(`${TAB}-inv-f-svg`).innerHTML.match(/class="layout-selection"/g)||[]).length;
+        if (outlined!==(side==='left'?r.leftBad.length:0)) throw new Error('Failing L(f(j)) points not outlined on f: '+c.id);
         let exported;ctx.exportURL=(button,feature,...inputs)=>{exported=[feature,...inputs];};
         ctx.exportInverse(TAB);
         const parsed=ctx.parseKeyParam(ctx.encodeKeyParam(...exported));
-        if (!parsed || parsed.feature!=='inverse' || parsed.inputs[0]!==c.a) throw new Error('URL lost the layout: '+c.id);
+        if (!parsed || parsed.feature!=='inverse' || parsed.inputs[0]!==c.a || parsed.inputs[1]!==side) throw new Error('URL lost the layout or picker: '+c.id);
+        ctx.setInvSide(TAB,side==='left'?'right':'left');
         ctx.applyKeyParam(TAB,parsed);
+        if (ctx.invState[TAB].inverseSide!==side) throw new Error('URL did not restore the picker: '+c.id);
       }
-      ctx.setInv(TAB,'4:2');
-      if (els.get(`${TAB}-inv-left-title`).textContent!=='L = left_inverse(f) = (2,4):(0,1)') throw new Error('4:2 left inverse');
-      if (!/partial inverse/.test(els.get(`${TAB}-inv-warning`).textContent)) throw new Error('4:2 should warn that R is partial');
-      if (!els.get(`${TAB}-inv-left-svg`).innerHTML.includes('#f3f4f6')) throw new Error('Off-image L cells are not grayed');
+      ctx.setInv(TAB,'4:2','left');
+      if (els.get(`${TAB}-inv-out-title`).textContent!=='L = left_inverse(f) = (2,4):(0,1)' || warnText()) throw new Error('4:2 has a valid left inverse');
+      if (!els.get(`${TAB}-inv-out-svg`).innerHTML.includes('#f3f4f6')) throw new Error('Off-image L cells are not grayed');
+      if (!/L\(f\(j\)\) = I\(j\)/.test(els.get(`${TAB}-inv-side-hint`).textContent)) throw new Error('left_inverse definition missing');
+      ctx.setInvSide(TAB,'right');
+      if (els.get(`${TAB}-inv-out-title`).textContent!=='R = right_inverse(f) = 1:0' || !/partial inverse/.test(warnText())) throw new Error('4:2 right inverse should warn');
+      if (!els.get(`${TAB}-inv-f-svg`).innerHTML.includes('#f3f4f6')) throw new Error('Cells of f that R never returns are not grayed');
+      if (!/f\(R\(i\)\) = I\(i\)/.test(els.get(`${TAB}-inv-side-hint`).textContent)) throw new Error('right_inverse definition missing');
       ctx.setInv(TAB,'(4,2):(1,2)');
-      if (!/not injective/.test(els.get(`${TAB}-inv-warning`).textContent) || !ctx.invState[TAB].r.leftBad.length) throw new Error('Overlap should fail L(f(j)) = j');
-      ctx.setInv(TAB,'(4,2):(2,1)');
-      if (els.get(`${TAB}-inv-warning`).textContent) throw new Error('A bijection must not warn');
+      if (ctx.invState[TAB].inverseSide!=='right') throw new Error('A preset must keep the current picker');
+      ctx.setInv(TAB,'(4,2):(2,1)','left');
+      if (warnText()) throw new Error('A bijection must not warn');
       if (!els.get(`${TAB}-inv-result`).textContent.includes('L = R')) throw new Error('Bijection summary');
-      ctx.toggleInvMode(TAB,'leftchk','index');
-      const svg=els.get(`${TAB}-inv-leftchk-svg`).innerHTML;
-      if (!svg.includes('val=5') || !svg.includes('idx=5')) throw new Error('Check pane lost value/index labels');
+      ctx.toggleInvMode(TAB,'out','index');
+      const svg=els.get(`${TAB}-inv-out-svg`).innerHTML;
+      if (!svg.includes('val=5') || !svg.includes('idx=5')) throw new Error('Inverse pane lost value/index labels');
       if (ctx.invState[TAB].modes.f.size!==1) throw new Error('Pane modes are not independent');
       const raw=els.get(`${TAB}-inv-layout-input`).value;
-      try {ctx.setInv(TAB,'invalid');}catch(_){}
-      if (els.get(`${TAB}-inv-layout-input`).value!==raw) throw new Error('Failed import modified controls');
+      for (const bad of [['invalid'],['(4,2):(2,1)','up']]) {
+        try {ctx.setInv(TAB,...bad);}catch(_){}
+        if (els.get(`${TAB}-inv-layout-input`).value!==raw || ctx.invState[TAB].inverseSide!=='left') throw new Error('Failed import modified controls');
+      }
     } finally {ctx.switchInnerTab=realSwitch;ctx.exportURL=realExport;}
   },invPanes);
   step('inverse rejects invalid layouts and clears stale grids',()=>{
@@ -2638,6 +2648,7 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     'make_tiled_copy_tv-stmatrix-128-float-(8,4):(4,1)-(4,1):(1,1)-4-0',
     'layout-(10,10):(1,10)',
     'inverse-(4,2):(2,1)',
+    'inverse-(4,2):(2,1)-right',
     'index-((2,2,2),4,2,4):((1,256,8),1024,16,4096)-(_,_,_,0)',
     'make_copy_atom-universal-128-half_t',
     'make_copy_atom-ldmatrix-128-half_t-4-1',

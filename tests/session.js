@@ -191,6 +191,18 @@ async function runSessionTests() {
     check('domain_offset labels survive reload',restored.V.domainOffsetState.ot1.dstMode.has('coord'));
     check('domain_offset renders after reload',restored.nodes.get('ot1-dof-dst-svg').innerHTML.includes('<svg')&&!restored.nodes.get('ot1-dof-error').textContent);
   });
+  await test('inverse layout, picker and label modes survive reload',()=>{
+    const memory=new Map(), b=browser(memory), id=b.V.initializeTabSession();
+    b.V.setInv(id,'(2,2):(1,-2)','right');
+    b.V.toggleInvMode(id,'out','coord');
+    b.V.switchInnerTab(id,'inverse');b.fire('pagehide');
+    const restored=browser(memory);restored.V.initializeTabSession();
+    check('inverse scope restored',restored.nodes.get('ot1-panel').nav.getAttribute('data-scope')==='operations');
+    check('signed layout survives reload',restored.nodes.get('ot1-inv-layout-input').value==='(2,2):(1,-2)');
+    check('inverse picker survives reload',restored.V.invState.ot1.inverseSide==='right');
+    check('right inverse rendered after reload',restored.nodes.get('ot1-inv-out-title').textContent==='R = right_inverse(f) = 2:1'
+      && restored.nodes.get('ot1-inv-out-svg').innerHTML.includes('<svg') && !restored.nodes.get('ot1-inv-error').textContent);
+  });
   await test('blocked and corrupt storage remain usable',()=>{
     const bad=new Map([['cute-layout-visualizer.tabs.v1','{broken']]);const broken=browser(bad);broken.V.initializeTabSession();
     check('corrupt storage starts with one tab',broken.nodes.get('outer-tab-buttons').children.length===1);

@@ -1863,7 +1863,7 @@ function downloadSVG(hostId, filename) {
 //    tv-2-<thr_layout>-<val_layout> (method 2: compute via make_layout_tv)
 //    composition-<A>-<B>
 //    complement-<layout>-<cotarget>
-//    inverse-<layout f>             (URI-encoded: strides may be negative)
+//    inverse-<layout f>[-left|right] (URI-encoded: strides may be negative)
 //    logical_divide-<A>-<tiler>
 //    zipped_divide-<A>-<tiler>
 //    logical_product-<A>-<tiler>
@@ -1891,7 +1891,7 @@ const FEATURE_SPEC = {
   tv:             { inputs: 2, methods: ['1', '2'] },
   composition:    { inputs: 2 },
   complement:     { inputs: 2 },
-  inverse:        { inputs: 1, encodedInputs: true },
+  inverse:        { inputs: 1, optional: 1, encodedInputs: true },  // f [, left|right]
   logical_divide: { inputs: 2 },
   zipped_divide:  { inputs: 2 },
   local_tile:     { inputs: 3, optional: 1 },  // A, tiler, coord [, proj]
@@ -2146,7 +2146,7 @@ function applyKeyParam(tabId, parsed = parseKeyParam()) {
       renderComplementFeature(tabId);
       break;
     case 'inverse':
-      setInv(tabId, inputs[0]);
+      setInv(tabId, inputs[0], inputs[1]);
       switchInnerTab(tabId, 'inverse');
       break;
     case 'logical_divide':

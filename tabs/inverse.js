@@ -1,5 +1,6 @@
-// left_inverse / right_inverse tab: one layout f, both inverses, and the two
-// identities they promise. Functions become globals on `window`.
+// left_inverse / right_inverse tab: one layout f and the inverse picked with
+// the seg-control, drawn top (f) / bottom (the inverse). Functions become
+// globals on `window`.
 //
 //   left_inverse(f)  = L with L(f(j)) = I(j) = j for every j < size(f)
 //   right_inverse(f) = R with f(R(i)) = I(i) = i for every i < size(R)
@@ -10,6 +11,10 @@
 // checks both identities pointwise and warns instead.
 
 const invState = {};
+const INV_SIDES = ['left', 'right'];
+const INV_PANES = ['f', 'out'];
+const INV_BAD_EDGE = '#dc2626';
+const INV_UNUSED = {bg: '#f3f4f6', fg: '#9ca3af'};
 
 // Rows = mode 0, columns = the remaining modes (colexicographic), so the cell
 // index is the layout's own 1-D domain index and every mode is drawn.
@@ -20,7 +25,8 @@ function invDisplay(layout) {
   return {shape: [layout.shape, 1], stride: [layout.stride, 0]};
 }
 
-/** DOM-free: both inverses of `text` and the pointwise checks of their identities. */
+/** DOM-free: both inverses of `text`, the pointwise checks of their identities,
+ *  and one warning list per inverse. */
 function invCompute(text) {
   const f = parseExactLayoutInput(text);
   const fText = formatLayoutStr(f.shape, f.stride);
@@ -42,32 +48,30 @@ function invCompute(text) {
 
   const R = right_inverse(f);
   const sizeR = R.size();
-  const rightVals = [];
-  for (let i = 0; i < sizeR; i++) {
-    const j = R.call(i);
-    rightVals.push(j >= 0 && j < sizeF ? fVals[j] : null);
-  }
-  const rightBad = rightVals.map((v, i) => v === i ? null : i).filter(i => i !== null);
+  const rVals = [];
+  for (let i = 0; i < sizeR; i++) rVals.push(R.call(i));
+  const rightBad = rVals.map((j, i) => (j >= 0 && j < sizeF && fVals[j] === i) ? null : i).filter(i => i !== null);
+  const rightReached = new Set(rVals);
 
   let L = null, lError = '';
   try { L = left_inverse(f); } catch (e) { lError = e.message; }
-  let leftVals = null, leftBad = [];
+  let leftBad = [];
   if (L) {
     const sizeL = L.size();
-    leftVals = fVals.map(k => (k >= 0 && k < sizeL ? L.call(k) : null));
-    leftBad = leftVals.map((v, j) => v === j ? null : j).filter(j => j !== null);
+    leftBad = fVals.map((k, j) => (k >= 0 && k < sizeL && L.call(k) === j) ? null : j).filter(j => j !== null);
   }
 
-  const warnings = [];
   const fmtCol = c => `f(${c.j1}) = f(${c.j2}) = ${c.k}`;
+  const leftWarnings = [];
   if (lError) {
-    warnings.push(`CuTe cannot compute left_inverse(f) as a layout. ${lError} CuTeDSL raises "unable to compute the left inverse" here, so L and L(f(j)) are not drawn.`);
+    leftWarnings.push(`CuTe cannot compute left_inverse(f) as a layout. ${lError} CuTeDSL raises "unable to compute the left inverse" here.`);
   } else if (!injective) {
-    warnings.push(`left_inverse(f) returned ${formatLayoutStr(L.shape, L.stride)}, but f is not injective (${fmtCol(collision)}), ` +
-      `so no layout can satisfy L(f(j)) = I(j). It fails at ${leftBad.length} of ${sizeF} points (outlined in red).`);
+    leftWarnings.push(`left_inverse(f) returned ${formatLayoutStr(L.shape, L.stride)}, but f is not injective (${fmtCol(collision)}), ` +
+      `so no layout can satisfy L(f(j)) = I(j). It fails at ${leftBad.length} of ${sizeF} points of f (outlined in red).`);
   } else if (leftBad.length) {
-    warnings.push(`left_inverse(f) returned ${formatLayoutStr(L.shape, L.stride)}, but L(f(j)) ≠ I(j) at ${leftBad.length} of ${sizeF} points (outlined in red).`);
+    leftWarnings.push(`left_inverse(f) returned ${formatLayoutStr(L.shape, L.stride)}, but L(f(j)) ≠ I(j) at ${leftBad.length} of ${sizeF} points of f (outlined in red).`);
   }
+  const rightWarnings = [];
   if (sizeR < sizeF) {
     let reason;
     if (!injective) reason = `it is not injective: ${fmtCol(collision)}`;
@@ -76,33 +80,32 @@ function invCompute(text) {
       while (image.has(gap)) gap++;
       reason = `offset ${gap} is never produced`;
     }
-    warnings.push(`right_inverse(f) is only a partial inverse: f is not a bijection onto [0, ${sizeF}) because ${reason}. ` +
-      `R = ${formatLayoutStr(R.shape, R.stride)} covers only i < ${sizeR}, so f(R(i)) = I(i) holds on ${sizeR} of size(f) = ${sizeF} offsets.`);
+    rightWarnings.push(`right_inverse(f) is only a partial inverse: f is not a bijection onto [0, ${sizeF}) because ${reason}. ` +
+      `R = ${formatLayoutStr(R.shape, R.stride)} covers only i < ${sizeR}, so f(R(i)) = I(i) holds on ${sizeR} of size(f) = ${sizeF} offsets. ` +
+      `Gray cells of f are never returned by R.`);
   }
-  if (rightBad.length) {
-    warnings.push(`f(R(i)) ≠ I(i) at ${rightBad.length} of ${sizeR} points (outlined in red).`);
-  }
+  if (rightBad.length) rightWarnings.push(`f(R(i)) ≠ I(i) at ${rightBad.length} of ${sizeR} points.`);
 
   return {f, fText, sizeF, fVals, injective, collision, image,
-    R, RText: formatLayoutStr(R.shape, R.stride), sizeR, rightVals, rightBad,
-    L, LText: L ? formatLayoutStr(L.shape, L.stride) : null, lError, leftVals, leftBad,
-    bijective: injective && sizeR === sizeF, warnings};
+    R, RText: formatLayoutStr(R.shape, R.stride), sizeR, rightBad, rightReached, rightWarnings,
+    L, LText: L ? formatLayoutStr(L.shape, L.stride) : null, lError, leftBad, leftWarnings,
+    bijective: injective && sizeR === sizeF};
 }
 
-function invSummary(r) {
-  const check = (ok, good, bad) => ok ? `✓ ${good}` : `✗ ${bad}`;
-  const left = r.L
-    ? `L = left_inverse(f)  = ${r.LText}\n    ${check(!r.leftBad.length,
-        `L(f(j)) = I(j) for every j < ${r.sizeF}`,
-        `L(f(j)) ≠ I(j) at ${r.leftBad.length} of ${r.sizeF} points`)}`
-    : `L = left_inverse(f)  — undefined (CuTeDSL raises)`;
-  const right = `R = right_inverse(f) = ${r.RText}\n    ${check(!r.rightBad.length && r.sizeR === r.sizeF,
-      `f(R(i)) = I(i) for every i < ${r.sizeR}`,
-      r.rightBad.length ? `f(R(i)) ≠ I(i) at ${r.rightBad.length} of ${r.sizeR} points`
-        : `f(R(i)) = I(i) only for i < ${r.sizeR}, not all ${r.sizeF}`)}`;
+function invSummary(r, side) {
   const kind = r.bijective ? 'bijection onto [0, size(f)), so L = R = f⁻¹'
     : r.injective ? 'injective, not onto [0, size(f))' : 'not injective';
-  return `f = ${r.fText}    size ${r.sizeF} · ${kind}\n${left}\n${right}`;
+  const head = `f = ${r.fText}    size ${r.sizeF} · ${kind}`;
+  if (side === 'left') {
+    if (!r.L) return `${head}\nL = left_inverse(f) — undefined (CuTeDSL raises)`;
+    return `${head}\nL = left_inverse(f) = ${r.LText}\n    ` + (r.leftBad.length
+      ? `✗ L(f(j)) ≠ I(j) at ${r.leftBad.length} of ${r.sizeF} points`
+      : `✓ L(f(j)) = I(j) for every j < ${r.sizeF}`);
+  }
+  return `${head}\nR = right_inverse(f) = ${r.RText}\n    ` + (r.rightBad.length
+    ? `✗ f(R(i)) ≠ I(i) at ${r.rightBad.length} of ${r.sizeR} points`
+    : r.sizeR < r.sizeF ? `✗ f(R(i)) = I(i) only for i < ${r.sizeR}, not all ${r.sizeF}`
+      : `✓ f(R(i)) = I(i) for every i < ${r.sizeR}`);
 }
 
 function generateInverseTabContent(id) {
@@ -113,12 +116,13 @@ function generateInverseTabContent(id) {
     <div id="${id}-tab-inverse" class="panel">
       <div class="controls">
         <h2>left_inverse / right_inverse</h2>
-        <div class="hint" style="margin:0 0 12px">
-          <b>left_inverse</b>: returns a layout <code>L</code> such that <code>L(f(j)) = I(j)</code>
-          for every <code>j &lt; size(f)</code>, i.e. <code>L ∘ f = I</code>.<br>
-          <b>right_inverse</b>: returns a layout <code>R</code> such that <code>f(R(i)) = I(i)</code>
-          for every <code>i &lt; size(R)</code>, i.e. <code>f ∘ R = I</code>.<br>
-          where <code>I</code> is a layout with identity mapping: <code>I(i) = i</code>.
+        <div class="form-group">
+          <label>Inverse</label>
+          <div class="seg-control" id="${id}-inv-side-btns">
+            <button class="mode-btn active" onclick="setInvSide('${id}', 'left')">left_inverse</button>
+            <button class="mode-btn" onclick="setInvSide('${id}', 'right')">right_inverse</button>
+          </div>
+          <div class="hint" id="${id}-inv-side-hint" style="margin:8px 0 0"></div>
         </div>
         ${layoutInputField({id: `${id}-inv-layout-input`, label: 'Layout f', value: '(4,2):(2,1)'})}
         ${statusDivs(`${id}-inv`)}
@@ -131,62 +135,75 @@ function generateInverseTabContent(id) {
           <div class="preset-list">
             <button class="preset-btn" onclick="setInv('${id}','(4,2):(2,1)')">Bijection (4,2):(2,1) — L = R</button>
             <button class="preset-btn" onclick="setInv('${id}','((2,2),2):((4,1),2)')">Bijection with nested modes</button>
-            <button class="preset-btn" onclick="setInv('${id}','4:2')">Gaps 4:2 — L exists, R is partial</button>
-            <button class="preset-btn" onclick="setInv('${id}','(2,2):(3,1)')">Non-dividing strides (2,2):(3,1)</button>
+            <button class="preset-btn" onclick="setInv('${id}','4:2')">Gaps 4:2 — not onto</button>
+            <button class="preset-btn" onclick="setInv('${id}','(2,2):(3,1)')">Non-dividing extents (2,2):(3,1)</button>
             <button class="preset-btn" onclick="setInv('${id}','(2,4):(0,1)')">Broadcast (2,4):(0,1) — not injective</button>
             <button class="preset-btn" onclick="setInv('${id}','(4,2):(1,2)')">Overlap (4,2):(1,2) — not injective</button>
-            <button class="preset-btn" onclick="setInv('${id}','(2,2):(2,3)')">No left inverse (2,2):(2,3)</button>
+            <button class="preset-btn" onclick="setInv('${id}','(2,2):(2,3)')">Non-dividing strides (2,2):(2,3) — no left inverse</button>
           </div>
         </div>
 
         <div class="hint">
-          Colors follow f's domain index <code>j</code>: cell <code>j</code> of f, cell
-          <code>f(j)</code> of L and the cell of R holding <code>j</code> share a color.<br><br>
-          Gray cells in L are offsets f never produces. L's values there are
-          unconstrained, and CuTe fills them without meaning.<br><br>
-          The two bottom grids evaluate the identities: each cell should show its own
-          index. A red outline marks a point where the identity fails.<br><br>
+          Colors follow f's domain index <code>j</code>: cell <code>j</code> of f and every
+          cell of the inverse whose value is <code>j</code> share a color.<br><br>
+          Gray cells are the part the identity does not constrain: offsets of L that f never
+          produces, or cells of f that R never returns. A red outline on f marks a point
+          where <code>L(f(j)) ≠ j</code>.<br><br>
           When f is a bijection onto <code>[0, size(f))</code>, L = R = f⁻¹. Otherwise
           right_inverse inverts only the contiguous run of offsets starting at 0, and
           left_inverse needs f to be injective.
         </div>
       </div>
 
-      <div class="comp-results">
-        <div class="comp-viz-span">${pane('f', 'f')}</div>
-        ${pane('left', 'L = left_inverse(f)')}
-        ${pane('right', 'R = right_inverse(f)')}
-        ${pane('leftchk', 'L(f(j)) — should equal I(j) = j')}
-        ${pane('rightchk', 'f(R(i)) — should equal I(i) = i')}
+      <div class="comp-results" style="grid-template-columns:1fr">
+        ${pane('f', 'f')}
+        ${pane('out', 'L = left_inverse(f)')}
       </div>
     </div>`;
 }
 
-const INV_PANES = ['f', 'left', 'right', 'leftchk', 'rightchk'];
-const INV_BAD = {bg: '#fee2e2', edgeColor: '#dc2626'};
-
 function invModes(id) {
-  return invState[id] ||= {modes: Object.fromEntries(INV_PANES.map(k => [k, new Set(['value'])]))};
+  const s = invState[id] ||= {};
+  // Session restore may create the store with only `inverseSide` in it.
+  s.modes ||= Object.fromEntries(INV_PANES.map(k => [k, new Set(['value'])]));
+  if (!INV_SIDES.includes(s.inverseSide)) s.inverseSide = 'left';
+  return s;
+}
+
+const INV_SIDE_HINT = {
+  left: 'left_inverse: returns a layout L such that L(f(j)) = I(j) for every j < size(f), i.e. L ∘ f = I, where I is a layout with identity mapping: I(i) = i.',
+  right: 'right_inverse: returns a layout R such that f(R(i)) = I(i) for every i < size(R), i.e. f ∘ R = I, where I is a layout with identity mapping: I(i) = i.',
+};
+
+function invSyncSide(id) {
+  const side = invModes(id).inverseSide;
+  const group = document.getElementById(`${id}-inv-side-btns`);
+  if (group) group.querySelectorAll('.mode-btn').forEach(b =>
+    b.classList.toggle('active', b.textContent.trim() === `${side}_inverse`));
+  document.getElementById(`${id}-inv-side-hint`).textContent = INV_SIDE_HINT[side];
 }
 
 function renderInverse(id) {
-  const p = `${id}-inv`, state = invModes(id);
+  const p = `${id}-inv`, state = invModes(id), side = state.inverseSide;
   const result = document.getElementById(`${p}-result`);
   showErr(`${p}-error`, '');
+  invSyncSide(id);
   try {
     const raw = document.getElementById(`${p}-layout-input`).value;
     const r = invCompute(raw);
     state.r = r;
     updateRankWarning(`${p}-warning`, [['Layout f', r.fText]]);
     const rank = document.getElementById(`${p}-warning`).textContent;
-    showWarn(`${p}-warning`, [...r.warnings, rank].filter(Boolean).join(' '));
-    result.textContent = invSummary(r);
+    const warnings = side === 'left' ? r.leftWarnings : r.rightWarnings;
+    showWarn(`${p}-warning`, [...warnings, rank].filter(Boolean).join(' '));
+    result.textContent = invSummary(r, side);
     result.classList.add('visible');
     document.getElementById(`${p}-f-title`).textContent = `f = ${r.fText}`;
-    document.getElementById(`${p}-left-title`).textContent = r.L ? `L = left_inverse(f) = ${r.LText}` : 'L = left_inverse(f) — undefined';
-    document.getElementById(`${p}-right-title`).textContent = `R = right_inverse(f) = ${r.RText}`;
+    document.getElementById(`${p}-out-title`).textContent = side === 'left'
+      ? (r.L ? `L = left_inverse(f) = ${r.LText}` : 'L = left_inverse(f) — undefined')
+      : `R = right_inverse(f) = ${r.RText}`;
     INV_PANES.forEach(k => invRenderPane(id, k));
-    updateOuterTabLabel(id, `inverse:${r.fText}`);
+    updateOuterTabLabel(id, `${side}_inverse:${r.fText}`);
   } catch (e) {
     state.r = null;
     showErr(`${p}-error`, e.message);
@@ -196,39 +213,28 @@ function renderInverse(id) {
 }
 
 function invRenderPane(id, key) {
-  const state = invModes(id), r = state.r;
+  const state = invModes(id), r = state.r, side = state.inverseSide;
   if (!r) return;
   const modes = state.modes[key], hostId = `${id}-inv-${key}-svg`;
-  const coordOf = (m, n) => `(${m},${n})`;
   let svg;
   if (key === 'f') {
+    // f's cells are colored by their own domain index j. With R selected, the
+    // cells R never returns are grayed; with L, a failing j is outlined.
     const d = invDisplay(r.f);
-    svg = buildColoredLayoutSVG(d.shape, d.stride, modes, (m, n, value, index) => ({bg: colorBW(index)}));
-  } else if (key === 'right') {
+    const bad = new Set(side === 'left' ? r.leftBad : []);
+    svg = buildColoredLayoutSVG(d.shape, d.stride, modes, (m, n, value, index) =>
+      side === 'right' && !r.rightReached.has(index) ? INV_UNUSED : {bg: colorBW(index)},
+      {selection: {edgeCells: bad, edgeColor: INV_BAD_EDGE}});
+  } else if (side === 'right') {
     const d = invDisplay(r.R);
     svg = buildColoredLayoutSVG(d.shape, d.stride, modes, (m, n, value) => ({bg: colorBW(value)}));
-  } else if (key === 'left') {
-    if (!r.L) svg = errSVG('left_inverse(f) is undefined — see the warning');
-    else {
-      const d = invDisplay(r.L);
-      svg = buildColoredLayoutSVG(d.shape, d.stride, modes, (m, n, value, index) =>
-        r.image.has(index) ? {bg: colorBW(value)} : {bg: '#f3f4f6', fg: '#9ca3af'});
-    }
+  } else if (!r.L) {
+    svg = errSVG('left_inverse(f) is undefined — see the warning');
   } else {
-    // An identity check is drawn over the domain of its inner layout: f's for
-    // L(f(j)), R's for f(R(i)). Each cell shows the composed value.
-    const left = key === 'leftchk';
-    if (left && !r.L) svg = errSVG('left_inverse(f) is undefined — nothing to check');
-    else {
-      const d = invDisplay(left ? r.f : r.R);
-      const vals = left ? r.leftVals : r.rightVals;
-      const bad = new Set(left ? r.leftBad : r.rightBad);
-      svg = buildColoredLayoutSVG(d.shape, d.stride, modes, (m, n, value, index) => {
-        const v = vals[index];
-        return {bg: bad.has(index) ? INV_BAD.bg : colorBW(v),
-          text: buildCellLines(modes, v === null ? '—' : v, index, coordOf(m, n))};
-      }, {selection: {edgeCells: bad, edgeColor: INV_BAD.edgeColor}});
-    }
+    // An offset f never produces is unconstrained by L(f(j)) = j.
+    const d = invDisplay(r.L);
+    svg = buildColoredLayoutSVG(d.shape, d.stride, modes, (m, n, value, index) =>
+      r.image.has(index) ? {bg: colorBW(value)} : INV_UNUSED);
   }
   renderLayoutVisualization({hostId, modeGroupId: `${id}-inv-${key}-mode-btns`, modes, svg});
 }
@@ -238,12 +244,21 @@ function toggleInvMode(id, key, mode) {
   invRenderPane(id, key);
 }
 
-function setInv(id, layout) {
+function setInvSide(id, side) {
+  if (!INV_SIDES.includes(side)) throw new Error(`Unknown inverse "${side}"; expected left or right.`);
+  invModes(id).inverseSide = side;
+  renderInverse(id);
+}
+
+/** Preset / URL entry point. `side` is optional: presets keep the current pick. */
+function setInv(id, layout, side) {
   invCompute(layout);  // a failed import (bad link) must leave the controls alone
+  if (side !== undefined && !INV_SIDES.includes(side)) throw new Error(`Unknown inverse "${side}"; expected left or right.`);
   document.getElementById(`${id}-inv-layout-input`).value = layout;
+  if (side !== undefined) invModes(id).inverseSide = side;
   renderInverse(id);
 }
 
 function exportInverse(id) {
-  exportURL(`${id}-inv-export`, 'inverse', document.getElementById(`${id}-inv-layout-input`).value);
+  exportURL(`${id}-inv-export`, 'inverse', document.getElementById(`${id}-inv-layout-input`).value, invModes(id).inverseSide);
 }

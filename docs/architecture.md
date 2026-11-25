@@ -2486,12 +2486,16 @@ Domain-offset selections use the same shared red/blue palette and `layoutAxisLab
 
 ## left_inverse / right_inverse (Layout Operations)
 
-`tabs/inverse.js` (prefix `inv`, URL feature `inverse`) shows one integer layout `f` with
-`L = left_inverse(f)` and `R = right_inverse(f)`, plus two identity-check grids: `L(f(j))` over f's
-domain and `f(R(i))` over R's domain. `invCompute` is DOM-free and evaluates both identities pointwise.
-Neither CuTe function reports a meaningless result, so that evaluation is the only diagnosis. All
-findings are **warnings**, never errors: f and R always render, so every preset, including "no left
-inverse", stays a valid preset.
+`tabs/inverse.js` (prefix `inv`, URL feature `inverse`) has a `.seg-control` picker for
+`left_inverse` / `right_inverse` and draws two panes in one column: `f` on top, the selected inverse
+below. `invCompute` is DOM-free. It computes both inverses and evaluates both identities pointwise,
+`L(f(j)) = j` over f's domain and `f(R(i)) = i` over R's domain, and keeps one warning list per
+inverse. Only the selected inverse's warnings, summary and definition are shown. Neither CuTe
+function reports a meaningless result, so that evaluation is the only diagnosis. Failing `j` for L
+are outlined on f. With R selected, f's cells that R never returns are grayed. All findings are
+**warnings**, never errors: f always renders, so every preset, including "no left inverse", stays a
+valid preset. Presets keep the current picker. The URL carries it as an optional second input
+(`inverse-<f>[-left|right]`), and the session stores it as the validated `inverseSide` preference.
 
 **`left_inverse` follows CuTe C++ / CuTeDSL, not pycute.** pycute builds
 `right_inverse(make_layout(f, complement(f)))`. CuTe instead sorts f's coalesced non-zero-stride

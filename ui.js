@@ -339,9 +339,11 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underl
   const dimTids = opts.dimTids || null;
   const isDim = (tid) => !!(dimTids && dimTids.has(tid));
   underlyingLayout = underlyingLayout || 'col';
-  // highlightTid is a number or null. When set, only cells whose entries
-  // include that tid are shown in full color; all others are dimmed.
+  // highlightTid is a number, a tid predicate (e.g. "is in warp w"), or null.
+  // When set, only cells whose entries include a matching tid are shown in
+  // full color; all others are dimmed.
   if (highlightTid === undefined) highlightTid = null;
+  const isHighlighted = typeof highlightTid === 'function' ? highlightTid : (tid => tid === highlightTid);
   if (!Array.isArray(tvShape) || tvShape.length < 2)
     throw new Error('TV layout must be rank 2: (num_threads, num_values):...');
 
@@ -410,7 +412,7 @@ function buildTVSVG(tvShape, tvStride, tileShape, tileStride, showOffset, underl
       // If a highlight tid is set and no entry in this cell matches, dim it.
       const dimmed = highlightTid !== null
         && entries.length > 0
-        && !entries.some(e => e.tid === highlightTid);
+        && !entries.some(e => isHighlighted(e.tid));
       const idxLabel = String(opts.cellIndex ? opts.cellIndex(m, n) : (m + n * M));
       // Live entries decide the cell's identity; disabled ones ride along.
       const live = entries.filter(e => !isDim(e.tid));

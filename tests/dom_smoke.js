@@ -2228,7 +2228,36 @@ function runDomSmoke({ verbose = false, log = console.log } = {}) {
     if (ctx.tvState[TAB].bankCheck || els.get(`${TAB}-tv-smem-input`).value || els.get(`${TAB}-tv-error`).textContent)
       throw new Error('ordinary preset kept the ldmatrix bank check');
   }, [`${TAB}-tv-svg-host`]);
-  const tmaPanes = [`${TAB}-tma-src-svg`, `${TAB}-tma-dst-svg`], tpPanes = [`${TAB}-tp-s-svg`, `${TAB}-tp-g-svg`];
+  step('TV highlight picker: warp w keeps exactly threads 32w..32w+31, in plain and bank views', () => {
+    const host = els.get(`${TAB}-tv-svg-host`), field = els.get(`${TAB}-tv-highlight-tid`);
+    const title = () => els.get(`${TAB}-tv-title`).textContent;
+    const warn = () => els.get(`${TAB}-tv-warning`).textContent;
+    ctx.setTVFromThrVal(TAB, '(8, 8):(8, 1)', '(2, 2):(2, 1)');   // 64 threads = 2 warps
+    // Live (undimmed) thread ids, read from the T<tid> labels of cells whose text is not grey.
+    const liveTids = () => new Set([...host.innerHTML.matchAll(/fill="(#[0-9a-fA-F]+)"[^>]*>T(\d+)</g)]
+      .filter(m => m[1].toLowerCase() !== '#bbb').map(m => Number(m[2])));
+    const all = liveTids();
+    if (all.size !== 64) throw new Error(`expected 64 labelled threads, saw ${all.size}`);
+    ctx.setTVHighlightUnit(TAB, 'warp');
+    field.value = '1'; ctx.setHighlightTid(TAB);
+    const w1 = [...liveTids()].sort((a, b) => a - b);
+    if (w1.length !== 32 || w1[0] !== 32 || w1[31] !== 63) throw new Error(`warp 1 kept ${w1.join(',')}`);
+    if (!/warp 1 \(T32–T63\)/.test(title())) throw new Error(`title: ${title()}`);
+    field.value = '2'; ctx.setHighlightTid(TAB);
+    if (!/out of range \[0, 2\)/.test(warn()) || liveTids().size !== 64) throw new Error('out-of-range warp should warn and show all');
+    ctx.setTVHighlightUnit(TAB, 'thread');
+    field.value = '33'; ctx.setHighlightTid(TAB);
+    if ([...liveTids()].join() !== '33' || warn()) throw new Error('thread mode should keep only T33');
+    // The bank view honours the same filter.
+    ctx.setTVHighlightUnit(TAB, 'warp'); field.value = '0';
+    ctx.setTVSmem(TAB, '((32,2),(2,1)):((2,64),(1,0))', '(8, 16)', '(8, 16):(16, 1)', 'half_t', '', '');
+    const bankLive = [...liveTids()];
+    if (!bankLive.length || bankLive.some(t => t >= 32)) throw new Error(`bank view warp 0 kept ${bankLive.join(',')}`);
+    if (ctx.tvState[TAB].highlightUnit !== 'warp') throw new Error('picker did not survive a render');
+    field.value = ''; ctx.setTVHighlightUnit(TAB, 'thread');
+    ctx.setTVFromThrVal(TAB, '(4, 8):(8, 1)', '(2, 2):(2, 1)');
+  }, [`${TAB}-tv-svg-host`]);
+  const tmaPanes =[`${TAB}-tma-src-svg`, `${TAB}-tma-dst-svg`], tpPanes = [`${TAB}-tp-s-svg`, `${TAB}-tp-g-svg`];
   step('TMA tabs offer only what CuTeDSL compiles: no uint128_t', () => {
     for (const sel of [`${TAB}-tma-dtype-input`, `${TAB}-tp-dtype-input`])
       if (/value="uint128_t"/.test(els.get(sel).innerHTML)) throw new Error(`${sel} offers uint128_t`);

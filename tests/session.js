@@ -203,6 +203,16 @@ async function runSessionTests() {
     check('right inverse rendered after reload',restored.nodes.get('ot1-inv-out-title').textContent==='R = right_inverse(f) = 2:1'
       && restored.nodes.get('ot1-inv-out-svg').innerHTML.includes('<svg') && !restored.nodes.get('ot1-inv-error').textContent);
   });
+  await test('TV highlight thread/warp picker survives reload',()=>{
+    const memory=new Map(), b=browser(memory), id=b.V.initializeTabSession();
+    b.V.switchInnerTab(id,'tv');
+    b.V.setTVFromThrVal(id,'(8, 8):(8, 1)','(2, 2):(2, 1)');
+    b.input(id+'-tv-highlight-tid','1');
+    b.V.setTVHighlightUnit(id,'warp');b.fire('pagehide');
+    const restored=browser(memory);restored.V.initializeTabSession();
+    check('highlight unit survives reload',restored.V.tvState.ot1.highlightUnit==='warp');
+    check('warp highlight rendered after reload',/warp 1 \(T32–T63\)/.test(restored.nodes.get('ot1-tv-title').textContent));
+  });
   await test('blocked and corrupt storage remain usable',()=>{
     const bad=new Map([['cute-layout-visualizer.tabs.v1','{broken']]);const broken=browser(bad);broken.V.initializeTabSession();
     check('corrupt storage starts with one tab',broken.nodes.get('outer-tab-buttons').children.length===1);

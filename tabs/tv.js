@@ -22,8 +22,12 @@ function generateTVTabContent(id) {
         })}
 
         <div class="form-group">
-          <label>Highlight thread (empty = none)</label>
-          <input type="text" id="${id}-tv-highlight-tid" value="" placeholder="e.g. 3" oninput="setHighlightTid('${id}')">
+          <label>Highlight (empty = none) ${infoIcon('thread: show only the cells owned by that thread id. warp: show only the cells owned by threads 32w .. 32w+31 of warp w. Shared-memory bank conflicts only occur between threads of the same warp, so pick warp to see one warp\'s accesses.')}</label>
+          <div class="seg-control" id="${id}-tv-highlight-unit-btns">
+            <button class="mode-btn active" onclick="setTVHighlightUnit('${id}', 'thread')">thread</button>
+            <button class="mode-btn" onclick="setTVHighlightUnit('${id}', 'warp')">warp</button>
+          </div>
+          <input type="text" id="${id}-tv-highlight-tid" value="" placeholder="thread id, e.g. 3" oninput="setHighlightTid('${id}')" style="margin-top:6px">
         </div>
 
         <details class="cuo-section">
@@ -193,16 +197,16 @@ function renderTV(tabId) {
     const M    = product(tileL.shape[0]);
     const N    = product(tileL.shape[1]);
 
-    // Read the highlight-thread input; empty or invalid → null (no filter).
-    const highlightRaw = document.getElementById(`${tabId}-tv-highlight-tid`).value.trim();
-    const highlightTid = highlightRaw === '' ? null : parseInt(highlightRaw, 10);
-    const highlightValid = highlightTid !== null && !isNaN(highlightTid);
     const prev = tvState[tabId] || {};
+    const highlightUnit = TV_HIGHLIGHT_UNITS.includes(prev.highlightUnit) ? prev.highlightUnit : 'thread';
+    const hl = tvReadHighlight(tabId, highlightUnit, numT);
+    // Every render path takes a tid predicate (null = no filter).
+    const highlightPred = hl.pred;
     // Default to '' (no labels) — user opts in by clicking `value`.
     // Using `!== undefined` preserves an explicitly-cleared mode on re-render.
     const mode = (prev.mode !== undefined) ? prev.mode : '';
     tvState[tabId] = {
-      tvL, tileL, mode,
+      tvL, tileL, mode, highlightUnit,
       bankCheck:       !!prev.bankCheck,
       coalCheck:       !!prev.coalCheck,
       bankToHighlight: (prev.bankToHighlight != null) ? prev.bankToHighlight : null,
@@ -210,25 +214,26 @@ function renderTV(tabId) {
       waveVid:         (prev.waveVid != null) ? prev.waveVid : null,
     };
 
-    const titleHL = highlightValid ? `  \u2014  highlight T${highlightTid}` : '';
+    tvSyncHighlightUnit(tabId, highlightUnit);
+    if (hl.warn) showWarn(`${tabId}-tv-warning`,
+      [document.getElementById(`${tabId}-tv-warning`).textContent, hl.warn].filter(Boolean).join(' '));
+    const titleHL = hl.label ? `  \u2014  highlight ${hl.label}` : '';
     document.getElementById(`${tabId}-tv-title`).textContent =
       `${numT} threads \u00d7 ${numV} values  \u2014  ${M}\u00d7${N} tile${titleHL}`;
 
     const host = document.getElementById(`${tabId}-tv-svg-host`);
     if (tvState[tabId].coalCheck) {
       host.innerHTML = renderTVCoalescedSVG(
-        tabId, tvL, tileL, numT, numV, M, N,
-        highlightValid ? highlightTid : null
+        tabId, tvL, tileL, numT, numV, M, N, highlightPred
       );
     } else if (tvState[tabId].bankCheck) {
       host.innerHTML = renderTVBankSVG(
-        tabId, tvL, tileL, numT, numV, M, N,
-        highlightValid ? highlightTid : null, mode
+        tabId, tvL, tileL, numT, numV, M, N, highlightPred, mode
       );
     } else {
       host.innerHTML =
         buildTVSVG(tvL.shape, tvL.stride, tileL.shape, tileL.stride, false, 'col',
-                   highlightValid ? highlightTid : null, mode);
+                   highlightPred, mode);
     }
     applyZoomState(`${tabId}-tv-svg-host`);
     updateModeBtns(`${tabId}-tv-mode-btns`, mode ? new Set([mode]) : new Set());
@@ -303,7 +308,7 @@ function tvBuildGrid(tvL, tileL, numT, numV, M, N) {
   return grid;
 }
 
-function renderTVBankSVG(tabId, tvL, tileL, numT, numV, M, N, highlightTid, labelMode) {
+function renderTVBankSVG(tabId, tvL, tileL, numT, numV, M, N, highlightPred, labelMode) {
   const s = tvState[tabId];
   const showIdx = labelMode === 'value';
   const { dataL, bytesPerElement } = tvResolveData(tabId, 'smem', M, N, 'SMEM bank conflict');
@@ -313,14 +318,14 @@ function renderTVBankSVG(tabId, tvL, tileL, numT, numV, M, N, highlightTid, labe
   const sw = s.swizzle;
   const waveVid = s.waveVid;
   // A cell entry "matches" the active filters if it lines up with the
-  // highlight thread (when set) AND the wave vid (when set). With neither
+  // highlight thread/warp (when set) AND the wave vid (when set). With neither
   // filter active, every entry matches.
   const matchesFilters = (e) => {
-    if (highlightTid !== null && e.tid !== highlightTid) return false;
+    if (highlightPred && !highlightPred(e.tid)) return false;
     if (waveVid !== null && e.vid !== waveVid) return false;
     return true;
   };
-  const anyFilter = highlightTid !== null || waveVid !== null;
+  const anyFilter = !!highlightPred || waveVid !== null;
   return buildColoredLayoutSVG([M, N], [1, M], 'value', (m, n) => {
     const entries = grid[m][n];
     const logical = m + n * M;
@@ -371,7 +376,7 @@ function renderTVBankSVG(tabId, tvL, tileL, numT, numV, M, N, highlightTid, labe
 // This is the visualization that used to live in the CopyUniversalOp tab's
 // partition section; it belongs here because coalescing is a property of the
 // (TV layout, data layout) pair, not of the copy atom.
-function renderTVCoalescedSVG(tabId, tvL, tileL, numT, numV, M, N, highlightTid) {
+function renderTVCoalescedSVG(tabId, tvL, tileL, numT, numV, M, N, highlightPred) {
   const s = tvState[tabId];
   const { dataL, dtype, bytesPerElement } = tvResolveData(tabId, 'gmem', M, N, 'GMEM coalesced read');
   const grid = tvBuildGrid(tvL, tileL, numT, numV, M, N);
@@ -461,7 +466,7 @@ function renderTVCoalescedSVG(tabId, tvL, tileL, numT, numV, M, N, highlightTid)
     const off = dataL.call(m + n * M);
     const lines = [String(off), `\u00A7${sectorOf(off)}`];
     if (entries.length === 0) return { bg: '#f0f0f0', fg: '#bbb', text: ['\u2014', lines[1]] };
-    const dimmed = highlightTid !== null && !entries.some(e => e.tid === highlightTid);
+    const dimmed = !!highlightPred && !entries.some(e => highlightPred(e.tid));
     if (dimmed) return { bg: '#f0f0f0', fg: '#bbb', text: lines };
     const gid = groupId(entries[0].tid, entries[0].vid);
     const stroke = entries.length > 1 ? '#e53e3e' : undefined;
@@ -637,6 +642,44 @@ function setTVDataMajor(tabId, which, major) {
   } catch (e) {
     showErr(`${tabId}-tv-error`, `Cannot derive ${major}-major data layout: ${e.message}`);
   }
+}
+
+const TV_HIGHLIGHT_UNITS = ['thread', 'warp'];
+const TV_WARP_SIZE = 32;
+
+/** Read the highlight box as a thread or warp id. Returns a tid predicate
+ *  (null = no filter), a title label, and a warning for an unusable id. */
+function tvReadHighlight(tabId, unit, numT) {
+  const raw = (document.getElementById(`${tabId}-tv-highlight-tid`).value || '').trim();
+  if (raw === '') return { pred: null, label: '', warn: '' };
+  const n = /^\d+$/.test(raw) ? parseInt(raw, 10) : NaN;
+  if (unit === 'warp') {
+    const numWarps = Math.max(1, Math.ceil(numT / TV_WARP_SIZE));
+    if (!(n < numWarps))
+      return { pred: null, label: '', warn: `Highlight warp id "${raw}" is out of range [0, ${numWarps}) \u2014 showing all threads.` };
+    const lo = n * TV_WARP_SIZE, hi = Math.min(numT, lo + TV_WARP_SIZE) - 1;
+    return { pred: tid => Math.floor(tid / TV_WARP_SIZE) === n, label: `warp ${n} (T${lo}\u2013T${hi})`, warn: '' };
+  }
+  if (!(n < numT))
+    return { pred: null, label: '', warn: `Highlight thread id "${raw}" is out of range [0, ${numT}) \u2014 showing all threads.` };
+  return { pred: tid => tid === n, label: `T${n}`, warn: '' };
+}
+
+function tvSyncHighlightUnit(tabId, unit) {
+  const group = document.getElementById(`${tabId}-tv-highlight-unit-btns`);
+  if (group) group.querySelectorAll('.mode-btn').forEach(b =>
+    b.classList.toggle('active', b.textContent.trim() === unit));
+  const field = document.getElementById(`${tabId}-tv-highlight-tid`);
+  if (field) field.placeholder = unit === 'warp' ? 'warp id, e.g. 0' : 'thread id, e.g. 3';
+}
+
+/** Thread / warp picker for the highlight box. */
+function setTVHighlightUnit(tabId, unit) {
+  if (!TV_HIGHLIGHT_UNITS.includes(unit)) throw new Error(`Unknown highlight unit "${unit}"; expected thread or warp.`);
+  if (!tvState[tabId]) tvState[tabId] = {};
+  tvState[tabId].highlightUnit = unit;
+  tvSyncHighlightUnit(tabId, unit);
+  if (tvState[tabId].tvL) renderTV(tabId);
 }
 
 /** Re-render when the highlight-thread input changes (live update). */

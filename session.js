@@ -4,7 +4,7 @@ const tabSessionState = {initialized: false, restoring: false, timer: null, laun
 const TAB_SESSION_PREFERENCES = new Set([
   'which','side','copyURL','mmaInputs','inputs','altView','showValue','mode',
   'bankCheck','coalCheck','bankToHighlight','waveVid','swizzle',
-  'tileMode','boxMode','sweepMode','extraMode','srcMode','dstMode','inverseSide',
+  'tileMode','boxMode','sweepMode','extraMode','srcMode','dstMode','inverseSide','highlightUnit',
 ]);
 
 function tabSessionStores() {
@@ -32,6 +32,7 @@ function tabSessionPreference(key, value) {
   if (key === 'which') return ['A','B','C'].includes(value) ? value : undefined;
   if (key === 'side') return ['S','D'].includes(value) ? value : undefined;
   if (key === 'inverseSide') return ['left','right'].includes(value) ? value : undefined;
+  if (key === 'highlightUnit') return ['thread','warp'].includes(value) ? value : undefined;
   if (['altView','showValue','bankCheck','coalCheck'].includes(key)) return typeof value === 'boolean' ? value : undefined;
   if (['bankToHighlight','waveVid'].includes(key)) return value === null || (Number.isSafeInteger(value) && value >= 0) ? value : undefined;
   if (key === 'copyURL') return typeof value === 'string' ? value : undefined;
